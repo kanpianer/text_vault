@@ -92,19 +92,6 @@ export default function App() {
     }
   }, [vaultName, isVerified, isLoading]);
 
-  // Focus search input on home mount
-  useEffect(() => {
-    if (!vaultName && !isLoading) {
-      setTimeout(() => {
-        if (searchInputRef.current) {
-          searchInputRef.current.focus();
-        }
-      }, 50);
-    }
-  }, [vaultName, isLoading]);
-
-
-
   // Dynamic host determination
   useEffect(() => {
     setDynamicDomain(window.location.origin + "/");
@@ -408,13 +395,13 @@ export default function App() {
     const checkInterval = setInterval(() => {
       const elapsed = Date.now() - lastActivityRef.current;
       
-      if (elapsed >= 30000 && elapsed < 90000) {
+      if (elapsed >= 30000 && elapsed < 120000) {
         if (hasUnsavedChanges && saveStatus !== "saving" && saveStatus !== "saved") {
           performSaveAction();
         }
       }
 
-      if (elapsed >= 90000) {
+      if (elapsed >= 120000) {
         clearInterval(checkInterval);
         handleAutoSaveAndLock();
       }
@@ -735,7 +722,7 @@ export default function App() {
               <span className="text-zinc-600 select-none break-all">{dynamicDomain}</span>
               <div className="relative flex flex-col items-center md:items-end">
                 {!isHomeFocused && !searchName && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-zinc-600 uppercase tracking-wider text-lg md:text-xl mt-[2px]">
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-zinc-600 lowercase tracking-wider text-lg md:text-xl mt-[2px]">
                     vault name<span className="inline-block w-2 h-5 bg-zinc-500 ml-1 animate-cursor-blink opacity-70"></span>
                   </div>
                 )}
@@ -746,13 +733,13 @@ export default function App() {
                   onFocus={() => setIsHomeFocused(true)}
                   onBlur={() => setIsHomeFocused(false)}
                   onChange={(e) => {
-                    const val = e.target.value.replace(/[^a-zA-Z0-9]/g, "");
+                    const val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
                     if (val.length <= 10) {
                       setSearchName(val);
                       setSearchError("");
                     }
                   }}
-                  className="bg-transparent border-b border-zinc-700 focus:border-zinc-300 outline-none w-44 text-center py-1 text-white text-lg md:text-xl uppercase tracking-wider"
+                  className="bg-transparent border-b border-zinc-700 focus:border-zinc-300 outline-none w-44 text-center py-1 text-white text-lg md:text-xl lowercase tracking-wider"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleGo();
                   }}
@@ -831,7 +818,7 @@ export default function App() {
                         type={showPasswordReveal ? "text" : "password"}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="w-full min-w-0 bg-transparent border-b border-zinc-800 focus:border-zinc-400 outline-none py-1 font-sans text-base md:text-sm tracking-[0.2em] text-center px-8"
+                        className="w-full min-w-0 bg-transparent outline-none py-1 font-sans text-base md:text-sm tracking-[0.2em] text-center px-8"
                         style={{ WebkitTextSecurity: showPasswordReveal ? "none" : "disc" }}
                         placeholder="••••••••"
                         onKeyDown={(e) => {
@@ -860,7 +847,7 @@ export default function App() {
                           type={showPasswordReveal ? "text" : "password"}
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
-                          className="w-full min-w-0 bg-transparent border-b border-zinc-800 focus:border-zinc-400 outline-none py-1 font-sans text-base md:text-sm tracking-[0.2em] text-center px-8"
+                          className="w-full min-w-0 bg-transparent outline-none py-1 font-sans text-base md:text-sm tracking-[0.2em] text-center px-8"
                           style={{ WebkitTextSecurity: showPasswordReveal ? "none" : "disc" }}
                           placeholder="••••••••"
                           onKeyDown={(e) => {
@@ -938,8 +925,8 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <header className="sticky top-0 z-30 border-b border-zinc-900 bg-[#0c0c0e] flex justify-center w-full">
-        <div className="w-full max-w-7xl px-4 md:px-8 py-4 flex justify-between items-center mx-auto">
+      <header className="sticky top-0 z-30 bg-[#0c0c0e] flex justify-center w-full">
+        <div className="w-full max-w-4xl px-4 md:px-8 py-4 flex justify-between items-center mx-auto">
           <div className="flex items-center gap-4">
             <span className="font-mono text-sm tracking-widest text-[#ffffff] font-semibold select-none flex items-center">
               <span className="text-zinc-500 tracking-normal">Text_Vault/</span><span className="lowercase">{vaultName}</span>
@@ -1030,9 +1017,9 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 py-6 max-w-7xl mx-auto w-full">
+      <main className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 py-6 max-w-4xl mx-auto w-full">
         {/* Navigation / Chrome mimic row */}
-        <div className="flex flex-wrap justify-between items-center gap-4 border-b border-zinc-900">
+        <div className="flex flex-wrap justify-between items-center gap-4">
           {/* Draggable Chrome tabs reordered */}
           <div className="flex flex-wrap items-end gap-1 flex-1">
             {tabs.map((tab, idx) => {
@@ -1047,10 +1034,10 @@ export default function App() {
                   onClick={() => {
                     setActiveTabId(tab.id);
                   }}
-                  className={`relative flex items-center gap-0 px-2 py-1.5 text-xs font-mono select-none cursor-pointer border-t border-x transition-colors ${
+                  className={`relative flex items-center gap-0 px-2 py-1.5 text-xs font-mono select-none cursor-pointer transition-colors ${
                     active
-                      ? "bg-[#121215] text-white border-zinc-800"
-                      : "bg-transparent text-zinc-500 border-transparent hover:text-zinc-300"
+                      ? "bg-[#121215] text-white"
+                      : "bg-transparent text-zinc-500 hover:text-zinc-300"
                   } ${draggingIndex === idx ? "opacity-30" : ""}`}
                 >
                   <span className="tracking-wide text-zinc-100 block whitespace-nowrap" title={getTabDisplayTitle(tab.text)}>
@@ -1083,7 +1070,7 @@ export default function App() {
         </div>
 
         {/* Markdown Toolbar formatting commands */}
-        <div className="bg-[#0c0c0e] flex flex-wrap gap-4 font-mono text-[10px] text-zinc-500 select-none py-3 border-b border-zinc-900">
+        <div className="bg-[#0c0c0e] flex flex-wrap gap-4 font-mono text-[10px] text-zinc-500 select-none py-3">
             <span
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => insertFormat("header")}
@@ -1164,7 +1151,7 @@ export default function App() {
                   }
                 }}
                 placeholder="Write your markdown content here..."
-                className="flex-1 w-full min-h-[500px] bg-[#121215] border border-zinc-900 p-4 font-mono text-base md:text-sm text-zinc-200 outline-none focus:border-zinc-800 resize-none leading-relaxed break-all whitespace-pre-wrap"
+                className="flex-1 w-full min-h-[500px] bg-[#121215] p-4 font-mono text-base md:text-sm text-zinc-200 outline-none resize-none leading-relaxed break-all whitespace-pre-wrap"
               />
             </div>
           )}
@@ -1197,7 +1184,7 @@ export default function App() {
                 }
                 setIsEditing(true);
               }}
-              className="flex-1 min-h-[500px] overflow-y-auto bg-[#121215] border border-zinc-900 p-6 min-w-0 w-full cursor-text"
+              className="flex-1 min-h-[500px] overflow-y-auto bg-[#121215] p-6 min-w-0 w-full cursor-text"
             >
               <div className="markdown-body">
                 <ReactMarkdown 
@@ -1212,7 +1199,7 @@ export default function App() {
         </div>
 
         {/* Footer info bars & Word calculations */}
-        <div className="flex justify-between items-center mt-3 pt-2 text-zinc-600 font-mono text-[10px] select-none border-t border-zinc-900">
+        <div className="flex justify-between items-center mt-3 pt-2 text-zinc-600 font-mono text-[10px] select-none">
           <span>Remaining: {remainingChars} characters limit</span>
           <span className="uppercase text-[9px] tracking-wider">
             E2E Secured // {tabs.length} Encryption Nodes
@@ -1220,9 +1207,9 @@ export default function App() {
         </div>
       </main>
 
-      <footer className="px-6 py-4 text-center mt-6 border-t border-zinc-900/30">
+      <footer className="px-6 py-4 text-center mt-6">
         <p className="font-mono text-[8px] text-zinc-700 uppercase tracking-widest select-none">
-          Vault status active // Idle timer enabled // 60s security lock
+          Vault status active // Idle timer enabled // 120s security lock
         </p>
       </footer>
 
@@ -1284,7 +1271,7 @@ export default function App() {
                       type={showNewPasswordReveal ? "text" : "password"}
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
-                      className="w-full min-w-0 bg-transparent border-b border-zinc-800 focus:border-zinc-400 outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center px-8"
+                      className="w-full min-w-0 bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center px-8"
                       style={{ WebkitTextSecurity: showNewPasswordReveal ? "none" : "disc" }}
                       placeholder="••••••••"
                     />
@@ -1306,7 +1293,7 @@ export default function App() {
                       type={showNewPasswordReveal ? "text" : "password"}
                       value={confirmNewPassword}
                       onChange={(e) => setConfirmNewPassword(e.target.value)}
-                      className="w-full min-w-0 bg-transparent border-b border-zinc-800 focus:border-zinc-400 outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center px-8"
+                      className="w-full min-w-0 bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center px-8"
                       style={{ WebkitTextSecurity: showNewPasswordReveal ? "none" : "disc" }}
                       placeholder="••••••••"
                     />

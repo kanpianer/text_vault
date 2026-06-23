@@ -1,0 +1,6 @@
+{
+  "name": "Text Vault",
+  "description": "A browser-based end-to-end encrypted text vault and document storage.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

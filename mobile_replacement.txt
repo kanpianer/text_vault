@@ -1,0 +1,95 @@
+{/* Mobile bottom-sticky adaptive toolbar */}
+        <div data-mobile-toolbar="true" className="fixed bottom-4 left-4 right-4 z-40 bg-transparent md:hidden flex items-center justify-start gap-2 pointer-events-none">
+          {selectionRect ? (
+            <div className="flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 pointer-events-auto bg-[#0c0c0e]/95 backdrop-blur-md rounded-lg p-1 border border-zinc-800/80 shadow-2xl">
+              {showLinkInput ? (
+                <div className="flex items-center gap-1 font-mono text-xs text-zinc-500 bg-zinc-900 py-1 px-2 select-none border border-zinc-800 rounded w-full">
+                  <span>[</span>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={linkValue}
+                    placeholder="https://"
+                    onChange={(e) => setLinkValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleLinkSubmit(linkValue || "https://");
+                      } else if (e.key === "Escape") {
+                        setShowLinkInput(false);
+                      }
+                    }}
+                    className="bg-transparent outline-none border-none text-zinc-200 w-full pl-1 placeholder-zinc-600 font-mono text-sm py-0.5"
+                  />
+                  <span>]</span>
+                </div>
+              ) : (
+                <>
+                  <span className="text-zinc-500 font-mono select-none px-1">[</span>
+                  <div className="flex items-center gap-3">
+                    {[
+                      { label: "Bold", type: "bold" },
+                      { label: "Italic", type: "italic" },
+                      { label: "Strike", type: "strike" },
+                      { label: "Underline", type: "underline" }
+                    ].map((tool) => (
+                      <button
+                        key={tool.label}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => applySelectionFormat(tool.type)}
+                        className="font-mono text-xs text-zinc-300 hover:text-white px-2 py-1 bg-zinc-900 rounded border border-zinc-800 flex-shrink-0 active:bg-zinc-800"
+                      >
+                        {tool.label}
+                      </button>
+                    ))}
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setShowLinkInput(true)}
+                      className="font-mono text-xs text-zinc-300 hover:text-white px-2 py-1 bg-zinc-900 rounded border border-zinc-800 flex-shrink-0 active:bg-zinc-800"
+                    >
+                      Link
+                    </button>
+                  </div>
+                  <span className="text-zinc-500 font-mono select-none px-1">]</span>
+                </>
+              )}
+            </div>
+          ) : (
+            !isLineToolbarExpanded ? (
+              <button 
+                onClick={() => setIsLineToolbarExpanded(true)}
+                className="font-mono text-xs text-zinc-400 px-3 py-1 bg-[#0c0c0e]/95 backdrop-blur-md border border-zinc-800 rounded flex items-center gap-1 active:bg-zinc-800 pointer-events-auto shadow-2xl"
+              >
+                <span>[ ]</span>
+              </button>
+            ) : (
+              <div className="flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 pointer-events-auto bg-[#0c0c0e]/95 backdrop-blur-md rounded-lg p-1 border border-zinc-800/80 shadow-2xl">
+                <button 
+                  onClick={() => setIsLineToolbarExpanded(false)}
+                  className="font-mono text-xs text-zinc-100 px-2.5 py-1 bg-zinc-900 rounded border border-zinc-800 flex-shrink-0 font-bold active:bg-zinc-800 ml-2"
+                >
+                  [ ]
+                </button>
+                <div className="flex items-center gap-2 pr-4">
+                  {[
+                    { label: "H1", format: "h1" },
+                    { label: "H2", format: "h2" },
+                    { label: "H3", format: "h3" },
+                    { label: "Quote", format: "blockquote" },
+                    { label: "Code", format: "pre" }
+                  ].map((tool) => (
+                    <button
+                      key={tool.label}
+                      onClick={() => {
+                        applyFormatBlock(tool.format);
+                        setIsLineToolbarExpanded(false);
+                      }}
+                      className="font-mono text-xs text-zinc-300 hover:text-white px-2 py-1 bg-zinc-900 rounded border border-zinc-800 flex-shrink-0 active:bg-zinc-800"
+                    >
+                      {tool.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          )}
+        </div>

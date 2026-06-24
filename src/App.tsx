@@ -1,14 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import remarkBreaks from "remark-breaks";
-import rehypeKatex from "rehype-katex";
-import rehypeHighlight from "rehype-highlight";
 import "katex/dist/katex.min.css";
 import "highlight.js/styles/atom-one-dark.css";
 import { motion, AnimatePresence } from "motion/react";
 import { TabContent, SaveStatus } from "./types";
+import { Editor } from "./Editor";
 import {
   deriveKeyAndHash,
   encryptData,
@@ -47,9 +42,13 @@ export default function App() {
   const [activeTabId, setActiveTabId] = useState<string>("");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
 
-  // Editing state (true = Edit Mode, false = Preview Mode)
-  const [isEditing, setIsEditing] = useState<boolean>(false);
-  const [cursorPosToRestore, setCursorPosToRestore] = useState<[number, number] | null>(null);
+  // Editor State
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
+  const [emptyLineRect, setEmptyLineRect] = useState<DOMRect | null>(null);
+  const [isLineToolbarExpanded, setIsLineToolbarExpanded] = useState<boolean>(false);
+  const [showLinkInput, setShowLinkInput] = useState<boolean>(false);
+  const [linkValue, setLinkValue] = useState<string>("");
 
   // Save State Transition
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -427,80 +426,152 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isVerified, hasUnsavedChanges, saveStatus, tabs, aesKey, authHash]);
 
-  const editorRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (isEditing && editorRef.current && cursorPosToRestore) {
-      editorRef.current.setSelectionRange(cursorPosToRestore[0], cursorPosToRestore[1]);
-      setCursorPosToRestore(null);
-    }
-  }, [isEditing, cursorPosToRestore]);
-
   // Active document characters count
   const activeTabContent = tabs.find((t) => t.id === activeTabId)?.text || "";
   const remainingChars = 10000 - activeTabContent.length;
 
   const handleTextAreaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const text = e.target.value;
-    if (text.length > 10000) return; // rigid limit enforcement
+    // Left as stub for backward-compatibility / fallback if needed, but we handle line editing directly
+  };
 
-    const updated = tabs.map((tab) => {
-      if (tab.id === activeTabId) {
-        return { ...tab, text };
-      }
-      return tab;
-    });
-    setTabs(updated);
+  const handleEditorInput = (html: string, currentTarget: HTMLElement | null) => {
+    let changed = false;
+
+    const sel = window.getSelection();
+    if (sel && sel.isCollapsed) {
+       const node = sel.anchorNode;
+       if (node && node.textContent === "/") {
+          let block: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+          while (block && block !== currentTarget && window.getComputedStyle(block).display !== "block") {
+             block = block.parentElement;
+          }
+          if (block) {
+             setEmptyLineRect(block.getBoundingClientRect());
+             setIsLineToolbarExpanded(true);
+          }
+       } else if (node && node.textContent?.trim() === "") {
+          setIsLineToolbarExpanded(false);
+       }
+    }
+
+    // Apply simple auto-formats
+    if (/(?:^|<br>|<p>|<div[^>]*>)#\s(.*?)$/.test(html)) {
+      html = html.replace(/(?:^|<br>|<p>|<div[^>]*>)#\s(.*?)$/, "<h1>$1</h1>");
+      changed = true;
+    }
+    
+    if (/\*\*(.*?)\*\*/.test(html)) {
+       html = html.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
+       changed = true;
+    }
+    if (/~~(.*?)~~/.test(html)) {
+       html = html.replace(/~~(.*?)~~/g, "<del>$1</del>");
+       changed = true;
+    }
+    if (/__(.*?)__/.test(html)) {
+       html = html.replace(/__(.*?)__/g, "<u>$1</u>");
+       changed = true;
+    }
+    
+    if (changed && currentTarget) {
+       currentTarget.innerHTML = html;
+       const range = document.createRange();
+       range.selectNodeContents(currentTarget);
+       range.collapse(false);
+       const sel = window.getSelection();
+       sel?.removeAllRanges();
+       sel?.addRange(range);
+    }
+
+    const newText = html;
+    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, text: newText } : t));
     setHasUnsavedChanges(true);
   };
 
-  // Format Helper Button Actions
-  const insertFormat = (type: string) => {
-    const textarea = document.getElementById("editor-textarea") as HTMLTextAreaElement;
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = activeTabContent.substring(start, end);
-
-    let replacement = "";
-    switch (type) {
-      case "bold":
-        replacement = `**${selectedText || "bold"}**`;
-        break;
-      case "italic":
-        replacement = `*${selectedText || "italic"}*`;
-        break;
-      case "header":
-        replacement = `# ${selectedText || "Header"}`;
-        break;
-      case "code":
-        replacement = `\`${selectedText || "code"}\``;
-        break;
-      case "list":
-        replacement = `- ${selectedText || "list item"}`;
-        break;
-      case "quote":
-        replacement = `> ${selectedText || "blockquote"}`;
-        break;
+  const handleEditorSelect = () => {
+    setShowLinkInput(false);
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) {
+      setSelectionRect(null);
+      setEmptyLineRect(null);
+      setIsLineToolbarExpanded(false);
+      return;
     }
 
-    const newText = activeTabContent.substring(0, start) + replacement + activeTabContent.substring(end);
-    if (newText.length > 10000) return;
-
-    const updated = tabs.map((tab) => {
-      if (tab.id === activeTabId) {
-        return { ...tab, text: newText };
+    if (!sel.isCollapsed && sel.toString().trim() !== "") {
+      const range = sel.getRangeAt(0);
+      setSelectionRect(range.getBoundingClientRect());
+      setEmptyLineRect(null);
+      setIsLineToolbarExpanded(false);
+    } else {
+      setSelectionRect(null);
+      let node = sel.anchorNode;
+      if (node) {
+        let block: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+        while (block && block !== editorRef.current && window.getComputedStyle(block).display !== "block") {
+           block = block.parentElement;
+        }
+        if (block && block !== editorRef.current) {
+           if ((block.textContent || "").trim() === "") {
+              setEmptyLineRect(block.getBoundingClientRect());
+              return;
+           }
+        } else if (block === editorRef.current) {
+           if ((editorRef.current?.textContent || "").trim() === "") {
+              setEmptyLineRect(editorRef.current!.getBoundingClientRect());
+              return;
+           }
+        }
       }
-      return tab;
-    });
-    setTabs(updated);
-    setHasUnsavedChanges(true);
+      setEmptyLineRect(null);
+      setIsLineToolbarExpanded(false);
+    }
+  };
 
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + replacement.length, start + replacement.length);
-    }, 50);
+  const applyCommand = (command: string, value?: string) => {
+    document.execCommand(command, false, value);
+    if (editorRef.current) {
+      setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, text: editorRef.current!.innerHTML } : t));
+      setHasUnsavedChanges(true);
+    }
+  };
+
+  const applyFormatBlock = (tag: string) => {
+    const sel = window.getSelection();
+    if (sel && sel.anchorNode && sel.anchorNode.textContent === "/") {
+       sel.anchorNode.textContent = "";
+    }
+    
+    if (tag === "task") {
+       document.execCommand("insertHTML", false, '<input type="checkbox" style="margin-right: 8px;"> ');
+    } else if (tag === "list") {
+       document.execCommand("insertUnorderedList", false);
+    } else if (tag === "table") {
+       document.execCommand("insertHTML", false, '<table border="1" class="border border-zinc-700 my-2 min-w-[200px] text-left"><tr><th class="p-2 border border-zinc-700">Header</th><th class="p-2 border border-zinc-700">Header</th></tr><tr><td class="p-2 border border-zinc-700"><br></td><td class="p-2 border border-zinc-700"><br></td></tr></table>');
+    } else if (tag === "image") {
+       const url = prompt("Image URL:", "https://");
+       if (url) document.execCommand("insertImage", false, url);
+    } else {
+       document.execCommand("formatBlock", false, tag);
+    }
+    
+    if (editorRef.current) {
+      setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, text: editorRef.current!.innerHTML } : t));
+      setHasUnsavedChanges(true);
+    }
+  };
+
+  const applySelectionFormat = (type: string) => {
+    if (type === "bold") applyCommand("bold");
+    if (type === "italic") applyCommand("italic");
+    if (type === "strike") applyCommand("strikeThrough");
+    if (type === "underline") applyCommand("underline");
+  };
+
+  const handleLinkSubmit = (url: string) => {
+    applyCommand("createLink", url);
+    setShowLinkInput(false);
+    setLinkValue("");
   };
 
   // Add new tab node
@@ -718,52 +789,60 @@ export default function App() {
             </h1>
 
             {/* Prefix & Alphanumeric Input Center Row */}
-            <div className="flex flex-col md:flex-row items-center justify-center gap-3 md:gap-4 text-center md:text-left text-lg md:text-xl font-mono tracking-wide w-full mb-2 md:mb-6">
-              <span className="text-zinc-600 select-none break-all">{dynamicDomain}</span>
-              <div className="relative flex flex-col items-center md:items-end">
-                {!isHomeFocused && !searchName && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-zinc-600 lowercase tracking-wider text-lg md:text-xl mt-[2px]">
-                    vault name<span className="inline-block w-2 h-5 bg-zinc-500 ml-1 animate-cursor-blink opacity-70"></span>
-                  </div>
-                )}
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  value={searchName}
-                  onFocus={() => setIsHomeFocused(true)}
-                  onBlur={() => setIsHomeFocused(false)}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-                    if (val.length <= 10) {
-                      setSearchName(val);
-                      setSearchError("");
-                    }
-                  }}
-                  className="bg-transparent border-b border-zinc-700 focus:border-zinc-300 outline-none w-44 text-center py-1 text-white text-lg md:text-xl lowercase tracking-wider"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleGo();
-                  }}
-                />
-                
-                {searchName && (
-                  <div className="hidden md:flex absolute -bottom-4 right-0 flex-col items-end gap-1 text-right text-xs text-zinc-500 font-mono pointer-events-auto transition-opacity duration-300 w-max max-w-[calc(100vw-4rem)] md:max-w-none" style={{ transform: "translateY(100%)" }}>
-                    <div className="break-words">
-                      Open <a href={`${dynamicDomain}${searchName.toLowerCase()}`} className="text-zinc-400 hover:text-zinc-300 underline underline-offset-2 tracking-wider lowercase">{(dynamicDomain.replace(/^https?:\/\//, '') + searchName).toLowerCase()}</a> Directly
-                    </div>
-                    {searchError && (
-                      <div className="text-zinc-500 tracking-wider animate-fast-pulse">
-                        {searchError}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              <span
-                onClick={handleGo}
-                className="text-zinc-400 hover:text-white cursor-pointer select-none border-b border-transparent hover:border-white transition-all font-semibold px-2"
-              >
-                GO
+            <div className="flex flex-col md:flex-row items-center justify-center gap-1.5 md:gap-2 text-center w-full mb-2 md:mb-6 flex-wrap">
+              <span className="text-zinc-600 select-none md:text-right text-balance max-w-[250px] leading-tight break-all md:break-words">
+                {dynamicDomain}
               </span>
+              <div className="flex items-center justify-center md:justify-start gap-2">
+                <div 
+                  className="relative flex items-center justify-start"
+                  style={{ width: `${Math.max(5, searchName.length)}ch` }}
+                >
+                  {!isHomeFocused && !searchName && (
+                    <div className="absolute inset-y-0 left-0 w-full flex items-center justify-start pointer-events-none text-zinc-600 lowercase tracking-wider text-lg md:text-xl mt-[2px] pl-0.5">
+                      name<span className="inline-block w-2 h-5 bg-zinc-500 ml-0.5 animate-cursor-blink opacity-70"></span>
+                    </div>
+                  )}
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchName}
+                    onFocus={() => setIsHomeFocused(true)}
+                    onBlur={() => setIsHomeFocused(false)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+                      if (val.length <= 10) {
+                        setSearchName(val);
+                        setSearchError("");
+                      }
+                    }}
+                    style={{ width: `${Math.max(5, searchName.length)}ch` }}
+                    className="bg-transparent border-b border-zinc-700 focus:border-zinc-300 outline-none text-left py-1 text-white text-lg md:text-xl lowercase tracking-wider w-full"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleGo();
+                    }}
+                  />
+                  
+                  {searchName && (
+                    <div className="hidden md:flex absolute -bottom-4 right-0 flex-col items-end gap-1 text-right text-xs text-zinc-500 font-mono pointer-events-auto transition-opacity duration-300 w-max max-w-[calc(100vw-4rem)] md:max-w-none" style={{ transform: "translateY(100%)" }}>
+                      <div className="break-words">
+                        Open <a href={`${dynamicDomain}${searchName.toLowerCase()}`} className="text-zinc-400 hover:text-zinc-300 underline underline-offset-2 tracking-wider lowercase">{(dynamicDomain.replace(/^https?:\/\//, '') + searchName).toLowerCase()}</a> Directly
+                      </div>
+                      {searchError && (
+                        <div className="text-zinc-500 tracking-wider animate-fast-pulse">
+                          {searchError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <span
+                  onClick={handleGo}
+                  className="text-zinc-400 hover:text-white cursor-pointer select-none border-b border-transparent hover:border-white transition-all font-semibold px-1"
+                >
+                  GO
+                </span>
+              </div>
             </div>
 
             {searchName && (
@@ -819,7 +898,7 @@ export default function App() {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         className="w-full min-w-0 bg-transparent outline-none py-1 font-sans text-base md:text-sm tracking-[0.2em] text-center px-8"
-                        style={{ WebkitTextSecurity: showPasswordReveal ? "none" : "disc" }}
+                        style={{ ["WebkitTextSecurity" as any]: showPasswordReveal ? "none" : "disc" }}
                         placeholder="••••••••"
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
@@ -848,7 +927,7 @@ export default function App() {
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
                           className="w-full min-w-0 bg-transparent outline-none py-1 font-sans text-base md:text-sm tracking-[0.2em] text-center px-8"
-                          style={{ WebkitTextSecurity: showPasswordReveal ? "none" : "disc" }}
+                          style={{ ["WebkitTextSecurity" as any]: showPasswordReveal ? "none" : "disc" }}
                           placeholder="••••••••"
                           onKeyDown={(e) => {
                             if (e.key === "Enter") handleCreateVault();
@@ -1017,9 +1096,9 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 py-6 max-w-4xl mx-auto w-full">
+      <main className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 pt-6 pb-0 max-w-4xl mx-auto w-full">
         {/* Navigation / Chrome mimic row */}
-        <div className="flex flex-wrap justify-between items-center gap-4">
+        <div className="sticky top-[52px] md:static z-20 bg-[#0c0c0e] pb-2 pt-1 flex flex-wrap justify-between items-center gap-4">
           {/* Draggable Chrome tabs reordered */}
           <div className="flex flex-wrap items-end gap-1 flex-1">
             {tabs.map((tab, idx) => {
@@ -1069,149 +1148,232 @@ export default function App() {
           {/* Desktop Visual editor toggles (Edit, Split, Preview) */}
         </div>
 
-        {/* Markdown Toolbar formatting commands */}
-        <div className="bg-[#0c0c0e] flex flex-wrap gap-4 font-mono text-[10px] text-zinc-500 select-none py-3">
-            <span
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => insertFormat("header")}
-              className="hover:text-white hover:underline cursor-pointer tracking-wider"
-            >
-              Heading
-            </span>
-            <span
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => insertFormat("bold")}
-              className="hover:text-white hover:underline cursor-pointer tracking-wider"
-            >
-              Bold
-            </span>
-            <span
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => insertFormat("italic")}
-              className="hover:text-white hover:underline cursor-pointer tracking-wider"
-            >
-              Italic
-            </span>
-            <span
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => insertFormat("code")}
-              className="hover:text-white hover:underline cursor-pointer tracking-wider"
-            >
-              Code
-            </span>
-            <span
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => insertFormat("list")}
-              className="hover:text-white hover:underline cursor-pointer tracking-wider"
-            >
-              List
-            </span>
-            <span
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => insertFormat("quote")}
-              className="hover:text-white hover:underline cursor-pointer tracking-wider"
-            >
-              Quote
-            </span>
-            <a
-              onMouseDown={(e) => e.preventDefault()}
-              href="https://markdownviewer.pages.dev"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-white hover:underline cursor-pointer tracking-wider lowercase"
-            >
-              more!
-            </a>
-          </div>
+        {/* Content Box (Unified Line-by-Line Edit & Preview Area) */}
+        <div className="flex-1 flex flex-col relative bg-[#121215] p-4 md:p-6 rounded-t-md min-h-[550px] pb-24">
+          <Editor
+            editorRef={editorRef}
+            activeTabId={activeTabId}
+            initialContent={activeTabContent}
+            onChange={handleEditorInput}
+            onSelect={handleEditorSelect}
+          />
 
-        {/* Content Box (Text Editor Area) */}
-        <div className="flex-1 flex flex-col md:flex-row gap-0 mt-3 relative">
-          {/* Edit Panel */}
-          {isEditing && (
-            <div className="flex-1 flex flex-col min-w-0 w-full">
-              <textarea
-                ref={editorRef}
-                id="editor-textarea"
-                autoFocus
-                onBlur={() => setIsEditing(false)}
-                value={activeTabContent}
-                onChange={handleTextAreaChange}
-                onKeyDown={(e) => {
-                  if (e.key === "Tab") {
-                    e.preventDefault();
-                    const target = e.target as HTMLTextAreaElement;
-                    const start = target.selectionStart;
-                    const end = target.selectionEnd;
-                    const newText = activeTabContent.substring(0, start) + "  " + activeTabContent.substring(end);
-                    updateTabContent(activeTabId, newText);
-                    // Defer cursor update slightly so React can update value first
-                    setTimeout(() => {
-                      target.selectionStart = target.selectionEnd = start + 2;
-                    }, 0);
-                  }
-                }}
-                placeholder="Write your markdown content here..."
-                className="flex-1 w-full min-h-[500px] bg-[#121215] p-4 font-mono text-base md:text-sm text-zinc-200 outline-none resize-none leading-relaxed break-all whitespace-pre-wrap"
-              />
+          {/* PC Mode selection toolbar */}
+          {selectionRect && (
+            <div 
+              className="hidden md:flex absolute z-50 mt-1 shadow-2xl"
+              style={{ top: selectionRect.bottom + window.scrollY, left: selectionRect.left + window.scrollX }}
+            >
+              {showLinkInput ? (
+                <div className="flex items-center gap-1 font-mono text-xs text-zinc-500 bg-[#121215] py-1 px-2 select-none border border-zinc-800 rounded w-full max-w-[400px] my-1 animate-fade-in">
+                  <span>[</span>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={linkValue}
+                    placeholder="https://"
+                    onChange={(e) => setLinkValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleLinkSubmit(linkValue || "https://");
+                      } else if (e.key === "Escape") {
+                        setShowLinkInput(false);
+                      }
+                    }}
+                    className="bg-transparent outline-none border-none text-zinc-200 w-full pl-1 placeholder-zinc-600 font-mono text-xs py-0.5"
+                  />
+                  <span>]</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 font-mono text-xs text-zinc-500 bg-[#121215] py-1 px-2 select-none border border-zinc-800 rounded w-fit my-1 animate-fade-in">
+                  <span>[</span>
+                  <span className="flex items-center gap-3">
+                    {[
+                      { label: "Bold", type: "bold" },
+                      { label: "Italic", type: "italic" },
+                      { label: "Strike", type: "strike" },
+                      { label: "Underline", type: "underline" }
+                    ].map((tool) => (
+                      <button
+                        key={tool.label}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => applySelectionFormat(tool.type)}
+                        className="hover:text-white hover:underline cursor-pointer"
+                      >
+                        {tool.label}
+                      </button>
+                    ))}
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setShowLinkInput(true)}
+                      className="hover:text-white hover:underline cursor-pointer"
+                    >
+                      Link
+                    </button>
+                  </span>
+                  <span>]</span>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Render Preview Panel */}
-          {!isEditing && (
-            <div
-              onClick={() => {
-                const selection = window.getSelection();
-                if (selection && selection.toString().trim() !== "") {
-                  const selectedText = selection.toString();
-                  const idx = activeTabContent.indexOf(selectedText);
-                  if (idx !== -1) {
-                    setCursorPosToRestore([idx, idx + selectedText.length]);
-                  }
-                } else if (selection && selection.anchorNode && selection.anchorNode.nodeType === 3) {
-                  const text = selection.anchorNode.textContent || "";
-                  if (text) {
-                    const charOffset = selection.anchorOffset;
-                    const snippetStart = Math.max(0, charOffset - 15);
-                    const snippetEnd = Math.min(text.length, charOffset + 15);
-                    const snippet = text.substring(snippetStart, snippetEnd);
-                    
-                    const idx = activeTabContent.indexOf(snippet);
-                    if (idx !== -1) {
-                      const preciseCursor = idx + (charOffset - snippetStart);
-                      setCursorPosToRestore([preciseCursor, preciseCursor]);
-                    }
-                  }
+          {/* PC Mode local empty-line [ ] button */}
+          {emptyLineRect && !selectionRect && (
+            <div 
+              className="absolute hidden md:flex items-center font-mono text-xs select-none z-20 text-zinc-500 bg-[#121215] border border-zinc-800 rounded shadow-lg overflow-hidden transition-all duration-300 ease-in-out cursor-pointer"
+              style={{ top: emptyLineRect.bottom + window.scrollY, left: 16 }}
+              onClick={(e) => {
+                if (!isLineToolbarExpanded) {
+                   e.stopPropagation();
+                   setIsLineToolbarExpanded(true);
                 }
-                setIsEditing(true);
               }}
-              className="flex-1 min-h-[500px] overflow-y-auto bg-[#121215] p-6 min-w-0 w-full cursor-text"
             >
-              <div className="markdown-body">
-                <ReactMarkdown 
-                  remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
-                  rehypePlugins={[rehypeKatex, rehypeHighlight]}
-                >
-                  {activeTabContent}
-                </ReactMarkdown>
+              <span className="px-2 py-1 font-bold">{"["}</span>
+              <div className={`flex items-center transition-all duration-300 ease-in-out overflow-hidden ${isLineToolbarExpanded ? 'max-w-[500px] opacity-100 px-1' : 'max-w-0 opacity-0 px-0'}`}>
+                {[
+                  { label: "H1", format: "h1" },
+                  { label: "H2", format: "h2" },
+                  { label: "H3", format: "h3" },
+                  { label: "Task", format: "task" },
+                  { label: "List", format: "list" },
+                  { label: "Quote", format: "blockquote" },
+                  { label: "Table", format: "table" },
+                  { label: "Image", format: "image" },
+                  { label: "Code", format: "pre" }
+                ].map((tool) => (
+                  <button
+                    key={tool.label}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      applyFormatBlock(tool.format);
+                      setIsLineToolbarExpanded(false);
+                      setEmptyLineRect(null);
+                    }}
+                    className="hover:text-white hover:underline cursor-pointer px-1 text-zinc-400 font-mono text-[11px] whitespace-nowrap"
+                  >
+                    {tool.label}
+                  </button>
+                ))}
               </div>
+              <span 
+                className="px-2 py-1 font-bold hover:text-white"
+                onClick={(e) => {
+                  if (isLineToolbarExpanded) {
+                    e.stopPropagation();
+                    setIsLineToolbarExpanded(false);
+                  }
+                }}
+              >
+                {"]"}
+              </span>
             </div>
           )}
         </div>
 
-        {/* Footer info bars & Word calculations */}
-        <div className="flex justify-between items-center mt-3 pt-2 text-zinc-600 font-mono text-[10px] select-none">
-          <span>Remaining: {remainingChars} characters limit</span>
-          <span className="uppercase text-[9px] tracking-wider">
-            E2E Secured // {tabs.length} Encryption Nodes
-          </span>
+        {/* Mobile bottom-sticky adaptive toolbar */}
+        <div data-mobile-toolbar="true" className="fixed bottom-4 left-4 right-4 z-40 bg-transparent md:hidden flex items-center justify-start gap-2 pointer-events-none">
+          {selectionRect ? (
+            <div className="flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 pointer-events-auto bg-[#0c0c0e]/95 backdrop-blur-md rounded-lg p-1 border border-zinc-800/80 shadow-2xl">
+              {showLinkInput ? (
+                <div className="flex items-center gap-1 font-mono text-xs text-zinc-500 bg-zinc-900 py-1 px-2 select-none border border-zinc-800 rounded w-full">
+                  <span>[</span>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={linkValue}
+                    placeholder="https://"
+                    onChange={(e) => setLinkValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleLinkSubmit(linkValue || "https://");
+                      } else if (e.key === "Escape") {
+                        setShowLinkInput(false);
+                      }
+                    }}
+                    className="bg-transparent outline-none border-none text-zinc-200 w-full pl-1 placeholder-zinc-600 font-mono text-sm py-0.5"
+                  />
+                  <span>]</span>
+                </div>
+              ) : (
+                <>
+                  <span className="text-zinc-500 font-mono select-none px-1">[</span>
+                  <div className="flex items-center gap-3">
+                    {[
+                      { label: "Bold", type: "bold" },
+                      { label: "Italic", type: "italic" },
+                      { label: "Strike", type: "strike" },
+                      { label: "Underline", type: "underline" }
+                    ].map((tool) => (
+                      <button
+                        key={tool.label}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => applySelectionFormat(tool.type)}
+                        className="font-mono text-xs text-zinc-300 hover:text-white px-2 py-1 bg-zinc-900 rounded border border-zinc-800 flex-shrink-0 active:bg-zinc-800"
+                      >
+                        {tool.label}
+                      </button>
+                    ))}
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => setShowLinkInput(true)}
+                      className="font-mono text-xs text-zinc-300 hover:text-white px-2 py-1 bg-zinc-900 rounded border border-zinc-800 flex-shrink-0 active:bg-zinc-800"
+                    >
+                      Link
+                    </button>
+                  </div>
+                  <span className="text-zinc-500 font-mono select-none px-1">]</span>
+                </>
+              )}
+            </div>
+          ) : (
+            !isLineToolbarExpanded ? (
+              <button 
+                onClick={() => setIsLineToolbarExpanded(true)}
+                className="font-mono text-xs text-zinc-400 px-3 py-1 bg-[#0c0c0e]/95 backdrop-blur-md border border-zinc-800 rounded flex items-center gap-1 active:bg-zinc-800 pointer-events-auto shadow-2xl"
+              >
+                <span>[ ]</span>
+              </button>
+            ) : (
+              <div className="flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 pointer-events-auto bg-[#0c0c0e]/95 backdrop-blur-md rounded-lg p-1 border border-zinc-800/80 shadow-2xl">
+                <button 
+                  onClick={() => setIsLineToolbarExpanded(false)}
+                  className="font-mono text-xs text-zinc-100 px-2.5 py-1 bg-zinc-900 rounded border border-zinc-800 flex-shrink-0 font-bold active:bg-zinc-800 ml-2"
+                >
+                  [ ]
+                </button>
+                <div className="flex items-center gap-2 pr-4">
+                  {[
+                    { label: "H1", format: "h1" },
+                    { label: "H2", format: "h2" },
+                    { label: "H3", format: "h3" },
+                    { label: "Task", format: "task" },
+                    { label: "List", format: "list" },
+                    { label: "Quote", format: "blockquote" },
+                    { label: "Table", format: "table" },
+                    { label: "Image", format: "image" },
+                    { label: "Code", format: "pre" }
+                  ].map((tool) => (
+                    <button
+                      key={tool.label}
+                      onClick={() => {
+                        applyFormatBlock(tool.format);
+                        setIsLineToolbarExpanded(false);
+                      }}
+                      className="font-mono text-xs text-zinc-300 hover:text-white px-2 py-1 bg-zinc-900 rounded border border-zinc-800 flex-shrink-0 active:bg-zinc-800"
+                    >
+                      {tool.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          )}
         </div>
       </main>
 
-      <footer className="px-6 py-4 text-center mt-6">
-        <p className="font-mono text-[8px] text-zinc-700 uppercase tracking-widest select-none">
-          Vault status active // Idle timer enabled // 120s security lock
-        </p>
-      </footer>
+
 
       {/* CHANGING ENCRYPT PASSWORD POPUP */}
       <AnimatePresence>
@@ -1272,7 +1434,7 @@ export default function App() {
                       value={newPassword}
                       onChange={(e) => setNewPassword(e.target.value)}
                       className="w-full min-w-0 bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center px-8"
-                      style={{ WebkitTextSecurity: showNewPasswordReveal ? "none" : "disc" }}
+                      style={{ ["WebkitTextSecurity" as any]: showNewPasswordReveal ? "none" : "disc" }}
                       placeholder="••••••••"
                     />
                     <span
@@ -1294,7 +1456,7 @@ export default function App() {
                       value={confirmNewPassword}
                       onChange={(e) => setConfirmNewPassword(e.target.value)}
                       className="w-full min-w-0 bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center px-8"
-                      style={{ WebkitTextSecurity: showNewPasswordReveal ? "none" : "disc" }}
+                      style={{ ["WebkitTextSecurity" as any]: showNewPasswordReveal ? "none" : "disc" }}
                       placeholder="••••••••"
                     />
                     <span

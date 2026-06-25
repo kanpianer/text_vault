@@ -117,7 +117,7 @@ export function generateSaltHex(): string {
 }
 
 export function validatePassword(password: string): boolean {
-  if (password.length < 8 || password.length > 20) return false;
+  if (password.length < 8 || password.length > 18) return false;
   const hasUpper = /[A-Z]/.test(password);
   const hasLower = /[a-z]/.test(password);
   const hasDigit = /[0-9]/.test(password);

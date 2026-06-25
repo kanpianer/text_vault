@@ -1,6 +1,7 @@
 export interface TabContent {
   id: string;
   text: string;
+  title?: string;
 }
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error" | "pwd_changed";

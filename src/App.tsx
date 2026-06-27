@@ -1313,7 +1313,7 @@ export default function App() {
 
         <footer className="w-full max-w-6xl mx-auto flex justify-center items-center gap-4">
           <span className="font-mono text-[9px] text-zinc-600 tracking-widest uppercase text-center select-none">
-            Zero Knowledge Architecture // Secrets never transfer to server
+            Always encrypt data before transferring it to the server // <a href="https://github.com/kanpianer/text_vault" target="_blank" rel="noopener noreferrer" className="text-white hover:text-zinc-300">Github</a>
           </span>
         </footer>
 

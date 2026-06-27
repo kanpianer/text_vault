@@ -22,6 +22,117 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
     }
   }, [activeTabId, initialContent]);
 
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+
+    const handleBeforeInput = (e: InputEvent) => {
+      if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+        
+        const range = sel.getRangeAt(0);
+        let node: Node | null = range.startContainer;
+        
+        // Prevent breaking out of PRE blocks on mobile/desktop
+        let curr: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+        while (curr && curr !== el) {
+          if (curr.tagName === "PRE") {
+            e.preventDefault();
+            document.execCommand("insertText", false, "\n");
+            onChange(el.innerHTML, el);
+            return;
+          }
+          curr = curr.parentElement;
+        }
+        
+        let block: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+        while (block && block !== el && window.getComputedStyle(block).display !== "block" && block.tagName !== "BLOCKQUOTE" && block.tagName !== "LI" && block.tagName !== "DIV" && block.tagName !== "P") {
+          block = block.parentElement;
+        }
+        
+        if (block && block !== el) {
+          // Check for Quote
+          if (block.tagName === "BLOCKQUOTE") {
+            if ((block.textContent || "").trim() === "") {
+              e.preventDefault();
+              document.execCommand("formatBlock", false, "P");
+              return;
+            }
+          }
+
+          // Check for Task
+          const checkbox = block.querySelector('input[type="checkbox"]');
+          if (checkbox) {
+            const rawText = block.textContent || "";
+            const textContent = rawText.replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+            if (textContent.trim() === "") {
+              e.preventDefault();
+              checkbox.remove();
+              // If it becomes completely empty, ensure it can be focused
+              if (block.innerHTML.trim() === "" || block.innerHTML === " " || block.innerHTML === "&nbsp;") {
+                block.innerHTML = "<br>";
+              }
+              
+              // Restore cursor inside the block
+              const sel = window.getSelection();
+              const r = document.createRange();
+              r.selectNodeContents(block);
+              r.collapse(true);
+              sel?.removeAllRanges();
+              sel?.addRange(r);
+              
+              onChange(el.innerHTML, el);
+              return;
+            } else {
+              // Has content, hit enter. We want to create a new task.
+              const currentBlock = block;
+              setTimeout(() => {
+                const sel = window.getSelection();
+                if (!sel || sel.rangeCount === 0) return;
+                const newRange = sel.getRangeAt(0);
+                let newNode: Node | null = newRange.startContainer;
+                let newBlock: HTMLElement | null = newNode.nodeType === Node.TEXT_NODE ? newNode.parentElement : (newNode as HTMLElement);
+                while (newBlock && newBlock !== el && window.getComputedStyle(newBlock).display !== "block" && newBlock.tagName !== "DIV" && newBlock.tagName !== "P") {
+                  newBlock = newBlock.parentElement;
+                }
+                
+                if (newBlock && newBlock !== currentBlock && newBlock !== el) {
+                  if (!newBlock.querySelector('input[type="checkbox"]')) {
+                    const newCheckbox = document.createElement('input');
+                    newCheckbox.type = "checkbox";
+                    newCheckbox.style.marginRight = "8px";
+                    
+                    if (newBlock.innerHTML === "<br>") {
+                      newBlock.innerHTML = "";
+                    }
+                    
+                    newBlock.insertBefore(newCheckbox, newBlock.firstChild);
+                    const spaceNode = document.createTextNode(' ');
+                    newBlock.insertBefore(spaceNode, newCheckbox.nextSibling);
+                    
+                    const r = document.createRange();
+                    r.setStartAfter(spaceNode);
+                    r.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(r);
+                    
+                    onChange(el.innerHTML, el);
+                  }
+                }
+              }, 10); // slightly longer timeout for mobile stability
+            }
+          }
+        }
+      }
+    };
+
+    el.addEventListener("beforeinput", handleBeforeInput);
+    return () => {
+      el.removeEventListener("beforeinput", handleBeforeInput);
+    };
+  }, [onChange, editorRef]);
+
   const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     let text = e.clipboardData.getData("text/plain");
@@ -527,14 +638,24 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
             // In our implementation, a task might be a DIV or P containing an input type=checkbox
             const checkbox = block.querySelector('input[type="checkbox"]');
             if (checkbox) {
-              const textContent = block.textContent || "";
+              const rawText = block.textContent || "";
+              const textContent = rawText.replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
               if (textContent.trim() === "") {
                 e.preventDefault();
                 checkbox.remove();
                 // If it becomes completely empty, ensure it can be focused
-                if (block.innerHTML.trim() === "") {
+                if (block.innerHTML.trim() === "" || block.innerHTML === " " || block.innerHTML === "&nbsp;") {
                   block.innerHTML = "<br>";
                 }
+                
+                // Restore cursor inside the block
+                const sel = window.getSelection();
+                const r = document.createRange();
+                r.selectNodeContents(block);
+                r.collapse(true);
+                sel?.removeAllRanges();
+                sel?.addRange(r);
+                
                 onChange(editorRef.current.innerHTML, editorRef.current);
                 return;
               } else {

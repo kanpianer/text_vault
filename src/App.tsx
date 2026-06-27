@@ -46,6 +46,19 @@ export default function App() {
   const [editingTitle, setEditingTitle] = useState<string>("");
 
   const editorRef = useRef<HTMLDivElement>(null);
+  const scrollPositionsRef = useRef<Record<string, number>>({});
+
+  const handleTabSwitch = (newTabId: string) => {
+    if (newTabId === activeTabId) return;
+    scrollPositionsRef.current[activeTabId] = window.scrollY;
+    setActiveTabId(newTabId);
+  };
+
+  useLayoutEffect(() => {
+    if (activeTabId) {
+      window.scrollTo(0, scrollPositionsRef.current[activeTabId] || 0);
+    }
+  }, [activeTabId]);
   const pcSelectionToolbarScrollRef = useRef<HTMLDivElement>(null);
   const pcEmptyLineToolbarScrollRef = useRef<HTMLDivElement>(null);
   const mobileSelectionToolbarScrollRef = useRef<HTMLDivElement>(null);
@@ -69,24 +82,6 @@ export default function App() {
   const [tableColValue, setTableColValue] = useState<string>("");
   const [isTableRowFocused, setIsTableRowFocused] = useState<boolean>(false);
   const [isTableColFocused, setIsTableColFocused] = useState<boolean>(false);
-  const [viewportBottom, setViewportBottom] = useState(0);
-
-  useEffect(() => {
-    if (!window.visualViewport) return;
-    const vv = window.visualViewport;
-    const updateViewport = () => {
-      // Calculate how much the visual viewport is offset from the bottom of the window
-      const bottomOffset = window.innerHeight - (vv.offsetTop + vv.height);
-      setViewportBottom(Math.max(0, bottomOffset));
-    };
-    vv.addEventListener('resize', updateViewport);
-    vv.addEventListener('scroll', updateViewport);
-    updateViewport();
-    return () => {
-      vv.removeEventListener('resize', updateViewport);
-      vv.removeEventListener('scroll', updateViewport);
-    };
-  }, []);
 
   useLayoutEffect(() => {
     if (selectionRect && editorRef.current?.parentElement && pcSelectionToolbarContainerRef.current) {
@@ -136,15 +131,78 @@ export default function App() {
     }
   }, [emptyLineRect, showLinkInput, showImageInput, showTableInput]);
 
+  // Keep active cursor/selection visible in the visual viewport on mobile
+  useEffect(() => {
+    if (window.innerWidth >= 768) return;
+
+    const handleSelectionChange = () => {
+      // Small timeout to allow DOM/layout updates
+      setTimeout(() => {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) return;
+        
+        if (!editorRef.current || !editorRef.current.contains(sel.focusNode)) return;
+        
+        const range = sel.getRangeAt(0);
+        let cursorRect = range.getBoundingClientRect();
+        
+        if (cursorRect.height === 0 && cursorRect.width === 0) {
+          let node = sel.focusNode;
+          if (node?.nodeType === Node.TEXT_NODE) {
+            node = node.parentNode;
+          }
+          if (node instanceof Element) {
+            cursorRect = node.getBoundingClientRect();
+          }
+        }
+
+        if (cursorRect.height === 0) return;
+
+        const vv = window.visualViewport;
+        if (!vv) return;
+
+        // The toolbar height might be around 40-50px, plus some margin
+        const toolbarHeight = 50; 
+        const bottomThreshold = vv.height - toolbarHeight - 20; 
+        
+        // Calculate the absolute position within the visual viewport
+        const cursorBottomInVv = cursorRect.bottom - vv.offsetTop;
+
+        if (cursorBottomInVv > bottomThreshold) {
+          const delta = cursorBottomInVv - bottomThreshold;
+          window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
+        }
+      }, 50);
+    };
+
+    document.addEventListener('selectionchange', handleSelectionChange);
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', handleSelectionChange);
+    
+    return () => {
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      vv?.removeEventListener('resize', handleSelectionChange);
+    };
+  }, []);
+
   useEffect(() => {
     const handleDocumentMouseDown = (e: MouseEvent) => {
-      if (showTableInput || showLinkInput || showImageInput) {
-        const target = e.target as HTMLElement;
-        const inPcSelection = pcSelectionToolbarContainerRef.current?.contains(target);
-        const inPcEmptyLine = pcEmptyLineToolbarContainerRef.current?.contains(target);
-        const inMobileToolbar = target.closest('[data-mobile-toolbar="true"]');
+      const target = e.target as HTMLElement;
+      const inEditor = editorRef.current?.contains(target);
+      const inPcSelection = pcSelectionToolbarContainerRef.current?.contains(target);
+      const inPcEmptyLine = pcEmptyLineToolbarContainerRef.current?.contains(target);
+      
+      if (!inEditor && !inPcSelection && !inPcEmptyLine) {
+        setSelectionRect(null);
+        setSelectionRange(null);
+        setEmptyLineRect(null);
+        setIsLineToolbarExpanded(false);
         
-        if (!inPcSelection && !inPcEmptyLine && !inMobileToolbar) {
+        if (showTableInput) setShowTableInput(false);
+        if (showLinkInput) setShowLinkInput(false);
+        if (showImageInput) setShowImageInput(false);
+      } else if (showTableInput || showLinkInput || showImageInput) {
+        if (!inPcSelection && !inPcEmptyLine) {
           if (showTableInput) setShowTableInput(false);
           if (showLinkInput) setShowLinkInput(false);
           if (showImageInput) setShowImageInput(false);
@@ -166,21 +224,23 @@ export default function App() {
 
   // Tool lists configuration
   const selectionTools = [
+    { label: "Text", type: "block", format: "p" },
     { label: "Bold", type: "inline", format: "bold" },
     { label: "Italic", type: "inline", format: "italic" },
     { label: "Strike", type: "inline", format: "strike" },
-    { label: "Underline", type: "inline", format: "underline" },
+    { label: "Under", type: "inline", format: "underline" },
     { label: "Link", type: "link" },
     { label: "H1", type: "block", format: "h1" },
     { label: "H2", type: "block", format: "h2" },
     { label: "H3", type: "block", format: "h3" },
-    { label: "Task", type: "block", format: "task" },
     { label: "List", type: "block", format: "list" },
     { label: "Quote", type: "block", format: "blockquote" },
-    { label: "Code", type: "block", format: "pre" }
+    { label: "Code", type: "block", format: "pre" },
+    { label: "Center", type: "block", format: "center" }
   ];
 
   const emptyLineTools = [
+    { label: "Text", type: "block", format: "p" },
     { label: "H1", type: "block", format: "h1" },
     { label: "H2", type: "block", format: "h2" },
     { label: "H3", type: "block", format: "h3" },
@@ -193,8 +253,9 @@ export default function App() {
     { label: "Bold", type: "inline", format: "bold" },
     { label: "Italic", type: "inline", format: "italic" },
     { label: "Strike", type: "inline", format: "strike" },
-    { label: "Underline", type: "inline", format: "underline" },
-    { label: "Link", type: "link" }
+    { label: "Under", type: "inline", format: "underline" },
+    { label: "Link", type: "link" },
+    { label: "Center", type: "block", format: "center" }
   ];
 
   const handleToolClick = (tool: { label: string, type: string, format?: string }) => {
@@ -248,6 +309,89 @@ export default function App() {
       }, 50);
     }
   }, [vaultName, isVerified, isLoading]);
+
+  // Auto-scroll input into view on mobile when name input or password input is clicked/focused
+  useEffect(() => {
+    if (isVerified) return;
+
+    let scrollTimeoutId: any;
+    let lastVvHeight = window.visualViewport?.height || window.innerHeight;
+
+    const scrollInputIntoView = (input: HTMLInputElement) => {
+      const vv = window.visualViewport;
+      if (!vv) {
+        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+
+      const rect = input.getBoundingClientRect();
+      const vvTop = vv.offsetTop;
+      const vvBottom = vvTop + vv.height;
+
+      // Define a comfortable region: middle 50% of the visible viewport height
+      const margin = vv.height * 0.25;
+      const comfortableMin = vvTop + margin;
+      const comfortableMax = vvBottom - margin;
+
+      // Check if the input is outside this comfortable visual region
+      if (rect.top < comfortableMin || rect.bottom > comfortableMax) {
+        const absoluteTop = window.scrollY + rect.top;
+        const inputCenterY = absoluteTop + rect.height / 2;
+        
+        // Use vv.height to calculate the target scroll without depending on vv.offsetTop which fluctuates during scrolling
+        const targetScrollY = inputCenterY - (vv.height / 2);
+
+        window.scrollTo({
+          top: Math.max(0, targetScrollY),
+          behavior: 'smooth'
+        });
+      }
+    };
+
+    const triggerScroll = () => {
+      const activeElement = document.activeElement as HTMLInputElement;
+      if (activeElement && (activeElement === searchInputRef.current || activeElement === passwordInputRef.current)) {
+        clearTimeout(scrollTimeoutId);
+        scrollTimeoutId = setTimeout(() => scrollInputIntoView(activeElement), 300);
+      }
+    };
+
+    const handleFocus = () => {
+      triggerScroll();
+    };
+
+    const handleResize = () => {
+      const currentHeight = window.visualViewport?.height || window.innerHeight;
+      // Only trigger if height changes significantly (e.g., keyboard pop) to prevent scroll loops
+      if (Math.abs(currentHeight - lastVvHeight) > 100) {
+        triggerScroll();
+      }
+      lastVvHeight = currentHeight;
+    };
+
+    const searchInput = searchInputRef.current;
+    const passwordInput = passwordInputRef.current;
+
+    if (searchInput) {
+      searchInput.addEventListener("focus", handleFocus);
+    }
+    if (passwordInput) {
+      passwordInput.addEventListener("focus", handleFocus);
+    }
+
+    window.visualViewport?.addEventListener("resize", handleResize);
+
+    return () => {
+      clearTimeout(scrollTimeoutId);
+      if (searchInput) {
+        searchInput.removeEventListener("focus", handleFocus);
+      }
+      if (passwordInput) {
+        passwordInput.removeEventListener("focus", handleFocus);
+      }
+      window.visualViewport?.removeEventListener("resize", handleResize);
+    };
+  }, [isVerified, vaultName]);
 
   // Dynamic host determination
   useEffect(() => {
@@ -612,35 +756,6 @@ export default function App() {
        }
     }
 
-    // Apply simple auto-formats
-    if (/(?:^|<br>|<p>|<div[^>]*>)#\s(.*?)$/.test(html)) {
-      html = html.replace(/(?:^|<br>|<p>|<div[^>]*>)#\s(.*?)$/, "<h1>$1</h1>");
-      changed = true;
-    }
-    
-    if (/\*\*(.*?)\*\*/.test(html)) {
-       html = html.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
-       changed = true;
-    }
-    if (/~~(.*?)~~/.test(html)) {
-       html = html.replace(/~~(.*?)~~/g, "<del>$1</del>");
-       changed = true;
-    }
-    if (/__(.*?)__/.test(html)) {
-       html = html.replace(/__(.*?)__/g, "<u>$1</u>");
-       changed = true;
-    }
-    
-    if (changed && currentTarget) {
-       currentTarget.innerHTML = html;
-       const range = document.createRange();
-       range.selectNodeContents(currentTarget);
-       range.collapse(false);
-       const sel = window.getSelection();
-       sel?.removeAllRanges();
-       sel?.addRange(range);
-    }
-
     const newText = html;
     setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, text: newText } : t));
     setHasUnsavedChanges(true);
@@ -714,6 +829,27 @@ export default function App() {
        document.execCommand("insertHTML", false, '<input type="checkbox" style="margin-right: 8px;"> ');
     } else if (tag === "list") {
        document.execCommand("insertUnorderedList", false);
+    } else if (tag === "center") {
+       if (sel && sel.rangeCount > 0) {
+         let node = sel.getRangeAt(0).startContainer as HTMLElement;
+         if (node.nodeType === Node.TEXT_NODE) node = node.parentElement as HTMLElement;
+         let block = node;
+         while (block && block.id !== "editor-body" && !block.className?.includes("editor-body")) {
+           const display = window.getComputedStyle(block).display;
+           if (display === "block" || display === "list-item" || block.tagName === "DIV" || block.tagName === "P" || block.tagName.match(/^H[1-6]$/)) {
+             break;
+           }
+           if (!block.parentElement) break;
+           block = block.parentElement;
+         }
+         if (block && block.id !== "editor-body" && !block.className?.includes("editor-body")) {
+           if (block.style.textAlign === "center") {
+             block.style.textAlign = "";
+           } else {
+             block.style.textAlign = "center";
+           }
+         }
+       }
     } else if (tag === "table") {
        setShowTableInput(true);
        return;
@@ -822,6 +958,7 @@ export default function App() {
       text: `Untitled\nStart writing tab contents...`,
     };
     setTabs([...tabs, newTab]);
+    scrollPositionsRef.current[activeTabId] = window.scrollY;
     setActiveTabId(newId);
     setHasUnsavedChanges(true);
   };
@@ -842,6 +979,8 @@ export default function App() {
     setTabs(remaining);
     if (activeTabId === tabToClose) {
       setActiveTabId(remaining[remaining.length - 1].id);
+    } else {
+      scrollPositionsRef.current[activeTabId] = window.scrollY;
     }
     setHasUnsavedChanges(true);
     setTabToClose(null);
@@ -992,10 +1131,72 @@ export default function App() {
   };
 
   // Helper to resolve title safely
+  function getFirstLineTextFromHtml(html: string): string {
+    if (!html) return "";
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const body = doc.body;
+      if (!body) return "";
+
+      // Look through top-level nodes for the first block with text or inline text
+      for (let i = 0; i < body.childNodes.length; i++) {
+        const node = body.childNodes[i];
+        const text = node.textContent || "";
+        // In case the node itself has multiple lines (e.g. text node with \n), we only want the first line of it.
+        const firstLineOfNode = text.split(/[\r\n]+/)[0]?.trim() || "";
+        if (firstLineOfNode) {
+          const clean = firstLineOfNode.replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
+          if (clean) {
+            return clean;
+          }
+        }
+      }
+
+      const textContent = body.textContent || "";
+      const lines = textContent.split(/[\r\n]+/).map(l => l.replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim()).filter(Boolean);
+      return lines[0] || "";
+    } catch (e) {
+      const cleanHtml = html.replace(/<[^>]+>/g, " ");
+      const lines = cleanHtml.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+      return lines[0] || "";
+    }
+  }
+
+  function stripMarkdown(text: string): string {
+    if (!text) return "";
+    let clean = text;
+
+    // Remove zero-width spaces that might be used for cursor position/empty nodes
+    clean = clean.replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+
+    // 1. Strip leading headers, list bullets, blockquotes, task items, numbers, etc.
+    clean = clean.replace(/^[#\s\*\-\>\d\.\(\)\[\]xX]+/, "");
+
+    // 2. Strip images: ![alt](url) -> alt
+    clean = clean.replace(/!\[(.*?)\]\(.*?\)/g, "$1");
+
+    // 3. Strip links: [text](url) -> text
+    clean = clean.replace(/\[(.*?)\]\(.*?\)/g, "$1");
+
+    // 4. Strip inline code: `code` -> code
+    clean = clean.replace(/`(.*?)`/g, "$1");
+
+    // 5. Strip bold/italic: ***text***, **text**, *text*, ___text___, __text__, _text_
+    clean = clean.replace(/[\*_]{1,3}(.*?)[\*_]{1,3}/g, "$1");
+
+    // 6. Strip strikethrough: ~~text~~ -> text
+    clean = clean.replace(/~~(.*?)~~/g, "$1");
+
+    // 7. Strip any residual HTML tags
+    clean = clean.replace(/<[^>]+>/g, "");
+
+    return clean.trim();
+  }
+
   function getTabDisplayTitle(text: string, customTitle?: string): string {
-    const rawTitle = customTitle || text.split("\n")[0]?.trim() || "";
-    if (!rawTitle) return "Untitled";
-    const cleanTitle = customTitle ? rawTitle : (rawTitle.replace(/^[#\s\*\-\>\d\.\(\)]+/, "").trim() || "Untitled");
+    const rawTitle = customTitle || getFirstLineTextFromHtml(text) || "Untitled";
+    const cleanTitle = stripMarkdown(rawTitle) || "Untitled";
     
     let visualLength = 0;
     let result = "";
@@ -1011,10 +1212,10 @@ export default function App() {
   }
 
   function getTabRawTitle(tab: TabContent): string {
-    if (tab.title) return tab.title;
-    const firstLine = tab.text.split("\n")[0]?.trim() || "";
+    if (tab.title) return stripMarkdown(tab.title) || "Untitled";
+    const firstLine = getFirstLineTextFromHtml(tab.text);
     if (!firstLine) return "Untitled";
-    return firstLine.replace(/^[#\s\*\-\>\d\.\(\)]+/, "").trim() || "Untitled";
+    return stripMarkdown(firstLine) || "Untitled";
   }
 
   // --- Views Router ---
@@ -1127,7 +1328,7 @@ export default function App() {
                 className="w-full max-w-4xl px-4 md:px-8 flex flex-col gap-6 relative"
               >
                 <h3 className="text-zinc-100 font-mono tracking-wide text-lg text-center uppercase">
-                  {isNewVault ? "Create Vault Password" : "Unlock Encrypted Text"}
+                  {isNewVault ? "Create Vault Password" : "UNLOCK THE VAULT"}
                 </h3>
 
                 <div className="flex flex-col w-full items-center">
@@ -1365,7 +1566,7 @@ export default function App() {
                   onDragOver={(e) => handleDragOver(e, idx)}
                   onDragEnd={handleDragEnd}
                   onClick={() => {
-                    setActiveTabId(tab.id);
+                    handleTabSwitch(tab.id);
                   }}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
@@ -1434,20 +1635,57 @@ export default function App() {
 
       <main className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 pt-0 pb-0 max-w-4xl mx-auto w-full">
         {/* Content Box (Unified Line-by-Line Edit & Preview Area) */}
-        <div className="flex-1 flex flex-col relative pt-1 md:pt-2 pb-24 min-h-[550px]">
+        <div className="flex-1 flex flex-col relative pt-1 md:pt-2 pb-24 min-h-[550px]"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && editorRef.current) {
+              const children = editorRef.current.children;
+              let shouldAddLine = false;
+              if (children.length > 0) {
+                const lastChild = children[children.length - 1] as HTMLElement;
+                const lastChildRect = lastChild.getBoundingClientRect();
+                if (e.clientY > lastChildRect.bottom) {
+                  shouldAddLine = true;
+                }
+              } else {
+                shouldAddLine = true;
+              }
+
+              if (shouldAddLine) {
+                editorRef.current.focus();
+                
+                setTimeout(() => {
+                  if (!editorRef.current) return;
+                  const p = document.createElement("p");
+                  p.innerHTML = "<br>";
+                  editorRef.current.appendChild(p);
+                  
+                  const sel = window.getSelection();
+                  const range = document.createRange();
+                  range.setStart(p, 0);
+                  range.collapse(true);
+                  sel?.removeAllRanges();
+                  sel?.addRange(range);
+                  
+                  handleEditorInput(editorRef.current.innerHTML, editorRef.current);
+                }, 10);
+              }
+            }
+          }}
+        >
           <Editor
             editorRef={editorRef}
             activeTabId={activeTabId}
             initialContent={activeTabContent}
             onChange={handleEditorInput}
             onSelect={handleEditorSelect}
+            readOnly={saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed"}
           />
 
           {/* PC Mode selection toolbar */}
           {selectionRect && editorRef.current?.parentElement && (
             <div 
               ref={pcSelectionToolbarContainerRef}
-              className="hidden md:flex absolute z-50 mt-1 shadow-2xl"
+              className="flex absolute z-50 mt-1 shadow-2xl"
               style={{
                 top: pcSelectionStyle.top ?? (selectionRect.bottom - editorRef.current.parentElement.getBoundingClientRect().top), 
                 left: pcSelectionStyle.left ?? (selectionRect.left - editorRef.current.parentElement.getBoundingClientRect().left),
@@ -1466,8 +1704,12 @@ export default function App() {
                     onChange={(e) => setLinkValue(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.stopPropagation();
                         handleLinkSubmit(linkValue || "https://");
                       } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        e.stopPropagation();
                         setShowLinkInput(false);
                       }
                     }}
@@ -1492,8 +1734,12 @@ export default function App() {
                     onChange={(e) => setImageValue(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.stopPropagation();
                         handleImageSubmit(imageValue || "https://");
                       } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        e.stopPropagation();
                         setShowImageInput(false);
                       }
                     }}
@@ -1508,50 +1754,68 @@ export default function App() {
                   </span>
                 </div>
               ) : showTableInput ? (
-                <div className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[400px] my-1 animate-fade-in">
-                  <span>[Row:</span>
-                  <div className="relative flex items-center h-full">
-                    {!isTableRowFocused && !tableRowValue && (
-                      <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
-                        <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
-                      </div>
-                    )}
-                    <input
-                      type="text"
-                      autoFocus
-                      value={tableRowValue}
-                      onFocus={() => setIsTableRowFocused(true)}
-                      onBlur={() => setIsTableRowFocused(false)}
-                      onChange={(e) => setTableRowValue(e.target.value.replace(/\D/g, ''))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleTableSubmit();
-                        else if (e.key === "Escape") setShowTableInput(false);
-                      }}
-                      className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
-                    />
-                  </div>
-                  <span className="w-[2ch]"></span>
-                  <span>Column:</span>
-                  <div className="relative flex items-center h-full">
-                    {!isTableColFocused && !tableColValue && (
-                      <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
-                        <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
-                      </div>
-                    )}
-                    <input
-                      type="text"
-                      value={tableColValue}
-                      onFocus={() => setIsTableColFocused(true)}
-                      onBlur={() => setIsTableColFocused(false)}
-                      onChange={(e) => setTableColValue(e.target.value.replace(/\D/g, ''))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleTableSubmit();
-                        else if (e.key === "Escape") setShowTableInput(false);
-                      }}
-                      className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
-                    />
-                  </div>
-                  <span className="w-[2ch]"></span>
+                <div className="flex items-center gap-1 font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[400px] my-1 animate-fade-in">
+                  <label className="flex items-center h-full cursor-text">
+                    <span>[Row:</span>
+                    <div className="relative flex items-center h-full">
+                      {!isTableRowFocused && !tableRowValue && (
+                        <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
+                          <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
+                        </div>
+                      )}
+                      <input
+                        type="text"
+                        autoFocus
+                        value={tableRowValue}
+                        onFocus={() => setIsTableRowFocused(true)}
+                        onBlur={() => setIsTableRowFocused(false)}
+                        onChange={(e) => setTableRowValue(e.target.value.replace(/\D/g, ''))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleTableSubmit();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setShowTableInput(false);
+                          }
+                        }}
+                        className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
+                      />
+                    </div>
+                    <span className="w-[2ch]"></span>
+                  </label>
+                  <label className="flex items-center h-full cursor-text flex-1">
+                    <span>Column:</span>
+                    <div className="relative flex items-center h-full">
+                      {!isTableColFocused && !tableColValue && (
+                        <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
+                          <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
+                        </div>
+                      )}
+                      <input
+                        type="text"
+                        value={tableColValue}
+                        onFocus={() => setIsTableColFocused(true)}
+                        onBlur={() => setIsTableColFocused(false)}
+                        onChange={(e) => setTableColValue(e.target.value.replace(/\D/g, ''))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleTableSubmit();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setShowTableInput(false);
+                          }
+                        }}
+                        className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
+                      />
+                    </div>
+                    <div className="flex-1"></div>
+                  </label>
                   <span>]</span>
                   <span className="cursor-pointer hover:text-white font-bold text-zinc-300 ml-1" onClick={() => handleTableSubmit()}>OK</span>
                 </div>
@@ -1580,7 +1844,7 @@ export default function App() {
           {emptyLineRect && !selectionRect && editorRef.current?.parentElement && (
             <div 
               ref={pcEmptyLineToolbarContainerRef}
-              className="hidden md:flex absolute z-50 mt-1 shadow-2xl transition-all duration-300 ease-in-out"
+              className="flex absolute z-50 mt-1 shadow-2xl transition-all duration-300 ease-in-out"
               style={{ 
                 top: pcEmptyLineStyle.top ?? (emptyLineRect.bottom - editorRef.current.parentElement.getBoundingClientRect().top), 
                 left: pcEmptyLineStyle.left ?? (emptyLineRect.left - editorRef.current.parentElement.getBoundingClientRect().left),
@@ -1599,8 +1863,12 @@ export default function App() {
                     onChange={(e) => setLinkValue(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.stopPropagation();
                         handleLinkSubmit(linkValue || "https://");
                       } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        e.stopPropagation();
                         setShowLinkInput(false);
                       }
                     }}
@@ -1625,8 +1893,12 @@ export default function App() {
                     onChange={(e) => setImageValue(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.stopPropagation();
                         handleImageSubmit(imageValue || "https://");
                       } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        e.stopPropagation();
                         setShowImageInput(false);
                       }
                     }}
@@ -1641,50 +1913,68 @@ export default function App() {
                   </span>
                 </div>
               ) : showTableInput ? (
-                <div className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[400px] my-1 animate-fade-in">
-                  <span>[Row:</span>
-                  <div className="relative flex items-center h-full">
-                    {!isTableRowFocused && !tableRowValue && (
-                      <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
-                        <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
-                      </div>
-                    )}
-                    <input
-                      type="text"
-                      autoFocus
-                      value={tableRowValue}
-                      onFocus={() => setIsTableRowFocused(true)}
-                      onBlur={() => setIsTableRowFocused(false)}
-                      onChange={(e) => setTableRowValue(e.target.value.replace(/\D/g, ''))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleTableSubmit();
-                        else if (e.key === "Escape") setShowTableInput(false);
-                      }}
-                      className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
-                    />
-                  </div>
-                  <span className="w-[2ch]"></span>
-                  <span>Column:</span>
-                  <div className="relative flex items-center h-full">
-                    {!isTableColFocused && !tableColValue && (
-                      <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
-                        <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
-                      </div>
-                    )}
-                    <input
-                      type="text"
-                      value={tableColValue}
-                      onFocus={() => setIsTableColFocused(true)}
-                      onBlur={() => setIsTableColFocused(false)}
-                      onChange={(e) => setTableColValue(e.target.value.replace(/\D/g, ''))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleTableSubmit();
-                        else if (e.key === "Escape") setShowTableInput(false);
-                      }}
-                      className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
-                    />
-                  </div>
-                  <span className="w-[2ch]"></span>
+                <div className="flex items-center gap-1 font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[400px] my-1 animate-fade-in">
+                  <label className="flex items-center h-full cursor-text">
+                    <span>[Row:</span>
+                    <div className="relative flex items-center h-full">
+                      {!isTableRowFocused && !tableRowValue && (
+                        <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
+                          <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
+                        </div>
+                      )}
+                      <input
+                        type="text"
+                        autoFocus
+                        value={tableRowValue}
+                        onFocus={() => setIsTableRowFocused(true)}
+                        onBlur={() => setIsTableRowFocused(false)}
+                        onChange={(e) => setTableRowValue(e.target.value.replace(/\D/g, ''))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleTableSubmit();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setShowTableInput(false);
+                          }
+                        }}
+                        className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
+                      />
+                    </div>
+                    <span className="w-[2ch]"></span>
+                  </label>
+                  <label className="flex items-center h-full cursor-text flex-1">
+                    <span>Column:</span>
+                    <div className="relative flex items-center h-full">
+                      {!isTableColFocused && !tableColValue && (
+                        <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
+                          <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
+                        </div>
+                      )}
+                      <input
+                        type="text"
+                        value={tableColValue}
+                        onFocus={() => setIsTableColFocused(true)}
+                        onBlur={() => setIsTableColFocused(false)}
+                        onChange={(e) => setTableColValue(e.target.value.replace(/\D/g, ''))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleTableSubmit();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setShowTableInput(false);
+                          }
+                        }}
+                        className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
+                      />
+                    </div>
+                    <div className="flex-1"></div>
+                  </label>
                   <span>]</span>
                   <span className="cursor-pointer hover:text-white font-bold text-zinc-300 ml-1" onClick={() => handleTableSubmit()}>OK</span>
                 </div>
@@ -1715,229 +2005,6 @@ export default function App() {
             </div>
           )}
         </div>
-
-                {/* Mobile bottom-sticky adaptive toolbar */}
-        <div data-mobile-toolbar="true" className="fixed left-0 right-0 z-40 bg-transparent md:hidden flex justify-center pointer-events-none pb-4" style={{ bottom: viewportBottom }}>
-          <div className="w-full flex flex-col items-center justify-end px-4">
-            {selectionRect ? (
-              showLinkInput ? (
-                <div className="flex items-center gap-1 font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[calc(100vw-2rem)] shadow-2xl animate-fade-in pointer-events-auto">
-                  <span>[</span>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={linkValue}
-                    placeholder="https://"
-                    onChange={(e) => setLinkValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleLinkSubmit(linkValue || "https://");
-                      else if (e.key === "Escape") setShowLinkInput(false);
-                    }}
-                    className="bg-transparent outline-none border-none text-zinc-200 w-full pl-1 placeholder-zinc-600 font-mono text-xs h-full"
-                  />
-                  <span>]</span>
-                  <span className="cursor-pointer hover:text-white font-bold text-zinc-300 ml-1" onClick={() => handleLinkSubmit(linkValue || "https://")}>OK</span>
-                </div>
-              ) : showImageInput ? (
-                <div className="flex items-center gap-1 font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[calc(100vw-2rem)] shadow-2xl animate-fade-in pointer-events-auto">
-                  <span>[</span>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={imageValue}
-                    placeholder="Image Address"
-                    onChange={(e) => setImageValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleImageSubmit(imageValue || "https://");
-                      else if (e.key === "Escape") setShowImageInput(false);
-                    }}
-                    className="bg-transparent outline-none border-none text-zinc-200 w-full pl-1 placeholder-zinc-600 font-mono text-xs h-full"
-                  />
-                  <span>]</span>
-                  <span className="cursor-pointer hover:text-white font-bold text-zinc-300 ml-1" onClick={() => handleImageSubmit(imageValue || "https://")}>OK</span>
-                </div>
-              ) : showTableInput ? (
-                <div className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[calc(100vw-2rem)] shadow-2xl animate-fade-in pointer-events-auto">
-                  <span>[Row:</span>
-                  <div className="relative flex items-center h-full">
-                    {!isTableRowFocused && !tableRowValue && (
-                      <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
-                        <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
-                      </div>
-                    )}
-                    <input
-                      type="text"
-                      autoFocus
-                      value={tableRowValue}
-                      onFocus={() => setIsTableRowFocused(true)}
-                      onBlur={() => setIsTableRowFocused(false)}
-                      onChange={(e) => setTableRowValue(e.target.value.replace(/\D/g, ''))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleTableSubmit();
-                        else if (e.key === "Escape") setShowTableInput(false);
-                      }}
-                      className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
-                    />
-                  </div>
-                  <span className="w-[2ch]"></span>
-                  <span>Column:</span>
-                  <div className="relative flex items-center h-full">
-                    {!isTableColFocused && !tableColValue && (
-                      <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
-                        <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
-                      </div>
-                    )}
-                    <input
-                      type="text"
-                      value={tableColValue}
-                      onFocus={() => setIsTableColFocused(true)}
-                      onBlur={() => setIsTableColFocused(false)}
-                      onChange={(e) => setTableColValue(e.target.value.replace(/\D/g, ''))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleTableSubmit();
-                        else if (e.key === "Escape") setShowTableInput(false);
-                      }}
-                      className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
-                    />
-                  </div>
-                  <span className="w-[2ch]"></span>
-                  <span>]</span>
-                  <span className="cursor-pointer hover:text-white font-bold text-zinc-300 ml-1" onClick={() => handleTableSubmit()}>OK</span>
-                </div>
-              ) : (
-                <div className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] select-none border border-zinc-800 rounded w-full max-w-[calc(100vw-2rem)] shadow-2xl animate-fade-in pointer-events-auto">
-                  <span className="px-2 font-bold cursor-pointer hover:text-white" onMouseDown={(e) => scrollToolbarRef(mobileSelectionToolbarScrollRef, 'left', e)}>[</span>
-                  <div ref={mobileSelectionToolbarScrollRef} className="flex items-center gap-3 overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap flex-1">
-                    {selectionTools.map((tool) => (
-                      <button
-                        key={tool.label}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToolClick(tool);
-                        }}
-                        className="hover:text-white hover:underline cursor-pointer flex-shrink-0"
-                      >
-                        {tool.label}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="px-2 font-bold cursor-pointer hover:text-white" onMouseDown={(e) => scrollToolbarRef(mobileSelectionToolbarScrollRef, 'right', e)}>]</span>
-                </div>
-              )
-            ) : emptyLineRect ? (
-              showLinkInput ? (
-                <div className="flex items-center gap-1 font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[calc(100vw-2rem)] shadow-2xl animate-fade-in pointer-events-auto">
-                  <span>[</span>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={linkValue}
-                    placeholder="https://"
-                    onChange={(e) => setLinkValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleLinkSubmit(linkValue || "https://");
-                      else if (e.key === "Escape") setShowLinkInput(false);
-                    }}
-                    className="bg-transparent outline-none border-none text-zinc-200 w-full pl-1 placeholder-zinc-600 font-mono text-xs h-full"
-                  />
-                  <span>]</span>
-                  <span className="cursor-pointer hover:text-white font-bold text-zinc-300 ml-1" onClick={() => handleLinkSubmit(linkValue || "https://")}>OK</span>
-                </div>
-              ) : showImageInput ? (
-                <div className="flex items-center gap-1 font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[calc(100vw-2rem)] shadow-2xl animate-fade-in pointer-events-auto">
-                  <span>[</span>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={imageValue}
-                    placeholder="Image Address"
-                    onChange={(e) => setImageValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleImageSubmit(imageValue || "https://");
-                      else if (e.key === "Escape") setShowImageInput(false);
-                    }}
-                    className="bg-transparent outline-none border-none text-zinc-200 w-full pl-1 placeholder-zinc-600 font-mono text-xs h-full"
-                  />
-                  <span>]</span>
-                  <span className="cursor-pointer hover:text-white font-bold text-zinc-300 ml-1" onClick={() => handleImageSubmit(imageValue || "https://")}>OK</span>
-                </div>
-              ) : showTableInput ? (
-                <div className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[calc(100vw-2rem)] shadow-2xl animate-fade-in pointer-events-auto">
-                  <span>[Row:</span>
-                  <div className="relative flex items-center h-full">
-                    {!isTableRowFocused && !tableRowValue && (
-                      <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
-                        <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
-                      </div>
-                    )}
-                    <input
-                      type="text"
-                      autoFocus
-                      value={tableRowValue}
-                      onFocus={() => setIsTableRowFocused(true)}
-                      onBlur={() => setIsTableRowFocused(false)}
-                      onChange={(e) => setTableRowValue(e.target.value.replace(/\D/g, ''))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleTableSubmit();
-                        else if (e.key === "Escape") setShowTableInput(false);
-                      }}
-                      className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
-                    />
-                  </div>
-                  <span className="w-[2ch]"></span>
-                  <span>Column:</span>
-                  <div className="relative flex items-center h-full">
-                    {!isTableColFocused && !tableColValue && (
-                      <div className="absolute inset-y-0 flex items-center pointer-events-none text-zinc-600">
-                        <span className="inline-block w-[2px] h-3 bg-zinc-500 mr-[2px] animate-cursor-blink opacity-70"></span>
-                      </div>
-                    )}
-                    <input
-                      type="text"
-                      value={tableColValue}
-                      onFocus={() => setIsTableColFocused(true)}
-                      onBlur={() => setIsTableColFocused(false)}
-                      onChange={(e) => setTableColValue(e.target.value.replace(/\D/g, ''))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleTableSubmit();
-                        else if (e.key === "Escape") setShowTableInput(false);
-                      }}
-                      className="bg-transparent outline-none border-none text-zinc-200 w-[3ch] pl-1 font-mono text-xs h-full"
-                    />
-                  </div>
-                  <span className="w-[2ch]"></span>
-                  <span>]</span>
-                  <span className="cursor-pointer hover:text-white font-bold text-zinc-300 ml-1" onClick={() => handleTableSubmit()}>OK</span>
-                </div>
-              ) : (
-                <div className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] select-none border border-zinc-800 rounded w-full max-w-[calc(100vw-2rem)] shadow-2xl animate-fade-in pointer-events-auto">
-                  <span className="px-2 font-bold cursor-pointer hover:text-white" onMouseDown={(e) => scrollToolbarRef(mobileEmptyLineToolbarScrollRef, 'left', e)}>[</span>
-                  <div ref={mobileEmptyLineToolbarScrollRef} className="flex items-center gap-3 overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap flex-1">
-                    {emptyLineTools.map((tool) => (
-                      <button
-                        key={tool.label}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToolClick(tool);
-                          if (tool.format !== "image" && tool.type !== "link" && tool.format !== "table") {
-                            setEmptyLineRect(null);
-                          }
-                        }}
-                        className="hover:text-white hover:underline cursor-pointer flex-shrink-0"
-                      >
-                        {tool.label}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="px-2 font-bold cursor-pointer hover:text-white" onMouseDown={(e) => scrollToolbarRef(mobileEmptyLineToolbarScrollRef, 'right', e)}>]</span>
-                </div>
-              )
-            ) : null}
-          </div>
-        </div>
-
       </main>
 
 
@@ -1953,11 +2020,11 @@ export default function App() {
               className="w-full max-w-sm flex flex-col gap-6 relative"
             >
               <h3 className="text-zinc-100 font-mono tracking-wide text-lg text-center uppercase">
-                Close Tab
+                DELETE TAB
               </h3>
 
               <p className="font-mono text-xs text-zinc-400 text-center leading-relaxed">
-                Are you sure you want to close this tab?
+                Are you sure you want to delete this tab?
               </p>
 
               <div className="flex justify-center gap-12 items-center mt-2">
@@ -2050,7 +2117,7 @@ export default function App() {
                 )}
 
                 <div className="text-[10px] text-zinc-600 font-mono text-center tracking-widest select-none mb-6 w-full max-w-4xl px-4 leading-normal">
-                  Your current two tab contents will be re-encrypted with this new password
+                  Your current vault will be re-encrypted with this new password
                 </div>
 
                 <div className="flex justify-center gap-12 items-center">
@@ -2095,7 +2162,7 @@ export default function App() {
               {deleteStep === 1 && (
                 <div className="flex flex-col gap-6">
                   <p className="font-mono text-xs text-zinc-300 leading-relaxed text-center px-4">
-                    Are you absolutely sure you want to delete this vault? Once initiated, this process is completely permanent and irreversible.
+                    Are you absolutely sure you want to delete this vault?
                   </p>
                   <div className="flex justify-center gap-12 items-center mt-2">
                     <span
@@ -2117,7 +2184,7 @@ export default function App() {
               {deleteStep === 2 && (
                 <div className="flex flex-col gap-6">
                   <p className="font-mono text-xs text-zinc-300 leading-relaxed text-center px-4">
-                    All {tabs.length} tab pages containing your private E2E encrypted plaintext will be wiped forever from the cloud. This cannot be undone!
+                    All encrypted texts will be permanently wiped forever and cannot be undone
                   </p>
                   <div className="flex justify-center gap-12 items-center mt-2">
                     <span

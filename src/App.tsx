@@ -300,15 +300,12 @@ export default function App() {
 
   // Focus password input when prompt is visible
   useEffect(() => {
-    if (vaultName && !isVerified && !isLoading) {
-      // Small timeout to ensure DOM is ready
-      setTimeout(() => {
-        if (passwordInputRef.current) {
-          passwordInputRef.current.focus();
-        }
-      }, 50);
+    if (vaultName && !isVerified) {
+      if (passwordInputRef.current) {
+        passwordInputRef.current.focus();
+      }
     }
-  }, [vaultName, isVerified, isLoading]);
+  }, [vaultName, isVerified]);
 
   // Auto-scroll input into view on mobile when name input or password input is clicked/focused
   useEffect(() => {
@@ -466,7 +463,7 @@ export default function App() {
   };
 
   // Home Screen GO option
-  const handleGo = async () => {
+  const handleGo = () => {
     if (!searchName) {
       setSearchError("Please input a vault name.");
       return;
@@ -477,21 +474,7 @@ export default function App() {
     }
 
     setSearchError("");
-    setIsLoading(true);
-    try {
-      const response = await fetch(`/api/vault/${searchName}/check`);
-      const data = await response.json();
-      if (data.exists) {
-        setSearchError(`Vault '${searchName}' already exists`);
-      } else {
-        navigateTo(searchName);
-      }
-    } catch (err) {
-      console.error(err);
-      setSearchError("Backend network error. Try again.");
-    } finally {
-      setIsLoading(false);
-    }
+    navigateTo(searchName);
   };
 
   // Create new Vault cryptographically

@@ -1,11 +1,24 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { marked } from "marked";
 
-export function Editor({ activeTabId, initialContent, onChange, onSelect, editorRef }: any) {
+export function Editor({ activeTabId, initialContent, onChange, onSelect, editorRef, readOnly }: any) {
   
-  useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== initialContent) {
+  const previousTabId = useRef(activeTabId);
+  const isFirstRender = useRef(true);
+
+  useLayoutEffect(() => {
+    if (!editorRef.current) return;
+
+    if (activeTabId !== previousTabId.current || isFirstRender.current) {
       editorRef.current.innerHTML = initialContent || "<p><br></p>";
+      previousTabId.current = activeTabId;
+      isFirstRender.current = false;
+    } else {
+      // If we didn't switch tabs, only update if the editor doesn't have focus (e.g., from external sync).
+      const hasFocus = document.activeElement === editorRef.current || editorRef.current.contains(document.activeElement);
+      if (!hasFocus && editorRef.current.innerHTML !== initialContent) {
+        editorRef.current.innerHTML = initialContent || "<p><br></p>";
+      }
     }
   }, [activeTabId, initialContent]);
 
@@ -36,21 +49,463 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
   return (
     <div
       ref={editorRef}
-      className="editor-body w-full h-full min-h-[500px] outline-none text-zinc-300 text-sm md:text-base leading-relaxed"
-      contentEditable
+      className="editor-body w-full h-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-relaxed"
+      contentEditable={!readOnly}
       suppressContentEditableWarning
       onInput={(e) => {
         onChange(e.currentTarget.innerHTML, editorRef.current);
       }}
       onSelect={onSelect}
       onPaste={handlePaste}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+
+        if (target.tagName === "IMG") {
+          const sel = window.getSelection();
+          if (sel) {
+            const range = document.createRange();
+            range.selectNode(target);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
+      }}
+      onTouchStart={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.tagName === "IMG") {
+          const sel = window.getSelection();
+          if (sel) {
+            const range = document.createRange();
+            range.selectNode(target);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        }
+      }}
       onKeyDown={(e) => {
-        if (e.key === "Enter") {
+        if (e.key === "Backspace") {
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            if (sel.isCollapsed) {
+              const container = range.startContainer;
+              const offset = range.startOffset;
+              
+              if (container.nodeType === Node.TEXT_NODE) {
+                if (offset === 0) {
+                  const prev = container.previousSibling;
+                  if (prev && prev.nodeName === "IMG") {
+                    e.preventDefault();
+                    prev.remove();
+                    onChange(editorRef.current.innerHTML, editorRef.current);
+                    return;
+                  }
+                }
+              } else if (container.nodeType === Node.ELEMENT_NODE) {
+                if (offset > 0) {
+                  const prevChild = container.childNodes[offset - 1];
+                  if (prevChild && prevChild.nodeName === "IMG") {
+                    e.preventDefault();
+                    prevChild.remove();
+                    onChange(editorRef.current.innerHTML, editorRef.current);
+                    return;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        if (e.key === " ") {
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            const node = range.startContainer;
+            if (node.nodeType === Node.TEXT_NODE) {
+              const text = node.textContent || "";
+              const caretOffset = range.startOffset;
+              const textBeforeCaret = text.substring(0, caretOffset);
+              
+              let block: HTMLElement | null = node.parentElement;
+              while (block && block !== editorRef.current && window.getComputedStyle(block).display !== "block" && block.tagName !== "DIV" && block.tagName !== "P") {
+                block = block.parentElement;
+              }
+              
+              if (block && block !== editorRef.current) {
+                let handled = false;
+                
+                if (textBeforeCaret === "#") {
+                  e.preventDefault();
+                  node.textContent = text.substring(caretOffset);
+                  document.execCommand("formatBlock", false, "H1");
+                  handled = true;
+                } else if (textBeforeCaret === "##") {
+                  e.preventDefault();
+                  node.textContent = text.substring(caretOffset);
+                  document.execCommand("formatBlock", false, "H2");
+                  handled = true;
+                } else if (textBeforeCaret === "###") {
+                  e.preventDefault();
+                  node.textContent = text.substring(caretOffset);
+                  document.execCommand("formatBlock", false, "H3");
+                  handled = true;
+                } else if (textBeforeCaret === ">") {
+                  e.preventDefault();
+                  node.textContent = text.substring(caretOffset);
+                  document.execCommand("formatBlock", false, "blockquote");
+                  handled = true;
+                } else if (textBeforeCaret === "-" || textBeforeCaret === "*") {
+                  e.preventDefault();
+                  node.textContent = text.substring(caretOffset);
+                  document.execCommand("insertUnorderedList", false);
+                  handled = true;
+                } else if (textBeforeCaret === "1.") {
+                  e.preventDefault();
+                  node.textContent = text.substring(caretOffset);
+                  document.execCommand("insertOrderedList", false);
+                  handled = true;
+                } else if (textBeforeCaret === "[]" || textBeforeCaret === "[ ]") {
+                  e.preventDefault();
+                  node.textContent = text.substring(caretOffset);
+                  
+                  const checkbox = document.createElement('input');
+                  checkbox.type = "checkbox";
+                  checkbox.style.marginRight = "8px";
+                  
+                  const remainingText = text.substring(caretOffset);
+                  block.innerHTML = "";
+                  block.appendChild(checkbox);
+                  const spaceNode = document.createTextNode("\u200B" + remainingText);
+                  block.appendChild(spaceNode);
+                  
+                  const r = document.createRange();
+                  r.setStart(spaceNode, 1);
+                  r.collapse(true);
+                  sel.removeAllRanges();
+                  sel.addRange(r);
+                  handled = true;
+                } else if (textBeforeCaret === "->") {
+                  e.preventDefault();
+                  node.textContent = text.substring(caretOffset);
+                  block.style.textAlign = "center";
+                  handled = true;
+                } else if (textBeforeCaret === "    ") {
+                  e.preventDefault();
+                  node.textContent = text.substring(caretOffset);
+                  document.execCommand("formatBlock", false, "PRE");
+                  handled = true;
+                } else if (textBeforeCaret === "```") {
+                  e.preventDefault();
+                  node.textContent = text.substring(caretOffset);
+                  document.execCommand("formatBlock", false, "PRE");
+                  handled = true;
+                }
+                
+                if (handled) {
+                  onChange(editorRef.current.innerHTML, editorRef.current);
+                  return;
+                }
+              }
+              
+              let match;
+              if ((match = textBeforeCaret.match(/(?:\*\*|__)([^*_]+)(?:\*\*|__)$/))) {
+                e.preventDefault();
+                const matchedStr = match[0];
+                const content = match[1];
+                const startIndex = caretOffset - matchedStr.length;
+                
+                const beforeText = text.substring(0, startIndex);
+                const afterText = text.substring(caretOffset);
+                
+                const bNode = document.createElement("b");
+                bNode.textContent = content;
+                
+                node.textContent = beforeText;
+                const parent = node.parentNode;
+                if (parent) {
+                  const nextSibling = node.nextSibling;
+                  parent.insertBefore(bNode, nextSibling);
+                  const textAfterNode = document.createTextNode("\u200B" + afterText);
+                  parent.insertBefore(textAfterNode, bNode.nextSibling);
+                  
+                  const r = document.createRange();
+                  r.setStart(textAfterNode, 1);
+                  r.collapse(true);
+                  sel.removeAllRanges();
+                  sel.addRange(r);
+                }
+                onChange(editorRef.current.innerHTML, editorRef.current);
+                return;
+              } else if ((match = textBeforeCaret.match(/(?:\*|_)([^*_]+)(?:\*|_)$/))) {
+                e.preventDefault();
+                const matchedStr = match[0];
+                const content = match[1];
+                const startIndex = caretOffset - matchedStr.length;
+                
+                const beforeText = text.substring(0, startIndex);
+                const afterText = text.substring(caretOffset);
+                
+                const iNode = document.createElement("i");
+                iNode.textContent = content;
+                
+                node.textContent = beforeText;
+                const parent = node.parentNode;
+                if (parent) {
+                  const nextSibling = node.nextSibling;
+                  parent.insertBefore(iNode, nextSibling);
+                  const textAfterNode = document.createTextNode("\u200B" + afterText);
+                  parent.insertBefore(textAfterNode, iNode.nextSibling);
+                  
+                  const r = document.createRange();
+                  r.setStart(textAfterNode, 1);
+                  r.collapse(true);
+                  sel.removeAllRanges();
+                  sel.addRange(r);
+                }
+                onChange(editorRef.current.innerHTML, editorRef.current);
+                return;
+              } else if ((match = textBeforeCaret.match(/~~([^~]+)~~$/))) {
+                e.preventDefault();
+                const matchedStr = match[0];
+                const content = match[1];
+                const startIndex = caretOffset - matchedStr.length;
+                
+                const beforeText = text.substring(0, startIndex);
+                const afterText = text.substring(caretOffset);
+                
+                const sNode = document.createElement("strike");
+                sNode.textContent = content;
+                
+                node.textContent = beforeText;
+                const parent = node.parentNode;
+                if (parent) {
+                  const nextSibling = node.nextSibling;
+                  parent.insertBefore(sNode, nextSibling);
+                  const textAfterNode = document.createTextNode("\u200B" + afterText);
+                  parent.insertBefore(textAfterNode, sNode.nextSibling);
+                  
+                  const r = document.createRange();
+                  r.setStart(textAfterNode, 1);
+                  r.collapse(true);
+                  sel.removeAllRanges();
+                  sel.addRange(r);
+                }
+                onChange(editorRef.current.innerHTML, editorRef.current);
+                return;
+              } else if ((match = textBeforeCaret.match(/<u>([^<]+)<\/u>$/))) {
+                e.preventDefault();
+                const matchedStr = match[0];
+                const content = match[1];
+                const startIndex = caretOffset - matchedStr.length;
+                
+                const beforeText = text.substring(0, startIndex);
+                const afterText = text.substring(caretOffset);
+                
+                const uNode = document.createElement("u");
+                uNode.textContent = content;
+                
+                node.textContent = beforeText;
+                const parent = node.parentNode;
+                if (parent) {
+                  const nextSibling = node.nextSibling;
+                  parent.insertBefore(uNode, nextSibling);
+                  const textAfterNode = document.createTextNode("\u200B" + afterText);
+                  parent.insertBefore(textAfterNode, uNode.nextSibling);
+                  
+                  const r = document.createRange();
+                  r.setStart(textAfterNode, 1);
+                  r.collapse(true);
+                  sel.removeAllRanges();
+                  sel.addRange(r);
+                }
+                onChange(editorRef.current.innerHTML, editorRef.current);
+                return;
+              } else if ((match = textBeforeCaret.match(/`([^`]+)`$/))) {
+                e.preventDefault();
+                const matchedStr = match[0];
+                const content = match[1];
+                const startIndex = caretOffset - matchedStr.length;
+                
+                const beforeText = text.substring(0, startIndex);
+                const afterText = text.substring(caretOffset);
+                
+                const codeNode = document.createElement("code");
+                codeNode.className = "bg-zinc-800 text-red-400 px-1 py-0.5 rounded font-mono text-xs";
+                codeNode.textContent = content;
+                
+                node.textContent = beforeText;
+                const parent = node.parentNode;
+                if (parent) {
+                  const nextSibling = node.nextSibling;
+                  parent.insertBefore(codeNode, nextSibling);
+                  const textAfterNode = document.createTextNode("\u200B" + afterText);
+                  parent.insertBefore(textAfterNode, codeNode.nextSibling);
+                  
+                  const r = document.createRange();
+                  r.setStart(textAfterNode, 1);
+                  r.collapse(true);
+                  sel.removeAllRanges();
+                  sel.addRange(r);
+                }
+                onChange(editorRef.current.innerHTML, editorRef.current);
+                return;
+              } else if ((match = textBeforeCaret.match(/!\[([^\]]*)\]\(([^)]+)\)$/))) {
+                e.preventDefault();
+                const matchedStr = match[0];
+                const alt = match[1];
+                const url = match[2];
+                const startIndex = caretOffset - matchedStr.length;
+                
+                const beforeText = text.substring(0, startIndex);
+                const afterText = text.substring(caretOffset);
+                
+                const imgNode = document.createElement("img");
+                imgNode.src = url;
+                if (alt) imgNode.alt = alt;
+                imgNode.className = "max-w-full rounded border border-zinc-800 my-2 block";
+                
+                node.textContent = beforeText;
+                const parent = node.parentNode;
+                if (parent) {
+                  const nextSibling = node.nextSibling;
+                  parent.insertBefore(imgNode, nextSibling);
+                  const textAfterNode = document.createTextNode("\u200B" + afterText);
+                  parent.insertBefore(textAfterNode, imgNode.nextSibling);
+                  
+                  const r = document.createRange();
+                  r.setStart(textAfterNode, 1);
+                  r.collapse(true);
+                  sel.removeAllRanges();
+                  sel.addRange(r);
+                }
+                onChange(editorRef.current.innerHTML, editorRef.current);
+                return;
+              } else if ((match = textBeforeCaret.match(/(^|[^!])\[([^\]]+)\]\(([^)]+)\)$/))) {
+                e.preventDefault();
+                const matchedStr = match[0];
+                const isStart = match[1] === "";
+                const content = match[2];
+                const url = match[3];
+                const startIndex = caretOffset - matchedStr.length + (isStart ? 0 : 1);
+                
+                const beforeText = text.substring(0, startIndex);
+                const afterText = text.substring(caretOffset);
+                
+                const aNode = document.createElement("a");
+                aNode.href = url;
+                aNode.textContent = content;
+                aNode.className = "text-blue-400 underline cursor-pointer";
+                aNode.target = "_blank";
+                
+                node.textContent = beforeText;
+                const parent = node.parentNode;
+                if (parent) {
+                  const nextSibling = node.nextSibling;
+                  parent.insertBefore(aNode, nextSibling);
+                  const textAfterNode = document.createTextNode("\u200B" + afterText);
+                  parent.insertBefore(textAfterNode, aNode.nextSibling);
+                  
+                  const r = document.createRange();
+                  r.setStart(textAfterNode, 1);
+                  r.collapse(true);
+                  sel.removeAllRanges();
+                  sel.addRange(r);
+                }
+                onChange(editorRef.current.innerHTML, editorRef.current);
+                return;
+              }
+            }
+          }
+        }
+
+        if (e.key === "Enter" || e.keyCode === 13) {
           const sel = window.getSelection();
           if (!sel || sel.rangeCount === 0) return;
           
           const range = sel.getRangeAt(0);
           let node: Node | null = range.startContainer;
+          
+          // Prevent breaking out of PRE blocks on mobile/desktop
+          let curr: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+          while (curr && curr !== editorRef.current) {
+            if (curr.tagName === "PRE") {
+              e.preventDefault();
+              document.execCommand("insertText", false, "\n");
+              onChange(editorRef.current.innerHTML, editorRef.current);
+              return;
+            }
+            curr = curr.parentElement;
+          }
+          
+          if (node.nodeType === Node.TEXT_NODE) {
+            const text = node.textContent || "";
+            const caretOffset = range.startOffset;
+            const textBeforeCaret = text.substring(0, caretOffset);
+            
+            if (textBeforeCaret.trim() === "```" || textBeforeCaret === "    ") {
+              e.preventDefault();
+              let block: HTMLElement | null = node.parentElement;
+              while (block && block !== editorRef.current && window.getComputedStyle(block).display !== "block") {
+                block = block.parentElement;
+              }
+              if (block && block !== editorRef.current) {
+                node.textContent = text.substring(caretOffset); // keep text after caret if any
+                const r = document.createRange();
+                r.selectNodeContents(block);
+                r.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(r);
+                document.execCommand("formatBlock", false, "PRE");
+                
+                // For a pre block, we might want a newline inserted so the user is ready to type code
+                document.execCommand("insertHTML", false, "\n");
+                
+                onChange(editorRef.current.innerHTML, editorRef.current);
+                return;
+              }
+            }
+            
+            const match = textBeforeCaret.match(/^\|(.+)\|$/);
+            if (match) {
+              e.preventDefault();
+              const cols = match[1].split('|').map(s => s.trim());
+              
+              let tableHTML = '<div class="overflow-x-auto w-full max-w-full my-4"><table border="1" class="border-collapse border border-zinc-700 w-full text-left">';
+              
+              tableHTML += '<tr>';
+              cols.forEach(col => {
+                tableHTML += `<th class="border border-zinc-700 p-2 bg-zinc-800/50">${col || '<br>'}</th>`;
+              });
+              tableHTML += '</tr>';
+              
+              tableHTML += '<tr>';
+              cols.forEach(() => {
+                tableHTML += `<td class="border border-zinc-700 p-2"><br></td>`;
+              });
+              tableHTML += '</tr>';
+              tableHTML += '</table></div><p><br></p>';
+              
+              // We need to replace the current block with this table
+              let block: HTMLElement | null = node.parentElement;
+              while (block && block !== editorRef.current && window.getComputedStyle(block).display !== "block") {
+                block = block.parentElement;
+              }
+              if (block && block !== editorRef.current) {
+                // Remove text from node, as it's being converted
+                node.textContent = text.substring(caretOffset); // keep text after caret if any
+                
+                // Select the block and insertHTML to replace it
+                const r = document.createRange();
+                r.selectNode(block);
+                sel.removeAllRanges();
+                sel.addRange(r);
+                
+                document.execCommand("insertHTML", false, tableHTML);
+                onChange(editorRef.current.innerHTML, editorRef.current);
+                return;
+              }
+            }
+          }
           
           let block: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
           while (block && block !== editorRef.current && window.getComputedStyle(block).display !== "block" && block.tagName !== "BLOCKQUOTE" && block.tagName !== "LI" && block.tagName !== "DIV" && block.tagName !== "P") {

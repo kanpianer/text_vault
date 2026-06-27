@@ -2,6 +2,7 @@ export interface TabContent {
   id: string;
   text: string;
   title?: string;
+  scrollTop?: number;
 }
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error" | "pwd_changed";

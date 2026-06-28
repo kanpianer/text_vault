@@ -608,6 +608,8 @@ export default function App() {
       return;
     }
 
+    passwordInputRef.current?.blur();
+    (document.activeElement as HTMLElement | null)?.blur?.();
     setIsLoading(true);
     setIsDecrypting(true);
     setErrorText("");
@@ -1265,6 +1267,7 @@ export default function App() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
+          transition={{ duration: 0.12, ease: "easeOut" }}
           className="fixed inset-0 flex items-center justify-center bg-[#0c0c0e] z-50 pointer-events-none"
         >
           <span className="font-mono text-sm tracking-widest text-[#ffffff] font-medium block uppercase animate-pulse">
@@ -1356,7 +1359,7 @@ export default function App() {
 
         {/* PASSWORD PROMPT MODAL */}
         <AnimatePresence>
-          {vaultName && (
+          {vaultName && !isDecrypting && (
             <div className="fixed inset-0 bg-[#0c0c0e] flex items-center justify-center z-50">
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -1478,7 +1481,12 @@ export default function App() {
 
   // 3. SECURE TEXT EDITOR VIEW (TAB VIEW ENVIRONMENT)
   return (
-    <div className="min-h-screen flex flex-col justify-between bg-[#0b0c0e] text-zinc-200 font-sans relative">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.16, ease: "easeOut" }}
+      className="min-h-screen flex flex-col justify-between bg-[#0b0c0e] text-zinc-200 font-sans relative"
+    >
       {/* Visual saving animation overlay */}
       <AnimatePresence>
         {(saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed") && (
@@ -2363,6 +2371,6 @@ export default function App() {
         );
       })()}
       {loadingOverlay}
-    </div>
+    </motion.div>
   );
 }

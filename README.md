@@ -1,7 +1,3 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
-
 # Text Vault - 端到端加密文本保险库
 
 这是一个零知识、端到端加密的 Markdown 编辑器应用。所有数据在浏览器本地加密，服务器只存储加密后的内容。

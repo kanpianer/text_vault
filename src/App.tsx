@@ -341,12 +341,25 @@ export default function App() {
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  const resetVaultAuthInputs = () => {
+    setPassword("");
+    setConfirmPassword("");
+    setShowPasswordReveal(false);
+    setErrorText("");
+  };
+
   // Focus password input when prompt is visible
   useEffect(() => {
     if (vaultName && !isVerified) {
       if (passwordInputRef.current) {
         passwordInputRef.current.focus();
       }
+    }
+  }, [vaultName, isVerified]);
+
+  useEffect(() => {
+    if (!isVerified) {
+      resetVaultAuthInputs();
     }
   }, [vaultName, isVerified]);
 
@@ -489,14 +502,12 @@ export default function App() {
   const handleLock = () => {
     setAesKey(null);
     setAuthHash("");
-    setPassword("");
-    setConfirmPassword("");
+    resetVaultAuthInputs();
     setTabs([]);
     setActiveTabId("");
     setIsVerified(false);
     setHasUnsavedChanges(false);
     setShowMenu(false);
-    setErrorText("");
   };
 
   // Navigates securely

@@ -30,7 +30,6 @@ export default function App() {
   const [isNewVault, setIsNewVault] = useState<boolean>(false);
   const [password, setPassword] = useState<string>("");
   const [confirmPassword, setConfirmPassword] = useState<string>("");
-  const [showPasswordReveal, setShowPasswordReveal] = useState<boolean>(false);
   const [errorText, setErrorText] = useState<string>("");
 
   // Vault credentials & data held in React memory
@@ -321,7 +320,6 @@ export default function App() {
   const [showChangePasswordModal, setShowChangePasswordModal] = useState<boolean>(false);
   const [newPassword, setNewPassword] = useState<string>("");
   const [confirmNewPassword, setConfirmNewPassword] = useState<string>("");
-  const [showNewPasswordReveal, setShowNewPasswordReveal] = useState<boolean>(false);
   const [pwdModalError, setPwdModalError] = useState<string>("");
 
   // Delete Vault 3-Phase Modal state
@@ -344,7 +342,6 @@ export default function App() {
   const resetVaultAuthInputs = () => {
     setPassword("");
     setConfirmPassword("");
-    setShowPasswordReveal(false);
     setErrorText("");
   };
 
@@ -1384,17 +1381,16 @@ export default function App() {
                           ••••••••
                         </span>
                         <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
-                          {password ? (showPasswordReveal ? password : '•'.repeat(password.length)) : ''}
+                          {password ? '•'.repeat(password.length) : ''}
                         </span>
                         <input
                           ref={passwordInputRef}
                           autoFocus
-                          type={showPasswordReveal ? "text" : "password"}
+                          type="password"
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           maxLength={18}
                           className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-base md:text-sm tracking-[0.2em] text-center"
-                          style={{ ["WebkitTextSecurity" as any]: showPasswordReveal ? "none" : "disc" }}
                           placeholder="••••••••"
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
@@ -1418,15 +1414,14 @@ export default function App() {
                             ••••••••
                           </span>
                           <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
-                            {confirmPassword ? (showPasswordReveal ? confirmPassword : '•'.repeat(confirmPassword.length)) : ''}
+                          {confirmPassword ? '•'.repeat(confirmPassword.length) : ''}
                           </span>
                           <input
-                            type={showPasswordReveal ? "text" : "password"}
+                            type="password"
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             maxLength={18}
                             className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-base md:text-sm tracking-[0.2em] text-center"
-                            style={{ ["WebkitTextSecurity" as any]: showPasswordReveal ? "none" : "disc" }}
                             placeholder="••••••••"
                             onKeyDown={(e) => {
                               if (e.key === "Enter") handleCreateVault();
@@ -2114,15 +2109,14 @@ export default function App() {
                           ••••••••
                         </span>
                         <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
-                          {newPassword ? (showNewPasswordReveal ? newPassword : '•'.repeat(newPassword.length)) : ''}
+                          {newPassword ? '•'.repeat(newPassword.length) : ''}
                         </span>
                         <input
-                          type={showNewPasswordReveal ? "text" : "password"}
+                          type="password"
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           maxLength={18}
                           className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
-                          style={{ ["WebkitTextSecurity" as any]: showNewPasswordReveal ? "none" : "disc" }}
                           placeholder="••••••••"
                         />
                       </div>
@@ -2139,15 +2133,14 @@ export default function App() {
                           ••••••••
                         </span>
                         <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
-                          {confirmNewPassword ? (showNewPasswordReveal ? confirmNewPassword : '•'.repeat(confirmNewPassword.length)) : ''}
+                          {confirmNewPassword ? '•'.repeat(confirmNewPassword.length) : ''}
                         </span>
                         <input
-                          type={showNewPasswordReveal ? "text" : "password"}
+                          type="password"
                           value={confirmNewPassword}
                           onChange={(e) => setConfirmNewPassword(e.target.value)}
                           maxLength={18}
                           className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
-                          style={{ ["WebkitTextSecurity" as any]: showNewPasswordReveal ? "none" : "disc" }}
                           placeholder="••••••••"
                         />
                       </div>

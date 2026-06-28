@@ -68,6 +68,12 @@ export default function App() {
   const [pcSelectionStyle, setPcSelectionStyle] = useState<React.CSSProperties>({});
   const [pcEmptyLineStyle, setPcEmptyLineStyle] = useState<React.CSSProperties>({});
 
+  const [showBackToTop, setShowBackToTop] = useState<boolean>(false);
+  const [isEditorFocused, setIsEditorFocused] = useState<boolean>(false);
+  const [scrollProgress, setScrollProgress] = useState<number>(0);
+  const backToTopRef = useRef<HTMLDivElement>(null);
+  const [backToTopSize, setBackToTopSize] = useState<{ w: number; h: number }>({ w: 0, h: 30 });
+
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [selectionRange, setSelectionRange] = useState<Range | null>(null);
   const [emptyLineRect, setEmptyLineRect] = useState<DOMRect | null>(null);
@@ -212,6 +218,44 @@ export default function App() {
     document.addEventListener("mousedown", handleDocumentMouseDown);
     return () => document.removeEventListener("mousedown", handleDocumentMouseDown);
   }, [showTableInput, showLinkInput, showImageInput]);
+
+  // Back to top: track scroll depth, progress, and editor focus state
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollTop = window.scrollY;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      setShowBackToTop(scrollTop > 300);
+      setScrollProgress(docHeight > 0 ? Math.min(scrollTop / docHeight, 1) : 0);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Measure Back to top button dimensions for SVG border
+  useEffect(() => {
+    const el = backToTopRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setBackToTopSize({ w: el.offsetWidth, h: el.offsetHeight });
+    });
+    ro.observe(el);
+    setBackToTopSize({ w: el.offsetWidth, h: el.offsetHeight });
+    return () => ro.disconnect();
+  }, [showBackToTop]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const onFocusIn = () => setIsEditorFocused(true);
+    const onFocusOut = () => setIsEditorFocused(false);
+    editor.addEventListener('focusin', onFocusIn);
+    editor.addEventListener('focusout', onFocusOut);
+    return () => {
+      editor.removeEventListener('focusin', onFocusIn);
+      editor.removeEventListener('focusout', onFocusOut);
+    };
+  }, []);
 
   const scrollToolbarRef = (ref: React.RefObject<HTMLDivElement | null>, direction: 'left' | 'right', e: React.MouseEvent) => {
     e.preventDefault();
@@ -2244,6 +2288,69 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+      {/* Back to top button */}
+      {showBackToTop && !isEditorFocused && !selectionRect && (() => {
+        const r = 4; // matches Tailwind 'rounded'
+        const { w, h } = backToTopSize;
+        // SVG path: starts at top-center, goes clockwise all the way around
+        const pathD = w > 0 ? [
+          `M ${w / 2},0.5`,
+          `H ${w - r - 0.5}`,
+          `A ${r},${r} 0 0,1 ${w - 0.5},${r + 0.5}`,
+          `V ${h - r - 0.5}`,
+          `A ${r},${r} 0 0,1 ${w - r - 0.5},${h - 0.5}`,
+          `H ${r + 0.5}`,
+          `A ${r},${r} 0 0,1 ${0.5},${h - r - 0.5}`,
+          `V ${r + 0.5}`,
+          `A ${r},${r} 0 0,1 ${r + 0.5},${0.5}`,
+          `H ${w / 2}`,
+        ].join(' ') : '';
+        // Perimeter = 2*(w-2r) + 2*(h-2r) + 2π*r
+        const perimeter = w > 0 ? 2 * (w - 2 * r) + 2 * (h - 2 * r) + 2 * Math.PI * r : 0;
+        const dashOffset = perimeter * (1 - scrollProgress);
+        return (
+          <div
+            ref={backToTopRef}
+            style={{
+              position: 'fixed',
+              bottom: '24px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 9998,
+              pointerEvents: 'auto',
+            }}
+            className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] select-none rounded shadow-2xl px-2 my-1"
+          >
+            {/* SVG progress border */}
+            {w > 0 && (
+              <svg
+                width={w}
+                height={h}
+                style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none', overflow: 'visible' }}
+              >
+                {/* Track */}
+                <path d={pathD} fill="none" stroke="#27272a" strokeWidth={1} />
+                {/* Progress */}
+                <path
+                  d={pathD}
+                  fill="none"
+                  stroke="#71717a"
+                  strokeWidth={1}
+                  strokeDasharray={perimeter}
+                  strokeDashoffset={dashOffset}
+                  style={{ transition: 'stroke-dashoffset 0.15s linear' }}
+                />
+              </svg>
+            )}
+            <span
+              onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+              className="font-mono text-xs text-zinc-500 hover:text-white hover:underline cursor-pointer select-none"
+            >
+              [ Back to top ]
+            </span>
+          </div>
+        );
+      })()}
       {loadingOverlay}
     </div>
   );

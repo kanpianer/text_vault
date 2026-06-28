@@ -1,6 +1,95 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { marked } from "marked";
 
+const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF]/g;
+
+function normalizeEditorNodes(root: HTMLElement | null) {
+  if (!root) return;
+
+  root.querySelectorAll("img").forEach((img) => {
+    img.setAttribute("contenteditable", "false");
+    img.setAttribute("draggable", "false");
+    img.style.userSelect = "none";
+    img.style.webkitUserSelect = "none";
+  });
+
+  root.querySelectorAll("a[href]").forEach((anchor) => {
+    anchor.setAttribute("target", "_blank");
+    anchor.setAttribute("rel", "noopener noreferrer");
+  });
+}
+
+function getBoundaryAdjacentImage(
+  container: Node,
+  offset: number,
+  direction: "backward" | "forward",
+  root: HTMLElement | null
+) {
+  const resolveCandidate = (candidate: Node | null): HTMLImageElement | null => {
+    let current = candidate;
+    while (current) {
+      if (current.nodeName === "IMG") return current as HTMLImageElement;
+      if (current.nodeType === Node.TEXT_NODE) {
+        const meaningfulText = (current.textContent || "").replace(ZERO_WIDTH_CHARS, "");
+        if (meaningfulText.length > 0) return null;
+      }
+
+      if (current.nodeType !== Node.ELEMENT_NODE || current.nodeName === "IMG") {
+        return null;
+      }
+
+      current = direction === "backward"
+        ? current.lastChild
+        : current.firstChild;
+    }
+
+    return null;
+  };
+
+  const findFromAncestors = (start: Node): HTMLImageElement | null => {
+    let current: Node | null = start;
+    while (current && current !== root) {
+      const sibling = direction === "backward" ? current.previousSibling : current.nextSibling;
+      const resolved = resolveCandidate(sibling);
+      if (resolved) return resolved;
+      current = current.parentNode;
+    }
+    return null;
+  };
+
+  if (container.nodeType === Node.TEXT_NODE) {
+    const text = container.textContent || "";
+    const boundaryText = direction === "backward" ? text.slice(0, offset) : text.slice(offset);
+    if (boundaryText.replace(ZERO_WIDTH_CHARS, "").length > 0) return null;
+
+    const sibling = direction === "backward" ? container.previousSibling : container.nextSibling;
+    return resolveCandidate(sibling) || findFromAncestors(container);
+  }
+
+  if (container.nodeType === Node.ELEMENT_NODE) {
+    const children = container.childNodes;
+    const childIndex = direction === "backward" ? offset - 1 : offset;
+    if (childIndex >= 0 && childIndex < children.length) {
+      return resolveCandidate(children[childIndex]);
+    }
+    return findFromAncestors(container);
+  }
+
+  return null;
+}
+
+function deleteImageWithUndo(image: HTMLImageElement) {
+  const selection = window.getSelection();
+  if (!selection) return false;
+
+  const range = document.createRange();
+  range.selectNode(image);
+  selection.removeAllRanges();
+  selection.addRange(range);
+
+  return document.execCommand("delete");
+}
+
 export function Editor({ activeTabId, initialContent, onChange, onSelect, editorRef, readOnly }: any) {
   
   const previousTabId = useRef(activeTabId);
@@ -11,6 +100,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
 
     if (activeTabId !== previousTabId.current || isFirstRender.current) {
       editorRef.current.innerHTML = initialContent || "<p><br></p>";
+      normalizeEditorNodes(editorRef.current);
       previousTabId.current = activeTabId;
       isFirstRender.current = false;
     } else {
@@ -18,6 +108,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
       const hasFocus = document.activeElement === editorRef.current || editorRef.current.contains(document.activeElement);
       if (!hasFocus && editorRef.current.innerHTML !== initialContent) {
         editorRef.current.innerHTML = initialContent || "<p><br></p>";
+        normalizeEditorNodes(editorRef.current);
       }
     }
   }, [activeTabId, initialContent]);
@@ -154,6 +245,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
       html = html.replace(/<input checked="" disabled="" type="checkbox">/gi, '<input type="checkbox" checked style="margin-right: 8px;">');
       
       document.execCommand("insertHTML", false, html);
+      normalizeEditorNodes(el);
     }
   };
 
@@ -164,64 +256,64 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
       contentEditable={!readOnly}
       suppressContentEditableWarning
       onInput={(e) => {
+        normalizeEditorNodes(e.currentTarget);
         onChange(e.currentTarget.innerHTML, editorRef.current);
       }}
       onSelect={onSelect}
       onPaste={handlePaste}
+      onMouseDown={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.tagName === "IMG") {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
       onClick={(e) => {
         const target = e.target as HTMLElement;
-
         if (target.tagName === "IMG") {
-          const sel = window.getSelection();
-          if (sel) {
-            const range = document.createRange();
-            range.selectNode(target);
-            sel.removeAllRanges();
-            sel.addRange(range);
-          }
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+
+        const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
+
+        if (anchor) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.open(anchor.href, "_blank", "noopener,noreferrer");
         }
       }}
       onTouchStart={(e) => {
         const target = e.target as HTMLElement;
         if (target.tagName === "IMG") {
-          const sel = window.getSelection();
-          if (sel) {
-            const range = document.createRange();
-            range.selectNode(target);
-            sel.removeAllRanges();
-            sel.addRange(range);
-          }
+          e.preventDefault();
+          e.stopPropagation();
         }
       }}
       onKeyDown={(e) => {
-        if (e.key === "Backspace") {
+        if (e.key === "Backspace" || e.key === "Delete") {
           const sel = window.getSelection();
           if (sel && sel.rangeCount > 0) {
             const range = sel.getRangeAt(0);
             if (sel.isCollapsed) {
-              const container = range.startContainer;
-              const offset = range.startOffset;
-              
-              if (container.nodeType === Node.TEXT_NODE) {
-                if (offset === 0) {
-                  const prev = container.previousSibling;
-                  if (prev && prev.nodeName === "IMG") {
-                    e.preventDefault();
-                    prev.remove();
-                    onChange(editorRef.current.innerHTML, editorRef.current);
-                    return;
-                  }
+              const direction = e.key === "Backspace" ? "backward" : "forward";
+              const imageToRemove = getBoundaryAdjacentImage(
+                range.startContainer,
+                range.startOffset,
+                direction,
+                editorRef.current
+              );
+
+              if (imageToRemove) {
+                e.preventDefault();
+                const deleted = deleteImageWithUndo(imageToRemove);
+                if (!deleted) {
+                  imageToRemove.remove();
                 }
-              } else if (container.nodeType === Node.ELEMENT_NODE) {
-                if (offset > 0) {
-                  const prevChild = container.childNodes[offset - 1];
-                  if (prevChild && prevChild.nodeName === "IMG") {
-                    e.preventDefault();
-                    prevChild.remove();
-                    onChange(editorRef.current.innerHTML, editorRef.current);
-                    return;
-                  }
-                }
+                normalizeEditorNodes(editorRef.current);
+                onChange(editorRef.current.innerHTML, editorRef.current);
+                return;
               }
             }
           }
@@ -474,6 +566,10 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
                 imgNode.src = url;
                 if (alt) imgNode.alt = alt;
                 imgNode.className = "max-w-full rounded border border-zinc-800 my-2 block";
+                imgNode.setAttribute("contenteditable", "false");
+                imgNode.setAttribute("draggable", "false");
+                imgNode.style.userSelect = "none";
+                imgNode.style.webkitUserSelect = "none";
                 
                 node.textContent = beforeText;
                 const parent = node.parentNode;
@@ -507,6 +603,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
                 aNode.textContent = content;
                 aNode.className = "text-blue-400 underline cursor-pointer";
                 aNode.target = "_blank";
+                aNode.rel = "noopener noreferrer";
                 
                 node.textContent = beforeText;
                 const parent = node.parentNode;

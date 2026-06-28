@@ -2,9 +2,9 @@
 
 这是一个零知识、端到端加密的 Markdown 编辑器应用。所有数据在浏览器本地加密，服务器只存储加密后的内容。
 
-> **🚀 快速开始：** [START_HERE.md](./START_HERE.md) | **📚 部署文档：** [部署指南索引.md](./部署指南索引.md)
+![A cute cat](https://github.com/kanpianer/text_vault/blob/main/demo.png?raw=true)
 
-View your app in AI Studio: https://ai.studio/apps/624170db-aff8-4820-bbbd-3fe8a820c761
+> **🚀 快速开始：** [START_HERE.md](./START_HERE.md) | **📚 部署文档：** [部署指南索引.md](./部署指南索引.md)
 
 ## 🚀 快速部署到 Cloudflare（免费）
 
@@ -29,9 +29,7 @@ View your app in AI Studio: https://ai.studio/apps/624170db-aff8-4820-bbbd-3fe8a
    npm install
    ```
 
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-
-3. Run the app:
+2. Run the app:
    ```bash
    npm run dev
    ```

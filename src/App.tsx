@@ -452,6 +452,9 @@ export default function App() {
   useEffect(() => {
     const handleLocationChange = () => {
       const path = window.location.pathname.replace(/^\/|\/$/g, "");
+      setSearchName("");
+      setSearchError("");
+      setIsHomeFocused(false);
       if (/^[a-zA-Z0-9]{1,10}$/.test(path)) {
         setVaultName(path);
       } else {
@@ -1280,22 +1283,18 @@ export default function App() {
     return (
       <div className="min-h-screen flex flex-col justify-between bg-[#0b0c0e] text-zinc-200 px-6 py-12 md:py-16 font-sans">
         <header className="flex justify-between items-center w-full max-w-6xl mx-auto">
-          <span className="font-mono text-sm tracking-widest text-[#f4f4f5] font-semibold select-none">TEXT_VAULT</span>
-          <span className="font-mono text-[10px] text-zinc-600 tracking-wider">v0.1</span>
+          <span className="font-mono text-sm md:text-base tracking-widest text-[#f4f4f5] font-semibold select-none">TEXT_VAULT</span>
+          <span className="font-mono text-[10px] md:text-xs text-zinc-600 tracking-wider">v0.1</span>
         </header>
 
         <main className="flex-1 flex flex-col justify-center items-center w-full max-w-4xl mx-auto my-12">
           <div className="w-full flex flex-col items-center">
-            <h1 className="text-xl md:text-2xl font-mono text-zinc-500 font-bold tracking-wide mb-12 text-center select-none">
+            <h1 className="text-xl md:text-[2.35rem] font-mono text-zinc-500 font-bold tracking-wide mb-12 text-center select-none">
               End To End Encrypted Text
             </h1>
 
             {/* Prefix & Alphanumeric Input Center Row */}
             <div className="flex flex-col items-center justify-center gap-6 text-center w-full mb-20 relative">
-              <span className="text-zinc-600 select-none text-center line-clamp-2 overflow-hidden break-all leading-tight max-w-[320px]">
-                {dynamicDomain}
-              </span>
-              
               <div className="relative flex flex-col items-center justify-center flex-shrink-0 w-[14ch]">
                 {!isHomeFocused && !searchName && (
                   <div className="absolute inset-y-0 w-full flex items-center justify-center pointer-events-none text-zinc-600 tracking-wider text-lg md:text-xl mt-[2px]">
@@ -1316,7 +1315,7 @@ export default function App() {
                       setSearchError("");
                     }
                   }}
-                  className="bg-transparent outline-none text-center py-1 text-white text-lg md:text-xl tracking-wider w-full"
+                  className="bg-transparent outline-none text-center py-1 text-white text-lg md:text-[1.65rem] tracking-wider w-full"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleGo();
                   }}
@@ -1326,17 +1325,14 @@ export default function App() {
               <div className="flex justify-center items-center w-full">
                 <span
                   onClick={handleGo}
-                  className="text-zinc-400 hover:text-white cursor-pointer select-none border-b border-transparent hover:border-white transition-all font-semibold px-2 py-1"
+                  className="text-base md:text-lg text-zinc-400 hover:text-white cursor-pointer select-none border-b border-transparent hover:border-white transition-all font-semibold px-2 py-1"
                 >
-                  GO
+                  OPEN
                 </span>
               </div>
 
               {searchName && (
                 <div className="absolute top-full left-0 right-0 mt-2 flex flex-col items-center text-center text-xs text-zinc-500 font-mono pointer-events-auto transition-opacity duration-300 gap-1 w-full">
-                  <div className="break-words px-4 w-full max-w-[320px]">
-                    Open <a href={`${dynamicDomain}${searchName.toLowerCase()}`} className="text-zinc-400 hover:text-zinc-300 underline underline-offset-2 tracking-wider lowercase">{(dynamicDomain.replace(/^https?:\/\//, '') + searchName).toLowerCase()}</a> Directly
-                  </div>
                   {searchError && (
                     <div className="text-zinc-500 tracking-wider animate-fast-pulse mt-1">
                       {searchError}
@@ -1349,7 +1345,7 @@ export default function App() {
         </main>
 
         <footer className="w-full max-w-6xl mx-auto flex justify-center items-center gap-4">
-          <span className="font-mono text-[9px] text-zinc-600 tracking-widest uppercase text-center select-none">
+          <span className="font-mono text-[9px] md:text-[11px] text-zinc-600 tracking-widest uppercase text-center select-none">
             Always encrypt data before transferring it to the server // <a href="https://github.com/kanpianer/text_vault" target="_blank" rel="noopener noreferrer" className="text-white hover:text-zinc-300">Github</a>
           </span>
         </footer>
@@ -1364,14 +1360,14 @@ export default function App() {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="w-full max-w-4xl px-4 md:px-8 flex flex-col gap-6 relative"
               >
-                <h3 className="text-zinc-100 font-mono tracking-wide text-lg text-center uppercase">
+                <h3 className="text-zinc-100 font-mono tracking-wide text-lg md:text-xl text-center uppercase">
                   {isNewVault ? "Create Vault Password" : "UNLOCK THE VAULT"}
                 </h3>
 
                 <div className="flex flex-col w-full items-center">
                   <div className="w-full mb-6">
                     {isNewVault && (
-                      <label className="font-mono text-[10px] text-zinc-500 uppercase tracking-widest block mb-2 select-none text-center">
+                      <label className="font-mono text-[10px] md:text-xs text-zinc-500 uppercase tracking-widest block mb-2 select-none text-center">
                         PASSWORD
                       </label>
                     )}
@@ -1390,7 +1386,7 @@ export default function App() {
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           maxLength={18}
-                          className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-base md:text-sm tracking-[0.2em] text-center"
+                          className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-base md:text-lg tracking-[0.2em] text-center"
                           placeholder="••••••••"
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
@@ -1450,13 +1446,13 @@ export default function App() {
                   <div className="flex justify-center gap-12 items-center">
                     <span
                       onClick={() => navigateTo("")}
-                      className="font-mono text-xs text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                      className="font-mono text-xs md:text-sm text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
                     >
                       Cancel
                     </span>
                     <span
                       onClick={isNewVault ? handleCreateVault : handleUnlockVault}
-                      className="font-mono text-xs font-semibold text-zinc-200 hover:text-white hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
+                      className="font-mono text-xs md:text-sm font-semibold text-zinc-200 hover:text-white hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
                     >
                       {isNewVault ? "Initialize" : "Decrypt"}
                     </span>
@@ -1502,11 +1498,11 @@ export default function App() {
         <header className="w-full">
         <div className="w-full max-w-4xl px-4 md:px-8 py-4 flex justify-between items-center mx-auto">
           <div className="flex items-center gap-4">
-            <span className="font-mono text-sm tracking-widest text-[#ffffff] font-semibold select-none flex items-center">
+            <span className="font-mono text-sm md:text-base tracking-widest text-[#ffffff] font-semibold select-none flex items-center">
               <span className="text-zinc-500 tracking-normal">Text_Vault/</span><span className="lowercase">{vaultName}</span>
             </span>
             {hasUnsavedChanges && (
-              <span className="font-mono text-[10px] text-zinc-500 animate-pulse tracking-wide select-none">
+              <span className="font-mono text-[10px] md:text-xs text-zinc-500 animate-pulse tracking-wide select-none">
                 [UNSAVED]
               </span>
             )}
@@ -1520,7 +1516,7 @@ export default function App() {
                 performSaveAction();
               }
             }}
-            className={`font-mono text-xs uppercase tracking-wider select-none font-medium transition-colors leading-none block ${
+            className={`font-mono text-xs md:text-sm uppercase tracking-wider select-none font-medium transition-colors leading-none block ${
               hasUnsavedChanges && saveStatus !== "saving"
                 ? "text-zinc-200 hover:text-white hover:underline cursor-pointer"
                 : "text-zinc-600 cursor-not-allowed"
@@ -1539,7 +1535,7 @@ export default function App() {
             )}
             <span
               onClick={() => setShowMenu(!showMenu)}
-              className="font-mono text-xs uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block relative z-50"
+              className="font-mono text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block relative z-50"
             >
               Menu
             </span>
@@ -1557,7 +1553,7 @@ export default function App() {
                     onClick={() => {
                       handleLock();
                     }}
-                    className="text-xs font-mono text-zinc-500 hover:text-zinc-200 cursor-pointer uppercase tracking-wider transition-colors py-2"
+                    className="text-xs md:text-sm font-mono text-zinc-500 hover:text-zinc-200 cursor-pointer uppercase tracking-wider transition-colors py-2"
                   >
                     Lock Vault
                   </span>
@@ -1567,7 +1563,7 @@ export default function App() {
                       setPwdModalError("");
                       setShowMenu(false);
                     }}
-                    className="text-xs font-mono text-zinc-500 hover:text-zinc-200 cursor-pointer uppercase tracking-wider transition-colors py-2"
+                    className="text-xs md:text-sm font-mono text-zinc-500 hover:text-zinc-200 cursor-pointer uppercase tracking-wider transition-colors py-2"
                   >
                     Change Password
                   </span>
@@ -1579,7 +1575,7 @@ export default function App() {
                       setDeleteError("");
                       setShowMenu(false);
                     }}
-                    className="text-xs font-mono text-zinc-500 hover:text-red-400 cursor-pointer uppercase tracking-wider transition-colors py-2"
+                    className="text-xs md:text-sm font-mono text-zinc-500 hover:text-red-400 cursor-pointer uppercase tracking-wider transition-colors py-2"
                   >
                     Delete Vault
                   </span>
@@ -1613,7 +1609,7 @@ export default function App() {
                     setEditingTabId(tab.id);
                     setEditingTitle(getTabRawTitle(tab));
                   }}
-                  className={`relative flex items-center pl-0 pr-3 pt-1.5 pb-1 text-xs font-mono select-none cursor-pointer transition-colors ${
+                  className={`relative flex items-center pl-0 pr-3 pt-1.5 pb-1 text-xs md:text-sm font-mono select-none cursor-pointer transition-colors ${
                     active
                       ? "text-white"
                       : "text-zinc-500 hover:text-zinc-300"
@@ -2166,13 +2162,13 @@ export default function App() {
                       setPwdModalError("");
                       setShowChangePasswordModal(false);
                     }}
-                    className="font-mono text-xs text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                    className="font-mono text-xs md:text-sm text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
                   >
                     Cancel
                   </span>
                   <span
                     onClick={handleChangePassword}
-                    className="font-mono text-xs font-semibold text-zinc-200 hover:text-white hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
+                    className="font-mono text-xs md:text-sm font-semibold text-zinc-200 hover:text-white hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
                   >
                     Confirm
                   </span>
@@ -2205,13 +2201,13 @@ export default function App() {
                   <div className="flex justify-center gap-12 items-center mt-2">
                     <span
                       onClick={() => setShowDeleteModal(false)}
-                      className="font-mono text-xs text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                      className="font-mono text-xs md:text-sm text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
                     >
                       Keep Secure
                     </span>
                     <span
                       onClick={() => setDeleteStep(2)}
-                      className="font-mono text-xs font-semibold text-red-500 hover:text-red-400 hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
+                      className="font-mono text-xs md:text-sm font-semibold text-red-500 hover:text-red-400 hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
                     >
                       Authorize (1/3)
                     </span>
@@ -2227,13 +2223,13 @@ export default function App() {
                   <div className="flex justify-center gap-12 items-center mt-2">
                     <span
                       onClick={() => setShowDeleteModal(false)}
-                      className="font-mono text-xs text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                      className="font-mono text-xs md:text-sm text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
                     >
                       Aboard
                     </span>
                     <span
                       onClick={() => setDeleteStep(3)}
-                      className="font-mono text-xs font-semibold text-red-500 hover:text-red-400 hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
+                      className="font-mono text-xs md:text-sm font-semibold text-red-500 hover:text-red-400 hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
                     >
                       Destroy (2/3)
                     </span>
@@ -2279,13 +2275,13 @@ export default function App() {
                   <div className="flex justify-center gap-12 items-center mt-2">
                     <span
                       onClick={() => setShowDeleteModal(false)}
-                      className="font-mono text-xs text-zinc-500 hover:text-white transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                      className="font-mono text-xs md:text-sm text-zinc-500 hover:text-white transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
                     >
                       Cancel
                     </span>
                     <span
                       onClick={handleDeleteVault}
-                      className={`font-mono text-xs font-semibold uppercase tracking-wider px-2 block ${
+                      className={`font-mono text-xs md:text-sm font-semibold uppercase tracking-wider px-2 block ${
                         deleteConfirmName.toLowerCase() === vaultName.toLowerCase()
                           ? "text-red-500 hover:text-red-400 hover:underline cursor-pointer transition-colors"
                           : "text-zinc-600 cursor-not-allowed"

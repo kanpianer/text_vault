@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import "katex/dist/katex.min.css";
-import "highlight.js/styles/atom-one-dark.css";
 import { motion, AnimatePresence } from "motion/react";
 import { X } from "lucide-react";
 import { TabContent, SaveStatus } from "./types";

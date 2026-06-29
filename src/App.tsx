@@ -340,10 +340,6 @@ export default function App() {
   const touchStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const tabsContainerRef = useRef<HTMLDivElement>(null);
 
-  // Mobile swipe-to-switch-tab state
-  const swipeStartRef = useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
-  const [swipeDirection, setSwipeDirection] = useState<'left' | 'right' | null>(null);
-
   const [tabToClose, setTabToClose] = useState<string | null>(null);
 
   // Inactivity tracking
@@ -1129,80 +1125,6 @@ export default function App() {
     setTouchDragIndex(null);
   };
 
-  // Mobile swipe-to-switch-tab: horizontal swipe on content area
-  const SWIPE_THRESHOLD = 80;  // minimum px to trigger
-  const SWIPE_ANGLE_RATIO = 1.8; // |dx| must be > |dy| * this
-  const swipeMainRef = useRef<HTMLElement>(null);
-  const swipeTabsRef = useRef(tabs);
-  const swipeEditorFocusedRef = useRef(isEditorFocused);
-  const swipeActiveTabRef = useRef(activeTabId);
-  useEffect(() => { swipeTabsRef.current = tabs; }, [tabs]);
-  useEffect(() => { swipeEditorFocusedRef.current = isEditorFocused; }, [isEditorFocused]);
-  useEffect(() => { swipeActiveTabRef.current = activeTabId; }, [activeTabId]);
-
-  // Use native non-passive touchmove to actually prevent vertical scroll during horizontal swipe.
-  useEffect(() => {
-    const el = swipeMainRef.current;
-    if (!el) return;
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (swipeTabsRef.current.length <= 1 || swipeEditorFocusedRef.current) return;
-      const touch = e.touches[0];
-      swipeStartRef.current = { x: touch.clientX, y: touch.clientY, time: Date.now() };
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (swipeTabsRef.current.length <= 1 || swipeEditorFocusedRef.current) return;
-      const touch = e.touches[0];
-      const dx = touch.clientX - swipeStartRef.current.x;
-      const absDx = Math.abs(dx);
-      const dy = Math.abs(touch.clientY - swipeStartRef.current.y);
-      if (absDx > dy * SWIPE_ANGLE_RATIO && absDx > 20) {
-        e.preventDefault();
-        setSwipeDirection(dx < 0 ? 'left' : 'right');
-      }
-    };
-
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (swipeTabsRef.current.length <= 1 || swipeEditorFocusedRef.current) {
-        setSwipeDirection(null);
-        return;
-      }
-      const touch = e.changedTouches[0];
-      const dx = touch.clientX - swipeStartRef.current.x;
-      const absDx = Math.abs(dx);
-      const dy = Math.abs(touch.clientY - swipeStartRef.current.y);
-      const elapsed = Date.now() - swipeStartRef.current.time;
-
-      setSwipeDirection(null);
-
-      if (absDx >= SWIPE_THRESHOLD && absDx > dy * SWIPE_ANGLE_RATIO && elapsed < 800) {
-        const cells = swipeTabsRef.current;
-        const currentId = swipeActiveTabRef.current;
-        const currentIndex = cells.findIndex(t => t.id === currentId);
-        if (dx < 0 && currentIndex < cells.length - 1) {
-          handleTabSwitch(cells[currentIndex + 1].id);
-        } else if (dx > 0 && currentIndex > 0) {
-          handleTabSwitch(cells[currentIndex - 1].id);
-        }
-      }
-    };
-
-    const handleTouchCancel = () => setSwipeDirection(null);
-
-    el.addEventListener('touchstart', handleTouchStart, { passive: true });
-    el.addEventListener('touchmove', handleTouchMove, { passive: false });
-    el.addEventListener('touchend', handleTouchEnd, { passive: true });
-    el.addEventListener('touchcancel', handleTouchCancel, { passive: true });
-
-    return () => {
-      el.removeEventListener('touchstart', handleTouchStart);
-      el.removeEventListener('touchmove', handleTouchMove);
-      el.removeEventListener('touchend', handleTouchEnd);
-      el.removeEventListener('touchcancel', handleTouchCancel);
-    };
-  }, []);
-
   const handleRenameSave = (tabId: string) => {
     const trimmed = editingTitle.trim();
     if (trimmed) {
@@ -1841,36 +1763,10 @@ export default function App() {
         </div>
       </div>
 
-      <main
-        ref={swipeMainRef}
-        className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 pt-0 pb-0 max-w-4xl mx-auto w-full touch-pan-y"
-      >
+      <main className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 pt-0 pb-0 max-w-4xl mx-auto w-full">
         {/* Content Box (Unified Line-by-Line Edit & Preview Area) */}
         <div className="flex-1 flex flex-col relative pt-1 md:pt-2 pb-24 min-h-[550px]"
         >
-          {/* Swipe hint indicator */}
-          {swipeDirection && tabs.length > 1 && (
-            <div className="absolute inset-0 pointer-events-none z-20 flex items-center overflow-hidden">
-              {swipeDirection === 'left' && (() => {
-                const nextIdx = tabs.findIndex(t => t.id === activeTabId) + 1;
-                if (nextIdx >= tabs.length) return null;
-                return (
-                  <div className="ml-auto mr-2 px-3 py-1.5 bg-[#121215] border border-zinc-800 rounded font-mono text-[10px] text-zinc-400 shadow-lg whitespace-nowrap">
-                    {getTabDisplayTitle(tabs[nextIdx].text, tabs[nextIdx].title)}
-                  </div>
-                );
-              })()}
-              {swipeDirection === 'right' && (() => {
-                const prevIdx = tabs.findIndex(t => t.id === activeTabId) - 1;
-                if (prevIdx < 0) return null;
-                return (
-                  <div className="ml-2 px-3 py-1.5 bg-[#121215] border border-zinc-800 rounded font-mono text-[10px] text-zinc-400 shadow-lg whitespace-nowrap">
-                    {getTabDisplayTitle(tabs[prevIdx].text, tabs[prevIdx].title)}
-                  </div>
-                );
-              })()}
-            </div>
-          )}
           <Editor
             editorRef={editorRef}
             activeTabId={activeTabId}

@@ -1725,7 +1725,7 @@ export default function App() {
                       />
                     ) : (
                       <span 
-                        className={`tracking-wide text-zinc-100 block whitespace-nowrap pb-0.5 border-b ${active ? "border-white" : "border-transparent"}`} 
+                        className={`tracking-wide text-zinc-100 block whitespace-nowrap pb-0.5 border-b ${active ? "border-zinc-300" : "border-transparent"}`} 
                         title={getTabRawTitle(tab)}
                       >
                         {getTabDisplayTitle(tab.text, tab.title)}

@@ -262,7 +262,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
   return (
     <div
       ref={editorRef}
-      className="editor-body w-full h-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-relaxed"
+      className="editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-relaxed"
       contentEditable={!readOnly}
       suppressContentEditableWarning
       onInput={(e) => {
@@ -287,7 +287,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
         }
 
         // Click on empty space below all content: create a new block at the end
-        if (target === editorRef.current) {
+        if (!readOnly && target === editorRef.current) {
           const sel = window.getSelection();
           const range = document.createRange();
           // Go to the very end of the editor
@@ -318,7 +318,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
       }}
       onTouchEnd={(e) => {
         // On mobile, clicking empty space below content creates a new block
-        if (e.target === editorRef.current) {
+        if (!readOnly && e.target === editorRef.current) {
           e.preventDefault();
           const sel = window.getSelection();
           const range = document.createRange();
@@ -331,6 +331,8 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
         }
       }}
       onKeyDown={(e) => {
+        if (readOnly) return;
+
         if (e.key === "Backspace" || e.key === "Delete") {
           const sel = window.getSelection();
           if (sel && sel.rangeCount > 0) {

@@ -19,6 +19,11 @@ function normalizeEditorNodes(root: HTMLElement | null) {
   });
 }
 
+function removeVirtualCursors(root: HTMLElement | null) {
+  if (!root) return;
+  root.querySelectorAll('.virtual-cursor').forEach(el => el.remove());
+}
+
 function getBoundaryAdjacentImage(
   container: Node,
   offset: number,
@@ -109,9 +114,27 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
   useLayoutEffect(() => {
     if (!editorRef.current) return;
 
+    const injectEmptyCursor = (el: HTMLElement) => {
+      const firstP = el.querySelector('p');
+      if (!firstP) return;
+      // Only add if content is essentially empty
+      const text = (el.textContent || '').trim();
+      if (text === '') {
+        if (!firstP.querySelector('.virtual-cursor')) {
+          const cursor = document.createElement('span');
+          cursor.className = 'virtual-cursor';
+          cursor.setAttribute('data-no-undo', 'true');
+          firstP.insertBefore(cursor, firstP.firstChild);
+        }
+      }
+    };
+
     if (activeTabId !== previousTabId.current || isFirstRender.current) {
       editorRef.current.innerHTML = initialContent || "<p><br></p>";
       normalizeEditorNodes(editorRef.current);
+      if (!initialContent || initialContent.trim() === '') {
+        injectEmptyCursor(editorRef.current);
+      }
       previousTabId.current = activeTabId;
       isFirstRender.current = false;
     } else {
@@ -120,6 +143,9 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
       if (!hasFocus && editorRef.current.innerHTML !== initialContent) {
         editorRef.current.innerHTML = initialContent || "<p><br></p>";
         normalizeEditorNodes(editorRef.current);
+        if (!initialContent || initialContent.trim() === '') {
+          injectEmptyCursor(editorRef.current);
+        }
       }
     }
   }, [activeTabId, initialContent]);
@@ -310,6 +336,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
         }
         // Activate editor on click/tap
         if (!isActive && !readOnly) {
+          removeVirtualCursors(editorRef.current);
           setIsActive(true);
         }
       }}
@@ -338,6 +365,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
         }
         // Activate editor on tap
         if (!isActive && !readOnly) {
+          removeVirtualCursors(editorRef.current);
           setIsActive(true);
         }
       }}

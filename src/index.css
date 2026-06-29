@@ -273,6 +273,17 @@ input {
   animation: cursor-blink 1s step-end infinite;
 }
 
+.editor-body .virtual-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.25em;
+  background-color: #71717a;
+  margin-right: 2px;
+  vertical-align: text-bottom;
+  animation: cursor-blink 1s step-end infinite;
+  opacity: 0.7;
+}
+
 @keyframes fast-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }

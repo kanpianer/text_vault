@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { marked } from "marked";
 
 const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF]/g;
@@ -94,6 +94,17 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
   
   const previousTabId = useRef(activeTabId);
   const isFirstRender = useRef(true);
+  const [isActive, setIsActive] = useState(false);
+
+  // Sync isActive with readOnly: deactivate when becoming read-only
+  useEffect(() => {
+    if (readOnly) setIsActive(false);
+  }, [readOnly]);
+
+  // Deactivate when switching tabs
+  useEffect(() => {
+    setIsActive(false);
+  }, [activeTabId]);
 
   useLayoutEffect(() => {
     if (!editorRef.current) return;
@@ -263,19 +274,24 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
     <div
       ref={editorRef}
       className="editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-relaxed"
-      contentEditable={!readOnly}
+      contentEditable={isActive && !readOnly}
       suppressContentEditableWarning
       onInput={(e) => {
         normalizeEditorNodes(e.currentTarget);
         onChange(e.currentTarget.innerHTML, editorRef.current);
       }}
-      onSelect={onSelect}
+      onSelect={isActive ? onSelect : undefined}
       onPaste={handlePaste}
       onMouseDown={(e) => {
         const target = e.target as HTMLElement;
         if (target.tagName === "IMG") {
           e.preventDefault();
           e.stopPropagation();
+          return;
+        }
+        // Activate editor on click/tap
+        if (!isActive && !readOnly) {
+          setIsActive(true);
         }
       }}
       onClick={(e) => {
@@ -299,10 +315,18 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
         if (target.tagName === "IMG") {
           e.preventDefault();
           e.stopPropagation();
+          return;
+        }
+        // Activate editor on tap
+        if (!isActive && !readOnly) {
+          setIsActive(true);
         }
       }}
       onTouchEnd={(e) => {
         // Intentionally empty: clicking between blocks does nothing
+      }}
+      onBlur={() => {
+        if (!readOnly) setIsActive(false);
       }}
       onKeyDown={(e) => {
         if (readOnly) return;

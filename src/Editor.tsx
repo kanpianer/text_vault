@@ -150,6 +150,16 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
               document.execCommand("formatBlock", false, "P");
               return;
             }
+            // Non-empty quote: insert <br> to allow line breaks within the quote
+            e.preventDefault();
+            const br = document.createElement("br");
+            range.insertNode(br);
+            range.setStartAfter(br);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            onChange(el.innerHTML, el);
+            return;
           }
 
           // Check for Task
@@ -276,6 +286,21 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
           return;
         }
 
+        // Click on empty space below all content: create a new block at the end
+        if (target === editorRef.current) {
+          const sel = window.getSelection();
+          const range = document.createRange();
+          // Go to the very end of the editor
+          range.selectNodeContents(editorRef.current);
+          range.collapse(false);
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+          // Insert a new paragraph
+          document.execCommand("insertParagraph", false);
+          onChange(editorRef.current.innerHTML, editorRef.current);
+          return;
+        }
+
         const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
 
         if (anchor) {
@@ -289,6 +314,20 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
         if (target.tagName === "IMG") {
           e.preventDefault();
           e.stopPropagation();
+        }
+      }}
+      onTouchEnd={(e) => {
+        // On mobile, clicking empty space below content creates a new block
+        if (e.target === editorRef.current) {
+          e.preventDefault();
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(editorRef.current);
+          range.collapse(false);
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+          document.execCommand("insertParagraph", false);
+          onChange(editorRef.current.innerHTML, editorRef.current);
         }
       }}
       onKeyDown={(e) => {
@@ -729,6 +768,16 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
                 document.execCommand("formatBlock", false, "P");
                 return;
               }
+              // Non-empty quote: insert <br> to allow line breaks within the quote
+              e.preventDefault();
+              const br = document.createElement("br");
+              range.insertNode(br);
+              range.setStartAfter(br);
+              range.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(range);
+              onChange(editorRef.current.innerHTML, editorRef.current);
+              return;
             }
 
             // Check for Task

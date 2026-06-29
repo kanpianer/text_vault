@@ -48,17 +48,17 @@ npm run build
 ---
 
 ### 第四步：上传前端到 Cloudflare Pages
-
-1. 在左侧菜单，点击 **Workers & Pages**
+0. Fork 本仓库
+1. 在左侧菜单，搜索并选择 **Workers & Pages**
 2. 点击 **Create application** 按钮
-3. 选择 **Pages** 标签
-4. 点击 **Upload assets** 按钮
-5. 输入项目名称：`text-vault-app`
-6. 点击 **Create project**
-7. **将本地 `dist` 文件夹内的所有文件**拖拽到上传区域
-   - ⚠️ 注意：是上传 `dist` 文件夹**内**的文件，不是文件夹本身
-8. 点击 **Deploy site** 按钮
-9. ✅ 部署完成！**记录下 Pages URL**（例如：`https://text-vault-app.pages.dev`）
+3. 点击下方 **Looking to deploy Pages?** 右侧的 **Get started**
+4. 点击 **Import an existing Git repository** 后方的 **Get started**
+5. 选择 **GitHub account** 对应的 **text_vault** 仓库
+6. 点击 **Begin setup**
+7. **Framework preset**选择 **React(Vite)**
+8. **Project name** 输入你想设定的名称，如：`text-vault`
+9. 点击 **Save and Deploy** 按钮
+10. ✅ 部署完成！**记录下 Pages URL**（例如：`https://text-vault.pages.dev`）
 
 ---
 

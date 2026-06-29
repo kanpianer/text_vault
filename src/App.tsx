@@ -332,6 +332,14 @@ export default function App() {
   // Chrome Tabs drag and drop state
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
+  // Mobile touch long-press drag state
+  const touchDragIndexRef = useRef<number | null>(null);
+  const touchDragOverIndexRef = useRef<number | null>(null);
+  const [touchDragIndex, setTouchDragIndex] = useState<number | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+
   const [tabToClose, setTabToClose] = useState<string | null>(null);
 
   // Inactivity tracking
@@ -1048,6 +1056,68 @@ export default function App() {
     setDraggingIndex(null);
   };
 
+  // Mobile touch long-press drag handlers
+  const handleTouchStart = (e: React.TouchEvent, index: number) => {
+    if (editingTabId !== null) return;
+    const touch = e.touches[0];
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+    longPressTimerRef.current = setTimeout(() => {
+      touchDragIndexRef.current = index;
+      touchDragOverIndexRef.current = index;
+      setTouchDragIndex(index);
+    }, 400);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchDragIndexRef.current === null) {
+      // Cancel long-press if moved too far before timer fires
+      const touch = e.touches[0];
+      const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
+      const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
+      if (dx > 8 || dy > 8) {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }
+      return;
+    }
+    e.preventDefault();
+
+    const touch = e.touches[0];
+    const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!targetEl || !tabsContainerRef.current) return;
+
+    // Find the tab element under the touch
+    const tabEl = targetEl.closest('[data-tab-index]') as HTMLElement | null;
+    if (!tabEl) return;
+
+    const targetIndex = parseInt(tabEl.getAttribute('data-tab-index') || '', 10);
+    if (isNaN(targetIndex)) return;
+
+    if (targetIndex !== touchDragIndexRef.current && targetIndex !== touchDragOverIndexRef.current) {
+      const from = touchDragIndexRef.current!;
+      const updated = [...tabs];
+      const item = updated.splice(from, 1)[0];
+      updated.splice(targetIndex, 0, item);
+
+      touchDragIndexRef.current = targetIndex;
+      touchDragOverIndexRef.current = targetIndex;
+      setTabs(updated);
+      setHasUnsavedChanges(true);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    touchDragIndexRef.current = null;
+    touchDragOverIndexRef.current = null;
+    setTouchDragIndex(null);
+  };
+
   const handleRenameSave = (tabId: string) => {
     const trimmed = editingTitle.trim();
     if (trimmed) {
@@ -1590,17 +1660,23 @@ export default function App() {
       {/* Navigation / Chrome mimic row */}
       <div className="w-full max-w-4xl px-4 md:px-8 pb-1 pt-1 flex flex-wrap justify-between items-center gap-4 mx-auto bg-[#0c0c0e]">
           {/* Draggable Chrome tabs reordered */}
-          <div className="flex flex-wrap items-end gap-0.5 flex-1">
+          <div ref={tabsContainerRef} className="flex flex-wrap items-end gap-0.5 flex-1">
             {tabs.map((tab, idx) => {
               const active = tab.id === activeTabId;
               const isEditing = editingTabId === tab.id;
+              const isTouchDragging = touchDragIndex === idx;
               return (
                 <div
                   key={tab.id}
+                  data-tab-index={idx}
                   draggable={!isEditing}
                   onDragStart={(e) => handleDragStart(e, idx)}
                   onDragOver={(e) => handleDragOver(e, idx)}
                   onDragEnd={handleDragEnd}
+                  onTouchStart={(e) => handleTouchStart(e, idx)}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                  onTouchCancel={handleTouchEnd}
                   onClick={() => {
                     handleTabSwitch(tab.id);
                   }}
@@ -1609,11 +1685,11 @@ export default function App() {
                     setEditingTabId(tab.id);
                     setEditingTitle(getTabRawTitle(tab));
                   }}
-                  className={`relative flex items-center pl-0 pr-3 pt-1.5 pb-1 text-xs md:text-sm font-mono select-none cursor-pointer transition-colors ${
+                  className={`relative flex items-center pl-0 pr-3 pt-1.5 pb-1 text-xs md:text-sm font-mono select-none cursor-pointer transition-opacity ${
                     active
                       ? "text-white"
                       : "text-zinc-500 hover:text-zinc-300"
-                  } ${draggingIndex === idx ? "opacity-30" : ""}`}
+                  } ${draggingIndex === idx ? "opacity-30" : ""} ${isTouchDragging ? "opacity-30" : ""}`}
                 >
                   <div className="flex items-center gap-0.5 pb-0.5">
                     {isEditing ? (
@@ -1672,42 +1748,6 @@ export default function App() {
       <main className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 pt-0 pb-0 max-w-4xl mx-auto w-full">
         {/* Content Box (Unified Line-by-Line Edit & Preview Area) */}
         <div className="flex-1 flex flex-col relative pt-1 md:pt-2 pb-24 min-h-[550px]"
-          onClick={(e) => {
-            if (saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed") return;
-            if (e.target === e.currentTarget && editorRef.current) {
-              const children = editorRef.current.children;
-              let shouldAddLine = false;
-              if (children.length > 0) {
-                const lastChild = children[children.length - 1] as HTMLElement;
-                const lastChildRect = lastChild.getBoundingClientRect();
-                if (e.clientY > lastChildRect.bottom) {
-                  shouldAddLine = true;
-                }
-              } else {
-                shouldAddLine = true;
-              }
-
-              if (shouldAddLine) {
-                editorRef.current.focus();
-                
-                setTimeout(() => {
-                  if (!editorRef.current) return;
-                  const p = document.createElement("p");
-                  p.innerHTML = "<br>";
-                  editorRef.current.appendChild(p);
-                  
-                  const sel = window.getSelection();
-                  const range = document.createRange();
-                  range.setStart(p, 0);
-                  range.collapse(true);
-                  sel?.removeAllRanges();
-                  sel?.addRange(range);
-                  
-                  handleEditorInput(editorRef.current.innerHTML, editorRef.current);
-                }, 10);
-              }
-            }
-          }}
         >
           <Editor
             editorRef={editorRef}

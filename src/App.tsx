@@ -1678,7 +1678,7 @@ export default function App() {
       {/* Navigation / Chrome mimic row */}
       <div className="w-full max-w-4xl px-4 md:px-8 pb-1 pt-1 flex flex-wrap justify-between items-center gap-4 mx-auto bg-[#0c0c0e]">
           {/* Draggable Chrome tabs reordered */}
-          <div ref={tabsContainerRef} className="flex flex-wrap items-end gap-0.5 flex-1">
+          <div ref={tabsContainerRef} className="flex flex-wrap items-end gap-0 flex-1">
             {tabs.map((tab, idx) => {
               const active = tab.id === activeTabId;
               const isEditing = editingTabId === tab.id;
@@ -1703,7 +1703,7 @@ export default function App() {
                     setEditingTabId(tab.id);
                     setEditingTitle(getTabRawTitle(tab));
                   }}
-                  className={`relative flex items-center pl-0 pr-3 pt-1.5 pb-1 text-xs md:text-sm font-mono select-none cursor-pointer transition-opacity ${
+                  className={`relative flex items-center pl-0 pr-1.5 pt-1.5 pb-1 text-xs md:text-sm font-mono select-none cursor-pointer transition-opacity ${
                     active
                       ? "text-white"
                       : "text-zinc-500 hover:text-zinc-300"
@@ -1725,7 +1725,7 @@ export default function App() {
                       />
                     ) : (
                       <span 
-                        className={`tracking-wide text-zinc-100 block whitespace-nowrap pb-px border-b ${active ? "border-zinc-300" : "border-transparent"}`} 
+                        className={`tracking-wide text-zinc-100 block whitespace-nowrap border-b ${active ? "border-zinc-300" : "border-transparent"}`} 
                         title={getTabRawTitle(tab)}
                       >
                         {getTabDisplayTitle(tab.text, tab.title)}
@@ -1735,7 +1735,7 @@ export default function App() {
                     {tabs.length > 1 && (
                       <span
                         onClick={(e) => handleCloseTab(e, tab.id)}
-                        className="text-zinc-500 hover:text-red-400 select-none pl-1 ml-1 flex items-center justify-center transition-colors"
+                        className="text-zinc-500 hover:text-red-400 select-none pl-0 ml-0.5 flex items-center justify-center transition-colors"
                       >
                         <X size={10} strokeWidth={2.5} />
                       </span>
@@ -2104,16 +2104,16 @@ export default function App() {
 
 
 
-      {/* CHANGING ENCRYPT PASSWORD POPUP */}
+      {/* DELETE TAB POPUP */}
       <AnimatePresence>
         {tabToClose && (
-          <div className="fixed inset-0 bg-[#0c0c0e] flex items-center justify-center p-4 z-50">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-sm flex flex-col gap-6 relative"
-            >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed inset-0 bg-[#0c0c0e] flex items-center justify-center p-4 z-50"
+          >
+            <div className="w-full max-w-sm flex flex-col gap-6 relative">
               <h3 className="text-zinc-100 font-mono tracking-wide text-lg text-center uppercase">
                 DELETE TAB
               </h3>
@@ -2136,8 +2136,8 @@ export default function App() {
                   Confirm
                 </span>
               </div>
-            </motion.div>
-          </div>
+            </div>
+          </motion.div>
         )}
 
         {showChangePasswordModal && (

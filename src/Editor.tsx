@@ -111,6 +111,13 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
     setIsActive(false);
   }, [activeTabId]);
 
+  // When editor activates, focus without scrolling (prevents mobile page jump)
+  useEffect(() => {
+    if (isActive && editorRef.current && document.activeElement !== editorRef.current) {
+      editorRef.current.focus({ preventScroll: true });
+    }
+  }, [isActive]);
+
   useLayoutEffect(() => {
     if (!editorRef.current) return;
 

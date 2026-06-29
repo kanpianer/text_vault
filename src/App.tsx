@@ -1673,6 +1673,7 @@ export default function App() {
         {/* Content Box (Unified Line-by-Line Edit & Preview Area) */}
         <div className="flex-1 flex flex-col relative pt-1 md:pt-2 pb-24 min-h-[550px]"
           onClick={(e) => {
+            if (saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed") return;
             if (e.target === e.currentTarget && editorRef.current) {
               const children = editorRef.current.children;
               let shouldAddLine = false;
@@ -1718,7 +1719,7 @@ export default function App() {
           />
 
           {/* PC Mode selection toolbar */}
-          {selectionRect && editorRef.current?.parentElement && (
+          {saveStatus === "idle" && selectionRect && editorRef.current?.parentElement && (
             <div 
               ref={pcSelectionToolbarContainerRef}
               className="flex absolute z-50 mt-1 shadow-2xl"
@@ -1877,7 +1878,7 @@ export default function App() {
           )}
 
           {/* PC Mode local empty-line toolbar */}
-          {emptyLineRect && !selectionRect && editorRef.current?.parentElement && (
+          {saveStatus === "idle" && emptyLineRect && !selectionRect && editorRef.current?.parentElement && (
             <div 
               ref={pcEmptyLineToolbarContainerRef}
               className="flex absolute z-50 mt-1 shadow-2xl transition-all duration-300 ease-in-out"
@@ -2297,7 +2298,7 @@ export default function App() {
         )}
       </AnimatePresence>
       {/* Back to top button */}
-      {showBackToTop && !isEditorFocused && !selectionRect && (() => {
+      {showBackToTop && !isEditorFocused && !selectionRect && saveStatus === "idle" && (() => {
         const r = 4; // matches Tailwind 'rounded'
         const { w, h } = backToTopSize;
         // SVG path: starts at top-center, goes clockwise all the way around

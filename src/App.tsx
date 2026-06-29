@@ -880,7 +880,25 @@ export default function App() {
     }
     
     if (tag === "task") {
-       document.execCommand("insertHTML", false, '<input type="checkbox" style="margin-right: 8px;"> ');
+       document.execCommand("insertHTML", false, '\u200B<input type="checkbox" style="margin-right: 8px;">\u200B');
+       // Place cursor after the checkbox zero-width space
+       const el = editorRef.current;
+       if (!el) return;
+       requestAnimationFrame(() => {
+         const sel2 = window.getSelection();
+         if (!sel2) return;
+         const checkbox = el.querySelector('input[type="checkbox"]');
+         if (!checkbox) return;
+         // Find the zero-width text node after the checkbox
+         const afterNode = checkbox.nextSibling;
+         if (afterNode && afterNode.nodeType === Node.TEXT_NODE) {
+           const r = document.createRange();
+           r.setStartAfter(afterNode);
+           r.collapse(true);
+           sel2.removeAllRanges();
+           sel2.addRange(r);
+         }
+       });
     } else if (tag === "list") {
        document.execCommand("insertUnorderedList", false);
     } else if (tag === "center") {

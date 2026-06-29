@@ -197,46 +197,61 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
               onChange(el.innerHTML, el);
               return;
             } else {
-              // Has content, hit enter. We want to create a new task.
-              const currentBlock = block;
-              setTimeout(() => {
-                const sel = window.getSelection();
-                if (!sel || sel.rangeCount === 0) return;
-                const newRange = sel.getRangeAt(0);
-                let newNode: Node | null = newRange.startContainer;
-                let newBlock: HTMLElement | null = newNode.nodeType === Node.TEXT_NODE ? newNode.parentElement : (newNode as HTMLElement);
-                while (newBlock && newBlock !== el && window.getComputedStyle(newBlock).display !== "block" && newBlock.tagName !== "DIV" && newBlock.tagName !== "P") {
-                  newBlock = newBlock.parentElement;
+              // Has content, hit enter. Manually create new task block atomically to avoid toolbar flash and cursor jump.
+              e.preventDefault();
+
+              const sel = window.getSelection();
+              if (!sel || sel.rangeCount === 0) return;
+              const range = sel.getRangeAt(0);
+              
+              // Clone current block as new task block
+              const newBlock = document.createElement(block.tagName.toLowerCase());
+              const newCheckbox = document.createElement('input');
+              newCheckbox.type = "checkbox";
+              newCheckbox.style.marginRight = "8px";
+              const zeroWidth = document.createTextNode('\u200B');
+              newBlock.appendChild(newCheckbox);
+              newBlock.appendChild(zeroWidth);
+
+              // Split content: move text/children after cursor into newBlock
+              if (range.startContainer === block) {
+                // Cursor at block level - move all children after offset
+                const children = Array.from(block.childNodes);
+                for (let i = range.startOffset; i < children.length; i++) {
+                  newBlock.appendChild(children[i]);
+                }
+              } else {
+                // Cursor inside a text node - split text
+                const textNode = range.startContainer as Text;
+                const afterText = textNode.textContent?.substring(range.startOffset) || '';
+                textNode.textContent = textNode.textContent?.substring(0, range.startOffset) || '';
+                
+                // Move siblings after text node to new block
+                let sibling = textNode.nextSibling;
+                while (sibling) {
+                  const next = sibling.nextSibling;
+                  newBlock.appendChild(sibling);
+                  sibling = next;
                 }
                 
-                if (newBlock && newBlock !== currentBlock && newBlock !== el) {
-                  if (!newBlock.querySelector('input[type="checkbox"]')) {
-                    const newCheckbox = document.createElement('input');
-                    newCheckbox.type = "checkbox";
-                    newCheckbox.style.marginRight = "8px";
-                    
-                    if (newBlock.innerHTML === "<br>") {
-                      newBlock.innerHTML = "";
-                    }
-                    
-                    newBlock.insertBefore(newCheckbox, newBlock.firstChild);
-                    const spaceNode = document.createTextNode('\u200B');
-                    newBlock.insertBefore(spaceNode, newCheckbox.nextSibling);
-                    
-                    requestAnimationFrame(() => {
-                      const sel2 = window.getSelection();
-                      if (!sel2 || !newBlock.contains(sel2.anchorNode)) return;
-                      const r = document.createRange();
-                      r.setStartAfter(spaceNode);
-                      r.collapse(true);
-                      sel2.removeAllRanges();
-                      sel2.addRange(r);
-                      
-                      onChange(el.innerHTML, el);
-                    });
-                  }
+                // Append remaining text to new block
+                if (afterText) {
+                  newBlock.appendChild(document.createTextNode(afterText));
                 }
-              }, 10); // slightly longer timeout for mobile stability
+              }
+
+              // Insert new block after current block
+              block.parentNode?.insertBefore(newBlock, block.nextSibling);
+              
+              // Place cursor after checkbox zero-width space
+              const r = document.createRange();
+              r.setStartAfter(zeroWidth);
+              r.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(r);
+              
+              onChange(el.innerHTML, el);
+              return;
             }
           }
         }
@@ -808,53 +823,9 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
                 
                 onChange(editorRef.current.innerHTML, editorRef.current);
                 return;
-              } else {
-                // Has content, hit enter. We want to create a new task.
-                // We should let the default Enter happen, but in a microtask, if a new block was created, we insert a checkbox into it.
-                const currentBlock = block;
-                setTimeout(() => {
-                  const sel = window.getSelection();
-                  if (!sel || sel.rangeCount === 0) return;
-                  const newRange = sel.getRangeAt(0);
-                  let newNode: Node | null = newRange.startContainer;
-                  let newBlock: HTMLElement | null = newNode.nodeType === Node.TEXT_NODE ? newNode.parentElement : (newNode as HTMLElement);
-                  while (newBlock && newBlock !== editorRef.current && window.getComputedStyle(newBlock).display !== "block" && newBlock.tagName !== "DIV" && newBlock.tagName !== "P") {
-                    newBlock = newBlock.parentElement;
-                  }
-                  
-                  // If a new block was indeed created and it doesn't already have a checkbox
-                  if (newBlock && newBlock !== currentBlock && newBlock !== editorRef.current) {
-                    if (!newBlock.querySelector('input[type="checkbox"]')) {
-                      // Insert the checkbox at the beginning of the new block
-                      const newCheckbox = document.createElement('input');
-                      newCheckbox.type = "checkbox";
-                      newCheckbox.style.marginRight = "8px";
-                      
-                      // if new block has just <br>, remove it
-                      if (newBlock.innerHTML === "<br>") {
-                        newBlock.innerHTML = "";
-                      }
-                      
-                      newBlock.insertBefore(newCheckbox, newBlock.firstChild);
-                      const spaceNode = document.createTextNode('\u200B');
-                      newBlock.insertBefore(spaceNode, newCheckbox.nextSibling);
-                      
-                      // Move cursor after the space - use rAF for reliable mobile positioning
-                      requestAnimationFrame(() => {
-                        const sel2 = window.getSelection();
-                        if (!sel2 || !newBlock.contains(sel2.anchorNode)) return;
-                        const r = document.createRange();
-                        r.setStartAfter(spaceNode);
-                        r.collapse(true);
-                        sel2.removeAllRanges();
-                        sel2.addRange(r);
-                        
-                        onChange(editorRef.current.innerHTML, editorRef.current);
-                      });
-                    }
-                  }
-                }, 0);
               }
+              // Has content: beforeinput handler takes care of creating the new task block atomically.
+              return;
             }
           }
         }

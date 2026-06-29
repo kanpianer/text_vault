@@ -1633,9 +1633,9 @@ export default function App() {
       transition={{ duration: 0.16, ease: "easeOut" }}
       className="min-h-screen flex flex-col justify-between bg-[#0b0c0e] text-zinc-200 font-sans relative"
     >
-      {/* Visual saving animation overlay */}
+      {/* Password Changed fullscreen overlay */}
       <AnimatePresence>
-        {(saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed") && (
+        {saveStatus === "pwd_changed" && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1643,7 +1643,7 @@ export default function App() {
             className="fixed inset-0 flex items-center justify-center bg-[#0c0c0e] z-50 pointer-events-none"
           >
             <span className="font-mono text-sm tracking-widest text-[#ffffff] font-medium block uppercase animate-pulse">
-              {saveStatus === "saving" ? "Saving..." : saveStatus === "pwd_changed" ? "Password Changed" : "Saved"}
+              Password Changed
             </span>
           </motion.div>
         )}
@@ -1656,9 +1656,20 @@ export default function App() {
             <span className="font-mono text-sm md:text-base tracking-widest text-[#ffffff] font-semibold select-none flex items-center">
               <span className="text-zinc-500 tracking-normal">Text_Vault/</span><span className="lowercase">{vaultName}</span>
             </span>
-            {hasUnsavedChanges && (
+            {/* Status indicator: UNSAVED / SAVING... / SAVED */}
+            {hasUnsavedChanges && saveStatus === "idle" && (
               <span className="font-mono text-[10px] md:text-xs text-zinc-500 animate-pulse tracking-wide select-none">
                 [UNSAVED]
+              </span>
+            )}
+            {saveStatus === "saving" && (
+              <span className="font-mono text-[10px] md:text-xs text-zinc-400 animate-pulse tracking-wide select-none">
+                [SAVING...]
+              </span>
+            )}
+            {saveStatus === "saved" && (
+              <span className="font-mono text-[10px] md:text-xs text-zinc-400 tracking-wide select-none">
+                [SAVED]
               </span>
             )}
           </div>

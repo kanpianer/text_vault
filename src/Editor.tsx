@@ -220,16 +220,20 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
                     }
                     
                     newBlock.insertBefore(newCheckbox, newBlock.firstChild);
-                    const spaceNode = document.createTextNode(' ');
+                    const spaceNode = document.createTextNode('\u200B');
                     newBlock.insertBefore(spaceNode, newCheckbox.nextSibling);
                     
-                    const r = document.createRange();
-                    r.setStartAfter(spaceNode);
-                    r.collapse(true);
-                    sel.removeAllRanges();
-                    sel.addRange(r);
-                    
-                    onChange(el.innerHTML, el);
+                    requestAnimationFrame(() => {
+                      const sel2 = window.getSelection();
+                      if (!sel2 || !newBlock.contains(sel2.anchorNode)) return;
+                      const r = document.createRange();
+                      r.setStartAfter(spaceNode);
+                      r.collapse(true);
+                      sel2.removeAllRanges();
+                      sel2.addRange(r);
+                      
+                      onChange(el.innerHTML, el);
+                    });
                   }
                 }
               }, 10); // slightly longer timeout for mobile stability
@@ -832,18 +836,21 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
                       }
                       
                       newBlock.insertBefore(newCheckbox, newBlock.firstChild);
-                      const spaceNode = document.createTextNode(' ');
+                      const spaceNode = document.createTextNode('\u200B');
                       newBlock.insertBefore(spaceNode, newCheckbox.nextSibling);
                       
-                      // Move cursor after the space
-                      const r = document.createRange();
-                      r.setStartAfter(spaceNode);
-                      r.collapse(true);
-                      sel.removeAllRanges();
-                      sel.addRange(r);
-                      
-                      // manually trigger onChange since we mutated outside of normal events
-                      onChange(editorRef.current.innerHTML, editorRef.current);
+                      // Move cursor after the space - use rAF for reliable mobile positioning
+                      requestAnimationFrame(() => {
+                        const sel2 = window.getSelection();
+                        if (!sel2 || !newBlock.contains(sel2.anchorNode)) return;
+                        const r = document.createRange();
+                        r.setStartAfter(spaceNode);
+                        r.collapse(true);
+                        sel2.removeAllRanges();
+                        sel2.addRange(r);
+                        
+                        onChange(editorRef.current.innerHTML, editorRef.current);
+                      });
                     }
                   }
                 }, 0);

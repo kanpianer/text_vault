@@ -286,21 +286,6 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
           return;
         }
 
-        // Click on empty space below all content: create a new block at the end
-        if (!readOnly && target === editorRef.current) {
-          const sel = window.getSelection();
-          const range = document.createRange();
-          // Go to the very end of the editor
-          range.selectNodeContents(editorRef.current);
-          range.collapse(false);
-          sel?.removeAllRanges();
-          sel?.addRange(range);
-          // Insert a new paragraph
-          document.execCommand("insertParagraph", false);
-          onChange(editorRef.current.innerHTML, editorRef.current);
-          return;
-        }
-
         const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
 
         if (anchor) {
@@ -317,18 +302,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
         }
       }}
       onTouchEnd={(e) => {
-        // On mobile, clicking empty space below content creates a new block
-        if (!readOnly && e.target === editorRef.current) {
-          e.preventDefault();
-          const sel = window.getSelection();
-          const range = document.createRange();
-          range.selectNodeContents(editorRef.current);
-          range.collapse(false);
-          sel?.removeAllRanges();
-          sel?.addRange(range);
-          document.execCommand("insertParagraph", false);
-          onChange(editorRef.current.innerHTML, editorRef.current);
-        }
+        // Intentionally empty: clicking between blocks does nothing
       }}
       onKeyDown={(e) => {
         if (readOnly) return;

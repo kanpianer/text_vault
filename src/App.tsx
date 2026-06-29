@@ -1027,7 +1027,7 @@ export default function App() {
     const newId = `tab-${Date.now()}`;
     const newTab: TabContent = {
       id: newId,
-      text: `Untitled\nStart writing tab contents...`,
+      text: `Untitled`,
     };
     setTabs([...tabs, newTab]);
     scrollPositionsRef.current[activeTabId] = window.scrollY;

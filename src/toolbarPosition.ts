@@ -138,3 +138,31 @@ function clamp(value: number, min: number, max: number): number {
   if (value > max) return max;
   return value;
 }
+
+// ---------------------------------------------------------------------------
+// Back-to-top button visibility
+// ---------------------------------------------------------------------------
+
+export interface BackToTopState {
+  showBackToTop: boolean;
+  isEditorFocused: boolean;
+  selectionVisible: boolean;
+  emptyLineVisible: boolean;
+  saveStatusIdle: boolean;
+}
+
+/**
+ * Pure function that determines whether the back-to-top button should be
+ * rendered.  The button is hidden whenever the editor is in an active
+ * editing state (focused, text selected, or cursor on an empty-line with
+ * toolbar).
+ */
+export function shouldShowBackToTop(state: BackToTopState): boolean {
+  return (
+    state.showBackToTop &&
+    !state.isEditorFocused &&
+    !state.selectionVisible &&
+    !state.emptyLineVisible &&
+    state.saveStatusIdle
+  );
+}

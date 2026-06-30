@@ -62,6 +62,8 @@ export function calculateSelectionPosition(
 
 /**
  * Calculate toolbar position for an empty-line block element.
+ *
+ * Centres the toolbar horizontally over the block.
  */
 export function calculateEmptyLinePosition(
   blockRect: DOMRect,
@@ -70,6 +72,37 @@ export function calculateEmptyLinePosition(
 ): ToolbarPosition {
   const containerRect = editorContainer.getBoundingClientRect();
   return computeFinalPosition(blockRect, containerRect, toolbarWidth);
+}
+
+/**
+ * Calculate toolbar position for an empty-line block element, left-aligned.
+ *
+ * Positions the toolbar left edge flush with the block's left edge so it
+ * sits exactly at the cursor insertion point.  Clamps within container
+ * boundaries to prevent overflow.
+ */
+export function calculateEmptyLinePositionLeft(
+  blockRect: DOMRect,
+  editorContainer: HTMLElement,
+  toolbarWidth: number,
+): ToolbarPosition {
+  const containerRect = editorContainer.getBoundingClientRect();
+
+  // Vertical: right below the target block, with a small gap
+  const top = blockRect.bottom - containerRect.top + VERTICAL_GAP;
+
+  // Horizontal: left-aligned to the block's left edge
+  const rawLeft = blockRect.left - containerRect.left;
+
+  // Clamp so the toolbar never overflows the container boundaries
+  const maxLeft = Math.max(0, containerRect.width - toolbarWidth);
+  const left = clamp(rawLeft, 0, maxLeft);
+
+  return {
+    top,
+    left,
+    visibility: 'visible',
+  };
 }
 
 // ---------------------------------------------------------------------------

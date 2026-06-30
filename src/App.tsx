@@ -14,7 +14,7 @@ import {
 } from "./crypto";
 import {
   calculateSelectionPosition,
-  calculateEmptyLinePosition,
+  calculateEmptyLinePositionLeft,
 } from "./toolbarPosition";
 
 export default function App() {
@@ -141,7 +141,7 @@ export default function App() {
 
     const parent = editorRef.current.parentElement;
     const toolbarRect = toolbar.getBoundingClientRect();
-    const pos = calculateEmptyLinePosition(emptyLineRect, parent, toolbarRect.width);
+    const pos = calculateEmptyLinePositionLeft(emptyLineRect, parent, toolbarRect.width);
     setPcEmptyLineStyle(pos);
   }, [emptyLineRect, toolbarTick, showLinkInput, showImageInput, showTableInput]);
 
@@ -888,13 +888,21 @@ export default function App() {
               setIsLineToolbarExpanded(true);
               return;
            }
-        } else if (block === editorRef.current) {
-           if ((editorRef.current?.textContent || "").trim() === "") {
-              setEmptyLineRect(editorRef.current!.getBoundingClientRect());
-              setSelectionRange(sel.getRangeAt(0));
-              setIsLineToolbarExpanded(true);
-              return;
-           }
+        } else {
+          // Cursor is at editor level — find the first block-level child
+          // so the toolbar sits right below the actual content line rather
+          // than at the bottom of the full-height editor container.
+          const firstBlock = editorRef.current?.querySelector<HTMLElement>(
+            'p, h1, h2, h3, h4, h5, h6, div, blockquote, pre, li, ul, ol'
+          );
+          if (firstBlock) {
+            setEmptyLineRect(firstBlock.getBoundingClientRect());
+          } else if (editorRef.current) {
+            setEmptyLineRect(editorRef.current!.getBoundingClientRect());
+          }
+          setSelectionRange(sel.getRangeAt(0));
+          setIsLineToolbarExpanded(true);
+          return;
         }
       }
       setEmptyLineRect(null);

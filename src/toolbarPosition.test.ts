@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   calculateSelectionPosition,
   calculateEmptyLinePosition,
+  calculateEmptyLinePositionLeft,
 } from "./toolbarPosition";
 
 // ---------------------------------------------------------------------------
@@ -228,8 +229,84 @@ describe("calculateEmptyLinePosition", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Regression – editor bottom-edge selection (viewport boundary)
+// Tests – Empty-line left-aligned positioning (PC cursor alignment)
 // ---------------------------------------------------------------------------
+
+describe("calculateEmptyLinePositionLeft", () => {
+  it("left-aligns toolbar to the block's left edge (default PC viewport ~1440px)", () => {
+    // Simulate a common PC viewport: container is ~ max-w-4xl (896px) centered
+    const container = createContainer(0, 0, 896, 1200);
+    const blockRect = rect(48, 300, 800, 24); // block with 48px left padding
+
+    const pos = calculateEmptyLinePositionLeft(blockRect, container, 300);
+    // top: block bottom (324) + 3px gap = 327
+    expect(pos.top).toBe(327);
+    // left: block.left (48) - container.left (0) = 48
+    expect(pos.left).toBe(48);
+    expect(pos.visibility).toBe("visible");
+  });
+
+  it("left-aligns at container edge when block has zero left offset", () => {
+    const container = createContainer(0, 0, 800, 1000);
+    const blockRect = rect(0, 200, 800, 24);
+
+    const pos = calculateEmptyLinePositionLeft(blockRect, container, 250);
+    expect(pos.top).toBe(227);
+    expect(pos.left).toBe(0);
+  });
+
+  it("clamps toolbar to container right edge when left-aligned would overflow", () => {
+    const container = createContainer(0, 0, 700, 600);
+    const blockRect = rect(600, 400, 100, 20);
+
+    // toolbar width = 200, so maxLeft = 700 - 200 = 500
+    const pos = calculateEmptyLinePositionLeft(blockRect, container, 200);
+    // rawLeft = 600 - 0 = 600 > 500, so clamped to 500
+    expect(pos.left).toBe(500);
+  });
+
+  it("works correctly for narrow container (mobile ~375px width)", () => {
+    // Even on PC the user refers to "PC mode", but different window sizes exist
+    const container = createContainer(0, 0, 375, 800);
+    const blockRect = rect(8, 120, 359, 22);
+
+    const pos = calculateEmptyLinePositionLeft(blockRect, container, 200);
+    expect(pos.top).toBe(145); // 120 + 22 + 3
+    // rawLeft = 8; maxLeft = 375 - 200 = 175, so left = 8
+    expect(pos.left).toBe(8);
+  });
+
+  it("handles a wider 1920px PC resolution gracefully", () => {
+    const container = createContainer(0, 0, 1920, 1080);
+    const blockRect = rect(24, 100, 1872, 30);
+
+    const pos = calculateEmptyLinePositionLeft(blockRect, container, 350);
+    expect(pos.top).toBe(133); // 100 + 30 + 3
+    // rawLeft = 24, well within bounds
+    expect(pos.left).toBe(24);
+  });
+
+  it("handles full-width block (no overflow) at 1366px", () => {
+    // 1366px is a common Chrome OS / mid-size PC window
+    const container = createContainer(0, 0, 1366, 900);
+    const blockRect = rect(16, 50, 1334, 26);
+
+    const pos = calculateEmptyLinePositionLeft(blockRect, container, 280);
+    // top = 50 + 26 + 3 = 79
+    expect(pos.top).toBe(79);
+    // left = 16, maxLeft = 1366 - 280 = 1086 → no clamp
+    expect(pos.left).toBe(16);
+  });
+
+  it("clamps to 0 for a very wide toolbar that nearly fills the container", () => {
+    const container = createContainer(0, 0, 500, 1000);
+    const blockRect = rect(10, 500, 480, 20);
+    // toolbar is almost as wide as the container
+    const pos = calculateEmptyLinePositionLeft(blockRect, container, 480);
+    // maxLeft = 500 - 480 = 20, rawLeft = 10 → 10 is within range, no clamp
+    expect(pos.left).toBe(10);
+  });
+});
 
 describe("edge cases", () => {
   it("near-editor-bottom selection still returns sensible coordinates", () => {

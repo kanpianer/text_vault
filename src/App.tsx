@@ -73,6 +73,9 @@ export default function App() {
   const backToTopRef = useRef<HTMLDivElement>(null);
   const [backToTopSize, setBackToTopSize] = useState<{ w: number; h: number }>({ w: 0, h: 30 });
 
+  // Mobile keyboard offset: distance from visual-viewport bottom to window bottom
+  const [keyboardOffset, setKeyboardOffset] = useState<number>(0);
+
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [selectionRange, setSelectionRange] = useState<Range | null>(null);
   const [emptyLineRect, setEmptyLineRect] = useState<DOMRect | null>(null);
@@ -86,6 +89,25 @@ export default function App() {
   const [tableColValue, setTableColValue] = useState<string>("");
   const [isTableRowFocused, setIsTableRowFocused] = useState<boolean>(false);
   const [isTableColFocused, setIsTableColFocused] = useState<boolean>(false);
+
+  // Track mobile keyboard offset via visualViewport
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const updateOffset = () => {
+      const offset = window.innerHeight - vv.height - vv.offsetTop;
+      // Only count as keyboard if offset is significant (> 80px)
+      setKeyboardOffset(offset > 80 ? offset : 0);
+    };
+    updateOffset();
+    vv.addEventListener('resize', updateOffset);
+    vv.addEventListener('scroll', updateOffset);
+    return () => {
+      vv.removeEventListener('resize', updateOffset);
+      vv.removeEventListener('scroll', updateOffset);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     if (selectionRect && editorRef.current?.parentElement && pcSelectionToolbarContainerRef.current) {
@@ -1795,11 +1817,20 @@ export default function App() {
           />
 
           {/* PC Mode selection toolbar */}
-          {saveStatus === "idle" && selectionRect && editorRef.current?.parentElement && (
+          {saveStatus === "idle" && selectionRect && editorRef.current?.parentElement && (() => {
+            const isMobileKeyboard = window.innerWidth < 768 && keyboardOffset > 0;
+            return (
             <div 
               ref={pcSelectionToolbarContainerRef}
-              className="flex absolute z-50 mt-1 shadow-2xl"
-              style={{
+              className="flex z-50 mt-1 shadow-2xl"
+              style={isMobileKeyboard ? {
+                position: 'fixed',
+                bottom: keyboardOffset + 'px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 100,
+              } : {
+                position: 'absolute',
                 top: pcSelectionStyle.top ?? (selectionRect.bottom - editorRef.current.parentElement.getBoundingClientRect().top), 
                 left: pcSelectionStyle.left ?? (selectionRect.left - editorRef.current.parentElement.getBoundingClientRect().left),
                 transform: pcSelectionStyle.transform || 'none',
@@ -1951,14 +1982,25 @@ export default function App() {
                 </div>
               )}
             </div>
+            )
+            })}
           )}
 
           {/* PC Mode local empty-line toolbar */}
-          {saveStatus === "idle" && emptyLineRect && !selectionRect && editorRef.current?.parentElement && (
+          {saveStatus === "idle" && emptyLineRect && !selectionRect && editorRef.current?.parentElement && (() => {
+            const isMobileKeyboard = window.innerWidth < 768 && keyboardOffset > 0;
+            return (
             <div 
               ref={pcEmptyLineToolbarContainerRef}
-              className="flex absolute z-50 mt-1 shadow-2xl transition-all duration-300 ease-in-out"
-              style={{ 
+              className="flex z-50 mt-1 shadow-2xl transition-all duration-300 ease-in-out"
+              style={isMobileKeyboard ? {
+                position: 'fixed',
+                bottom: keyboardOffset + 'px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: 100,
+              } : {
+                position: 'absolute',
                 top: pcEmptyLineStyle.top ?? (emptyLineRect.bottom - editorRef.current.parentElement.getBoundingClientRect().top), 
                 left: pcEmptyLineStyle.left ?? (emptyLineRect.left - editorRef.current.parentElement.getBoundingClientRect().left),
                 transform: pcEmptyLineStyle.transform || 'none',
@@ -2116,6 +2158,8 @@ export default function App() {
                 </div>
               )}
             </div>
+            )
+            })}
           )}
         </div>
       </main>

@@ -3,7 +3,7 @@ import "katex/dist/katex.min.css";
 import { motion, AnimatePresence } from "motion/react";
 import { X } from "lucide-react";
 import { TabContent, SaveStatus } from "./types";
-import { Editor } from "./Editor";
+import { Editor, normalizeEditorNodes } from "./Editor";
 import {
   deriveKeyAndHash,
   encryptData,
@@ -968,23 +968,104 @@ export default function App() {
   };
 
   const handleLinkSubmit = (url: string) => {
+    const el = editorRef.current;
+    if (!el) return;
+
+    // Prepare URL
+    let finalUrl = url.trim();
+    if (!finalUrl || finalUrl === "https://") return;
+    if (!/^https?:\/\//i.test(finalUrl)) {
+      finalUrl = "https://" + finalUrl;
+    }
+
+    // Temporarily enable editing (editor loses focus when toolbar input gains it)
+    const prevEditable = el.contentEditable;
+    el.contentEditable = "true";
+    el.focus({ preventScroll: true });
+
+    // Restore the saved selection
     if (selectionRange) {
       const sel = window.getSelection();
       sel?.removeAllRanges();
       sel?.addRange(selectionRange);
     }
-    applyCommand("createLink", url);
+
+    // Apply link command
+    document.execCommand("createLink", false, finalUrl);
+
+    // Normalize: add target="_blank" rel="noopener noreferrer" to the new anchor
+    normalizeEditorNodes(el);
+
+    // Restore contentEditable to its previous state
+    el.contentEditable = prevEditable;
+
+    // Sync state
+    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, text: el.innerHTML } : t));
+    setHasUnsavedChanges(true);
     setShowLinkInput(false);
     setLinkValue("");
   };
 
   const handleImageSubmit = (url: string) => {
+    const el = editorRef.current;
+    if (!el) return;
+
+    // Validate URL: only allow http(s) and data URIs
+    let finalUrl = url.trim();
+    if (!finalUrl || finalUrl === "https://") return;
+    if (!/^(https?:\/\/|data:)/i.test(finalUrl)) {
+      finalUrl = "https://" + finalUrl;
+    }
+
+    // Build img HTML with a unique identifier for post-insert tracking
+    const uid = "img-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+    const imgHtml =
+      `<img src="${finalUrl}" data-img-uid="${uid}" ` +
+      `style="max-width:100%;height:auto;display:block;margin:0.5rem 0;" ` +
+      `contenteditable="false" draggable="false" />`;
+
+    // Temporarily enable editing
+    const prevEditable = el.contentEditable;
+    el.contentEditable = "true";
+    el.focus({ preventScroll: true });
+
+    // Restore cursor position
     if (selectionRange) {
       const sel = window.getSelection();
       sel?.removeAllRanges();
       sel?.addRange(selectionRange);
     }
-    applyCommand("insertImage", url);
+
+    // Insert image
+    document.execCommand("insertHTML", false, imgHtml);
+
+    // Normalize (ensures contenteditable / draggable are set correctly)
+    normalizeEditorNodes(el);
+
+    // Attach load/error handlers to the newly inserted image
+    const img = el.querySelector(`img[data-img-uid="${uid}"]`) as HTMLImageElement | null;
+    if (img) {
+      img.removeAttribute("data-img-uid");
+      img.onerror = () => {
+        const fallback = document.createElement("div");
+        fallback.textContent = "[ Image failed to load ]";
+        fallback.style.cssText =
+          "max-width:100%;height:40px;display:flex;align-items:center;justify-content:center;" +
+          "background:#27272a;color:#71717a;font-family:monospace;font-size:12px;" +
+          "margin:0.5rem 0;padding:0 1rem;border-radius:4px;";
+        img.replaceWith(fallback);
+      };
+      img.onload = () => {
+        img.style.display = "block";
+      };
+    }
+
+    // Restore contentEditable
+    el.contentEditable = prevEditable;
+
+    // Sync state
+    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, text: el.innerHTML } : t));
+    setHasUnsavedChanges(true);
     setShowImageInput(false);
     setImageValue("");
   };

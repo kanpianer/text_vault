@@ -9,6 +9,7 @@ import {
   calculateSelectionPosition,
   calculateEmptyLinePosition,
   calculateEmptyLinePositionLeft,
+  shouldShowBackToTop,
 } from "./toolbarPosition";
 
 // ---------------------------------------------------------------------------
@@ -319,5 +320,66 @@ describe("edge cases", () => {
     // toolbar scrolls naturally with the container)
     expect(pos.top).toBe(2003);
     expect(pos.visibility).toBe("visible");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests – Back-to-top button visibility logic
+// ---------------------------------------------------------------------------
+
+describe("shouldShowBackToTop", () => {
+  const base = {
+    showBackToTop: true,
+    isEditorFocused: false,
+    selectionVisible: false,
+    emptyLineVisible: false,
+    saveStatusIdle: true,
+  };
+
+  it("shows the button when all conditions are met", () => {
+    expect(shouldShowBackToTop(base)).toBe(true);
+  });
+
+  it("hides when scroll is insufficient (showBackToTop = false)", () => {
+    expect(shouldShowBackToTop({ ...base, showBackToTop: false })).toBe(false);
+  });
+
+  it("hides when editor is focused", () => {
+    expect(shouldShowBackToTop({ ...base, isEditorFocused: true })).toBe(false);
+  });
+
+  it("hides when text is selected (selectionVisible = true)", () => {
+    expect(shouldShowBackToTop({ ...base, selectionVisible: true })).toBe(false);
+  });
+
+  it("hides when cursor is on an empty line (emptyLineVisible = true)", () => {
+    expect(shouldShowBackToTop({ ...base, emptyLineVisible: true })).toBe(false);
+  });
+
+  it("hides when saveStatus is not idle (saving)", () => {
+    expect(shouldShowBackToTop({ ...base, saveStatusIdle: false })).toBe(false);
+  });
+
+  it("remains hidden when multiple edit states are active", () => {
+    expect(
+      shouldShowBackToTop({
+        ...base,
+        isEditorFocused: true,
+        emptyLineVisible: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("returns to visible when edit states clear (scroll still deep)", () => {
+    // Simulate: was editing, now blurred and no selection
+    expect(
+      shouldShowBackToTop({
+        showBackToTop: true,
+        isEditorFocused: false,
+        selectionVisible: false,
+        emptyLineVisible: false,
+        saveStatusIdle: true,
+      }),
+    ).toBe(true);
   });
 });

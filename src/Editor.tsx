@@ -341,9 +341,13 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
           e.stopPropagation();
           return;
         }
-        // Activate editor on click/tap
+        // Activate editor on click/tap.
+        // Set contentEditable directly on the DOM so the browser's
+        // native click→cursor-placement runs with edit enabled.
         if (!isActive && !readOnly) {
           removeVirtualCursors(editorRef.current);
+          editorRef.current.contentEditable = "true";
+          editorRef.current.focus({ preventScroll: true });
           setIsActive(true);
         }
       }}
@@ -370,9 +374,13 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
           e.stopPropagation();
           return;
         }
-        // Activate editor on tap
+        // Activate editor on tap.
+        // Set contentEditable directly on the DOM so the browser's
+        // native touch→cursor-placement runs with edit enabled.
         if (!isActive && !readOnly) {
           removeVirtualCursors(editorRef.current);
+          editorRef.current.contentEditable = "true";
+          editorRef.current.focus({ preventScroll: true });
           setIsActive(true);
         }
       }}

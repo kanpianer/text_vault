@@ -15,6 +15,7 @@ import {
 import {
   calculateSelectionPosition,
   calculateEmptyLinePositionLeft,
+  shouldShowBackToTop,
 } from "./toolbarPosition";
 
 export default function App() {
@@ -2519,7 +2520,13 @@ export default function App() {
         )}
       </AnimatePresence>
       {/* Back to top button */}
-      {showBackToTop && !isEditorFocused && !selectionRect && saveStatus === "idle" && (() => {
+      {shouldShowBackToTop({
+        showBackToTop,
+        isEditorFocused,
+        selectionVisible: !!selectionRect,
+        emptyLineVisible: !!emptyLineRect,
+        saveStatusIdle: saveStatus === "idle",
+      }) && (() => {
         const r = 4; // matches Tailwind 'rounded'
         const { w, h } = backToTopSize;
         // SVG path: starts at top-center, goes clockwise all the way around

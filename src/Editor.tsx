@@ -3,7 +3,7 @@ import { marked } from "marked";
 
 const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF]/g;
 
-function normalizeEditorNodes(root: HTMLElement | null) {
+export function normalizeEditorNodes(root: HTMLElement | null) {
   if (!root) return;
 
   root.querySelectorAll("img").forEach((img) => {

@@ -1983,8 +1983,7 @@ export default function App() {
               )}
             </div>
             )
-            })}
-          )}
+            })()}
 
           {/* PC Mode local empty-line toolbar */}
           {saveStatus === "idle" && emptyLineRect && !selectionRect && editorRef.current?.parentElement && (() => {
@@ -2159,8 +2158,7 @@ export default function App() {
               )}
             </div>
             )
-            })}
-          )}
+            })()}
         </div>
       </main>
 

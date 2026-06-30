@@ -318,7 +318,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
       html = html.replace(/<input checked="" disabled="" type="checkbox">/gi, '<input type="checkbox" checked style="margin-right: 8px;">');
       
       document.execCommand("insertHTML", false, html);
-      normalizeEditorNodes(el);
+      normalizeEditorNodes(editorRef.current);
     }
   };
 

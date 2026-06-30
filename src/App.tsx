@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useLayoutEffect } from "react";
+import { useState, useEffect, useRef, useLayoutEffect, useCallback } from "react";
 import "katex/dist/katex.min.css";
 import { motion, AnimatePresence } from "motion/react";
 import { X } from "lucide-react";
@@ -12,6 +12,10 @@ import {
   validatePassword,
   sha256Client,
 } from "./crypto";
+import {
+  calculateSelectionPosition,
+  calculateEmptyLinePosition,
+} from "./toolbarPosition";
 
 export default function App() {
   // Navigation & Router
@@ -90,6 +94,12 @@ export default function App() {
   const [isTableRowFocused, setIsTableRowFocused] = useState<boolean>(false);
   const [isTableColFocused, setIsTableColFocused] = useState<boolean>(false);
 
+  // Tick counter to trigger toolbar position recalculation on scroll / resize / IME
+  const [toolbarTick, setToolbarTick] = useState<number>(0);
+  const scheduleToolbarUpdate = useCallback(() => {
+    requestAnimationFrame(() => setToolbarTick(t => t + 1));
+  }, []);
+
   // Track mobile keyboard offset via visualViewport
   useEffect(() => {
     const vv = window.visualViewport;
@@ -109,53 +119,59 @@ export default function App() {
     };
   }, []);
 
+  // Refactored: unified selection-toolbar position using last-line client rect
   useLayoutEffect(() => {
-    if (selectionRect && editorRef.current?.parentElement && pcSelectionToolbarContainerRef.current) {
-      const parent = editorRef.current.parentElement.getBoundingClientRect();
-      const toolbar = pcSelectionToolbarContainerRef.current.getBoundingClientRect();
-      const desiredLeft = selectionRect.left - parent.left;
-      
-      if (desiredLeft + toolbar.width > parent.width) {
-        setPcSelectionStyle({
-          top: selectionRect.bottom - parent.top,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          visibility: 'visible'
-        });
-      } else {
-        setPcSelectionStyle({
-          top: selectionRect.bottom - parent.top,
-          left: desiredLeft,
-          transform: 'none',
-          visibility: 'visible'
-        });
-      }
+    const toolbar = pcSelectionToolbarContainerRef.current;
+    if (!selectionRange || !editorRef.current?.parentElement || !toolbar) {
+      return;
     }
-  }, [selectionRect, showLinkInput, showImageInput, showTableInput]);
 
+    const parent = editorRef.current.parentElement;
+    const toolbarRect = toolbar.getBoundingClientRect();
+    const pos = calculateSelectionPosition(selectionRange, parent, toolbarRect.width);
+    setPcSelectionStyle(pos);
+  }, [selectionRange, toolbarTick, showLinkInput, showImageInput, showTableInput]);
+
+  // Refactored: unified empty-line-toolbar position
   useLayoutEffect(() => {
-    if (emptyLineRect && editorRef.current?.parentElement && pcEmptyLineToolbarContainerRef.current) {
-      const parent = editorRef.current.parentElement.getBoundingClientRect();
-      const toolbar = pcEmptyLineToolbarContainerRef.current.getBoundingClientRect();
-      const desiredLeft = emptyLineRect.left - parent.left;
-      
-      if (desiredLeft + toolbar.width > parent.width) {
-        setPcEmptyLineStyle({
-          top: emptyLineRect.bottom - parent.top,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          visibility: 'visible'
-        });
-      } else {
-        setPcEmptyLineStyle({
-          top: emptyLineRect.bottom - parent.top,
-          left: desiredLeft,
-          transform: 'none',
-          visibility: 'visible'
-        });
-      }
+    const toolbar = pcEmptyLineToolbarContainerRef.current;
+    if (!emptyLineRect || !editorRef.current?.parentElement || !toolbar) {
+      return;
     }
-  }, [emptyLineRect, showLinkInput, showImageInput, showTableInput]);
+
+    const parent = editorRef.current.parentElement;
+    const toolbarRect = toolbar.getBoundingClientRect();
+    const pos = calculateEmptyLinePosition(emptyLineRect, parent, toolbarRect.width);
+    setPcEmptyLineStyle(pos);
+  }, [emptyLineRect, toolbarTick, showLinkInput, showImageInput, showTableInput]);
+
+  // Recalculate toolbar position on window resize, editor scroll, and IME composition
+  useEffect(() => {
+    const editorParent = editorRef.current?.parentElement;
+    if (!editorParent) return;
+
+    window.addEventListener('resize', scheduleToolbarUpdate, { passive: true });
+    window.addEventListener('scroll', scheduleToolbarUpdate, { passive: true });
+    editorParent.addEventListener('scroll', scheduleToolbarUpdate, { passive: true });
+
+    // IME composition may change layout – listen on the editor itself
+    const editor = editorRef.current;
+    editor?.addEventListener('compositionstart', scheduleToolbarUpdate);
+    editor?.addEventListener('compositionend', scheduleToolbarUpdate);
+
+    // visualViewport resize (mobile keyboard / IME)
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', scheduleToolbarUpdate);
+
+    return () => {
+      window.removeEventListener('resize', scheduleToolbarUpdate);
+      window.removeEventListener('scroll', scheduleToolbarUpdate);
+      editorParent.removeEventListener('scroll', scheduleToolbarUpdate);
+      editor?.removeEventListener('compositionstart', scheduleToolbarUpdate);
+      editor?.removeEventListener('compositionend', scheduleToolbarUpdate);
+      vv?.removeEventListener('resize', scheduleToolbarUpdate);
+    };
+  }, [scheduleToolbarUpdate]);
 
   // Keep active cursor/selection visible in the visual viewport on mobile
   useEffect(() => {
@@ -1912,10 +1928,9 @@ export default function App() {
                 zIndex: 100,
               } : {
                 position: 'absolute',
-                top: pcSelectionStyle.top ?? (selectionRect.bottom - editorRef.current.parentElement.getBoundingClientRect().top), 
-                left: pcSelectionStyle.left ?? (selectionRect.left - editorRef.current.parentElement.getBoundingClientRect().left),
-                transform: pcSelectionStyle.transform || 'none',
-                visibility: pcSelectionStyle.visibility as any || 'hidden'
+                top: pcSelectionStyle.top,
+                left: pcSelectionStyle.left,
+                visibility: pcSelectionStyle.visibility || 'hidden'
               }}
             >
               {showLinkInput ? (
@@ -2081,10 +2096,9 @@ export default function App() {
                 zIndex: 100,
               } : {
                 position: 'absolute',
-                top: pcEmptyLineStyle.top ?? (emptyLineRect.bottom - editorRef.current.parentElement.getBoundingClientRect().top), 
-                left: pcEmptyLineStyle.left ?? (emptyLineRect.left - editorRef.current.parentElement.getBoundingClientRect().left),
-                transform: pcEmptyLineStyle.transform || 'none',
-                visibility: pcEmptyLineStyle.visibility as any || 'hidden'
+                top: pcEmptyLineStyle.top,
+                left: pcEmptyLineStyle.left,
+                visibility: pcEmptyLineStyle.visibility || 'hidden'
               }}
             >
               {showLinkInput ? (

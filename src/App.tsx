@@ -1896,7 +1896,10 @@ export default function App() {
                     e.stopPropagation();
                     setEditingTabId(tab.id);
                     setEditingTitle(getTabRawTitle(tab));
-                    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+                    // 延迟滚动，等待移动设备键盘激活后再滚动到顶部
+                    setTimeout(() => {
+                      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+                    }, 100);
                   }}
                   className={`relative flex items-center pl-0 pr-1.5 pt-1.5 pb-1 text-sm md:text-base font-mono select-none cursor-pointer transition-opacity ${
                     active

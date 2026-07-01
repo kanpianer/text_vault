@@ -779,18 +779,24 @@ export default function App() {
     handleLock();
   };
 
-  // Periodic auto‑save every 20 seconds — silent, keeps editor focus intact
+  // Auto‑save 20s after document becomes UNSAVED — silent, keeps editor focus intact
   useEffect(() => {
     if (!isVerified) return;
 
-    const saveInterval = setInterval(() => {
-      if (hasUnsavedRef.current && saveStatusRef.current !== "saving" && saveStatusRef.current !== "saved") {
-        performSaveAction({ silent: true });
-      }
-    }, 20000);
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    return () => clearInterval(saveInterval);
-  }, [isVerified]);
+    if (hasUnsavedChanges && saveStatus === "idle") {
+      timer = setTimeout(() => {
+        if (hasUnsavedRef.current && saveStatusRef.current === "idle") {
+          performSaveAction({ silent: true });
+        }
+      }, 20000);
+    }
+
+    return () => {
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [isVerified, hasUnsavedChanges, saveStatus]);
 
   // Inactivity tracking for auto-lock (5 minutes)
   useEffect(() => {

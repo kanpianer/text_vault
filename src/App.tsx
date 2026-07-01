@@ -766,7 +766,20 @@ export default function App() {
     handleLock();
   };
 
-  // Inactivity tracking trigger
+  // Periodic auto-save every 20 seconds
+  useEffect(() => {
+    if (!isVerified) return;
+
+    const saveInterval = setInterval(() => {
+      if (hasUnsavedChanges && saveStatus !== "saving" && saveStatus !== "saved") {
+        performSaveAction();
+      }
+    }, 20000);
+
+    return () => clearInterval(saveInterval);
+  }, [isVerified, hasUnsavedChanges, saveStatus]);
+
+  // Inactivity tracking for auto-lock (5 minutes)
   useEffect(() => {
     if (!isVerified) return;
 
@@ -788,14 +801,8 @@ export default function App() {
 
     const checkInterval = setInterval(() => {
       const elapsed = Date.now() - lastActivityRef.current;
-      
-      if (elapsed >= 20000 && elapsed < 120000) {
-        if (hasUnsavedChanges && saveStatus !== "saving" && saveStatus !== "saved") {
-          performSaveAction();
-        }
-      }
 
-      if (elapsed >= 120000) {
+      if (elapsed >= 300000) {
         clearInterval(checkInterval);
         handleAutoSaveAndLock();
       }
@@ -805,7 +812,7 @@ export default function App() {
       events.forEach((event) => document.removeEventListener(event, resetTimer, { capture: true }));
       clearInterval(checkInterval);
     };
-  }, [isVerified, hasUnsavedChanges, tabs, activeTabId, aesKey, authHash, saveStatus]);
+  }, [isVerified]);
 
   // Hotkey hook for Ctrl+S
   useEffect(() => {

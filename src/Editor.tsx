@@ -102,7 +102,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
   const [isActive, setIsActive] = useState(false);
 
   // Touch-swipe detection refs — prevent scroll from accidentally activating editor
-  const touchRef = useRef({ startX: 0, startY: 0, startTime: 0, isScroll: false });
+  const touchRef = useRef({ startX: 0, startY: 0, startTime: 0, isScroll: false, hasMoved: false });
 
   // Sync isActive with readOnly: deactivate when becoming read-only
   useEffect(() => {
@@ -417,20 +417,24 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
           startY: touch.clientY,
           startTime: Date.now(),
           isScroll: false,
+          hasMoved: false,
         };
       }}
       onTouchMove={(e) => {
         const touch = e.touches[0];
         const dx = Math.abs(touch.clientX - touchRef.current.startX);
         const dy = Math.abs(touch.clientY - touchRef.current.startY);
-        if (dx > 10 || dy > 10) {
+        // 提高滑动检测阈值，从 10 增加到 15，更严格判断是否为滑动
+        if (dx > 15 || dy > 15) {
           touchRef.current.isScroll = true;
+          touchRef.current.hasMoved = true;
         }
       }}
       onTouchEnd={(e) => {
-        const { startTime, isScroll } = touchRef.current;
+        const { startTime, isScroll, hasMoved } = touchRef.current;
         const elapsed = Date.now() - startTime;
-        const wasTap = !isScroll && elapsed < 200;
+        // 只有当没有移动且时间小于 300ms 才认为是点击
+        const wasTap = !isScroll && !hasMoved && elapsed < 300;
         if (wasTap && !isActive && !readOnly) {
           const target = e.target as HTMLElement;
           if (target.tagName === "IMG") return;
@@ -439,7 +443,9 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
           editorRef.current.focus({ preventScroll: true });
           setIsActive(true);
         }
+        // 重置状态
         touchRef.current.isScroll = false;
+        touchRef.current.hasMoved = false;
       }}
       onBlur={() => {
         if (!readOnly) setIsActive(false);

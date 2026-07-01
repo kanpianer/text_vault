@@ -189,9 +189,28 @@ export default function App() {
   useEffect(() => {
     if (window.innerWidth >= 768) return;
 
+    let isScrolling = false;
+    let scrollTimeout: ReturnType<typeof setTimeout>;
+    let lastScrollY = window.scrollY;
+
+    const handleScroll = () => {
+      isScrolling = true;
+      lastScrollY = window.scrollY;
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        isScrolling = false;
+      }, 150);
+    };
+
     const handleSelectionChange = () => {
+      // 如果正在滑动，不处理光标滚动，避免页面跳动
+      if (isScrolling) return;
+      
       // Small timeout to allow DOM/layout updates
       setTimeout(() => {
+        // 再次检查是否在滑动
+        if (isScrolling) return;
+        
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0) return;
         
@@ -224,7 +243,10 @@ export default function App() {
 
         if (cursorBottomInVv > bottomThreshold) {
           const delta = cursorBottomInVv - bottomThreshold;
-          window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
+          // 只有当 delta 足够大时才滚动，避免微小抖动
+          if (delta > 5) {
+            window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
+          }
         }
       }, 50);
     };
@@ -232,10 +254,13 @@ export default function App() {
     document.addEventListener('selectionchange', handleSelectionChange);
     const vv = window.visualViewport;
     vv?.addEventListener('resize', handleSelectionChange);
+    window.addEventListener('scroll', handleScroll, { passive: true });
     
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange);
       vv?.removeEventListener('resize', handleSelectionChange);
+      window.removeEventListener('scroll', handleScroll);
+      clearTimeout(scrollTimeout);
     };
   }, []);
 
@@ -297,7 +322,19 @@ export default function App() {
     const editor = editorRef.current;
     if (!editor) return;
     const onFocusIn = () => setIsEditorFocused(true);
-    const onFocusOut = () => setIsEditorFocused(false);
+    const onFocusOut = () => {
+      setIsEditorFocused(false);
+      // 移动设备上光标失焦后，工具栏自动消失
+      if (window.innerWidth < 768) {
+        setSelectionRect(null);
+        setSelectionRange(null);
+        setEmptyLineRect(null);
+        setIsLineToolbarExpanded(false);
+        setShowLinkInput(false);
+        setShowImageInput(false);
+        setShowTableInput(false);
+      }
+    };
     editor.addEventListener('focusin', onFocusIn);
     editor.addEventListener('focusout', onFocusOut);
     return () => {
@@ -1896,7 +1933,10 @@ export default function App() {
                     e.stopPropagation();
                     setEditingTabId(tab.id);
                     setEditingTitle(getTabRawTitle(tab));
-                    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+                    // 延迟滚动，等待移动设备键盘激活后再滚动到顶部
+                    setTimeout(() => {
+                      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+                    }, 100);
                   }}
                   className={`relative flex items-center pl-0 pr-1.5 pt-1.5 pb-1 text-sm md:text-base font-mono select-none cursor-pointer transition-opacity ${
                     active

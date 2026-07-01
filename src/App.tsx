@@ -297,7 +297,19 @@ export default function App() {
     const editor = editorRef.current;
     if (!editor) return;
     const onFocusIn = () => setIsEditorFocused(true);
-    const onFocusOut = () => setIsEditorFocused(false);
+    const onFocusOut = () => {
+      setIsEditorFocused(false);
+      // 移动设备上光标失焦后，工具栏自动消失
+      if (window.innerWidth < 768) {
+        setSelectionRect(null);
+        setSelectionRange(null);
+        setEmptyLineRect(null);
+        setIsLineToolbarExpanded(false);
+        setShowLinkInput(false);
+        setShowImageInput(false);
+        setShowTableInput(false);
+      }
+    };
     editor.addEventListener('focusin', onFocusIn);
     editor.addEventListener('focusout', onFocusOut);
     return () => {

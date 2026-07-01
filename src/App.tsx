@@ -386,6 +386,12 @@ export default function App() {
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Refs mirroring state for stable auto-save effect (prevents focus loss)
+  const hasUnsavedRef = useRef(hasUnsavedChanges);
+  const saveStatusRef = useRef(saveStatus);
+  hasUnsavedRef.current = hasUnsavedChanges;
+  saveStatusRef.current = saveStatus;
+
   const resetVaultAuthInputs = () => {
     setPassword("");
     setConfirmPassword("");
@@ -710,9 +716,10 @@ export default function App() {
   };
 
   // Save text payload - used by Ctrl+S, manual button, and Auto-save
-  const performSaveAction = async (): Promise<boolean> => {
+  const performSaveAction = async (opts?: { silent?: boolean }): Promise<boolean> => {
     if (!aesKey || !authHash || !vaultName || tabs.length === 0) return false;
-    setSaveStatus("saving");
+    const silent = opts?.silent ?? false;
+    if (!silent) setSaveStatus("saving");
     const startTime = Date.now();
     try {
       const jsonStr = JSON.stringify({ tabs });
@@ -734,15 +741,19 @@ export default function App() {
       }
 
       if (response.ok) {
-        setSaveStatus("saved");
+        if (!silent) {
+          setSaveStatus("saved");
+          setTimeout(() => {
+            setSaveStatus("idle");
+          }, 200);
+        }
         setHasUnsavedChanges(false);
-        setTimeout(() => {
-          setSaveStatus("idle");
-        }, 200);
         return true;
       } else {
-        setSaveStatus("error");
-        setTimeout(() => setSaveStatus("idle"), 2000);
+        if (!silent) {
+          setSaveStatus("error");
+          setTimeout(() => setSaveStatus("idle"), 2000);
+        }
         return false;
       }
     } catch (error) {
@@ -752,8 +763,10 @@ export default function App() {
       if (waitTime > 0) {
         await new Promise((r) => setTimeout(r, waitTime));
       }
-      setSaveStatus("error");
-      setTimeout(() => setSaveStatus("idle"), 2000);
+      if (!silent) {
+        setSaveStatus("error");
+        setTimeout(() => setSaveStatus("idle"), 2000);
+      }
       return false;
     }
   };
@@ -766,18 +779,18 @@ export default function App() {
     handleLock();
   };
 
-  // Periodic auto-save every 20 seconds
+  // Periodic auto‑save every 20 seconds — silent, keeps editor focus intact
   useEffect(() => {
     if (!isVerified) return;
 
     const saveInterval = setInterval(() => {
-      if (hasUnsavedChanges && saveStatus !== "saving" && saveStatus !== "saved") {
-        performSaveAction();
+      if (hasUnsavedRef.current && saveStatusRef.current !== "saving" && saveStatusRef.current !== "saved") {
+        performSaveAction({ silent: true });
       }
     }, 20000);
 
     return () => clearInterval(saveInterval);
-  }, [isVerified, hasUnsavedChanges, saveStatus]);
+  }, [isVerified]);
 
   // Inactivity tracking for auto-lock (5 minutes)
   useEffect(() => {

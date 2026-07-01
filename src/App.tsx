@@ -1121,7 +1121,7 @@ export default function App() {
         fallback.textContent = "[ Image failed to load ]";
         fallback.style.cssText =
           "max-width:100%;height:40px;display:flex;align-items:center;justify-content:center;" +
-          "background:#27272a;color:#71717a;font-family:monospace;font-size:12px;" +
+          "background:#27272a;color:#71717a;font-size:12px;" +
           "margin:0.5rem 0;padding:0 1rem;border-radius:4px;";
         img.replaceWith(fallback);
       };

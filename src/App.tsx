@@ -102,14 +102,25 @@ export default function App() {
   }, []);
 
   // Track mobile keyboard offset via visualViewport
+  const keyboardVisibleRef = useRef(false);
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
 
     const updateOffset = () => {
       const offset = window.innerHeight - vv.height - vv.offsetTop;
-      // Only count as keyboard if offset is significant (> 80px)
-      setKeyboardOffset(offset > 80 ? offset : 0);
+      const isVisible = offset > 80;
+      setKeyboardOffset(isVisible ? offset : 0);
+      // Dismiss toolbars when mobile keyboard is hidden
+      if (keyboardVisibleRef.current && !isVisible && window.innerWidth < 768) {
+        setSelectionRect(null);
+        setEmptyLineRect(null);
+        setIsLineToolbarExpanded(false);
+        setShowLinkInput(false);
+        setShowImageInput(false);
+        setShowTableInput(false);
+      }
+      keyboardVisibleRef.current = isVisible;
     };
     updateOffset();
     vv.addEventListener('resize', updateOffset);

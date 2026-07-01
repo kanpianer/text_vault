@@ -814,13 +814,21 @@ export default function App() {
     };
   }, [isVerified]);
 
-  // Hotkey hook for Ctrl+S
+  // Hotkey hook for Ctrl+S and prevent Backspace browser navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (isVerified && hasUnsavedChanges && saveStatus !== "saving") {
           performSaveAction();
+        }
+      }
+      // Prevent Backspace from triggering browser "go back" in preview mode
+      if (e.key === "Backspace") {
+        const tag = (e.target as HTMLElement)?.tagName;
+        const isInput = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
+        if (!isInput) {
+          e.preventDefault();
         }
       }
     };

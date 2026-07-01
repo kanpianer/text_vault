@@ -1877,7 +1877,7 @@ export default function App() {
                     setEditingTabId(tab.id);
                     setEditingTitle(getTabRawTitle(tab));
                   }}
-                  className={`relative flex items-center pl-0 pr-1.5 pt-1.5 pb-1 text-xs md:text-sm font-mono select-none cursor-pointer transition-opacity ${
+                  className={`relative flex items-center pl-0 pr-1.5 pt-1.5 pb-1 text-sm md:text-base font-mono select-none cursor-pointer transition-opacity ${
                     active
                       ? "text-white"
                       : "text-zinc-500 hover:text-zinc-300"
@@ -1893,7 +1893,7 @@ export default function App() {
                         onBlur={() => handleRenameSave(tab.id)}
                         onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
                         onFocus={(e) => e.target.select()}
-                        className="bg-transparent border-b border-zinc-500 text-white outline-none font-mono text-xs pb-0.5 max-w-[120px]"
+                        className="bg-transparent border-b border-zinc-500 text-white outline-none font-mono text-sm pb-0.5 max-w-[120px]"
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
                       />
@@ -1922,7 +1922,7 @@ export default function App() {
             {tabs.length < 10 && (
               <div
                 onClick={handleAddTab}
-                className="relative flex items-center px-1.5 pt-1.5 pb-1 text-xs font-mono select-none cursor-pointer text-zinc-500 hover:text-white transition-colors"
+                className="relative flex items-center px-1.5 pt-1.5 pb-1 text-sm font-mono select-none cursor-pointer text-zinc-500 hover:text-white transition-colors"
               >
                 <div className="flex items-center gap-0.5 pb-0.5">
                   <span className="tracking-wide font-semibold">

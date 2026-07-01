@@ -365,6 +365,39 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
           e.preventDefault();
           e.stopPropagation();
           window.open(anchor.href, "_blank", "noopener,noreferrer");
+          return;
+        }
+
+        // Click on empty area below editor content → create a new edit block
+        if (target === editorRef.current && !readOnly) {
+          // Find the last block-level element
+          const blocks = editorRef.current.querySelectorAll<HTMLElement>(
+            'p, h1, h2, h3, h4, h5, h6, div, blockquote, pre, li, ul, ol'
+          );
+          if (blocks.length > 0) {
+            const lastBlock = blocks[blocks.length - 1];
+            const lastText = (lastBlock.textContent || '').replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim();
+            if (lastText.length > 0) {
+              e.preventDefault();
+              // Activate editor
+              if (!isActive) {
+                removeVirtualCursors(editorRef.current);
+                editorRef.current.contentEditable = "true";
+                setIsActive(true);
+              }
+              const newP = document.createElement('p');
+              newP.innerHTML = '<br>';
+              editorRef.current.appendChild(newP);
+              const sel = window.getSelection();
+              const r = document.createRange();
+              r.selectNodeContents(newP);
+              r.collapse(true);
+              sel?.removeAllRanges();
+              sel?.addRange(r);
+              onChange(editorRef.current.innerHTML, editorRef.current);
+              return;
+            }
+          }
         }
       }}
       onTouchStart={(e) => {

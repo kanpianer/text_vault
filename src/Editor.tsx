@@ -101,6 +101,9 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
   const isFirstRender = useRef(true);
   const [isActive, setIsActive] = useState(false);
 
+  // Touch-swipe detection refs — prevent scroll from accidentally activating editor
+  const touchRef = useRef({ startX: 0, startY: 0, startTime: 0, isScroll: false });
+
   // Sync isActive with readOnly: deactivate when becoming read-only
   useEffect(() => {
     if (readOnly) setIsActive(false);
@@ -407,18 +410,36 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
           e.stopPropagation();
           return;
         }
-        // Activate editor on tap.
-        // Set contentEditable directly on the DOM so the browser's
-        // native touch→cursor-placement runs with edit enabled.
-        if (!isActive && !readOnly) {
+        // Record touch origin for swipe detection
+        const touch = e.touches[0];
+        touchRef.current = {
+          startX: touch.clientX,
+          startY: touch.clientY,
+          startTime: Date.now(),
+          isScroll: false,
+        };
+      }}
+      onTouchMove={(e) => {
+        const touch = e.touches[0];
+        const dx = Math.abs(touch.clientX - touchRef.current.startX);
+        const dy = Math.abs(touch.clientY - touchRef.current.startY);
+        if (dx > 10 || dy > 10) {
+          touchRef.current.isScroll = true;
+        }
+      }}
+      onTouchEnd={(e) => {
+        const { startTime, isScroll } = touchRef.current;
+        const elapsed = Date.now() - startTime;
+        const wasTap = !isScroll && elapsed < 200;
+        if (wasTap && !isActive && !readOnly) {
+          const target = e.target as HTMLElement;
+          if (target.tagName === "IMG") return;
           removeVirtualCursors(editorRef.current);
           editorRef.current.contentEditable = "true";
           editorRef.current.focus({ preventScroll: true });
           setIsActive(true);
         }
-      }}
-      onTouchEnd={(e) => {
-        // Intentionally empty: clicking between blocks does nothing
+        touchRef.current.isScroll = false;
       }}
       onBlur={() => {
         if (!readOnly) setIsActive(false);

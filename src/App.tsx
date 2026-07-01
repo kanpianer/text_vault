@@ -189,28 +189,9 @@ export default function App() {
   useEffect(() => {
     if (window.innerWidth >= 768) return;
 
-    let isScrolling = false;
-    let scrollTimeout: ReturnType<typeof setTimeout>;
-    let lastScrollY = window.scrollY;
-
-    const handleScroll = () => {
-      isScrolling = true;
-      lastScrollY = window.scrollY;
-      clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(() => {
-        isScrolling = false;
-      }, 150);
-    };
-
     const handleSelectionChange = () => {
-      // 如果正在滑动，不处理光标滚动，避免页面跳动
-      if (isScrolling) return;
-      
       // Small timeout to allow DOM/layout updates
       setTimeout(() => {
-        // 再次检查是否在滑动
-        if (isScrolling) return;
-        
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0) return;
         
@@ -243,10 +224,7 @@ export default function App() {
 
         if (cursorBottomInVv > bottomThreshold) {
           const delta = cursorBottomInVv - bottomThreshold;
-          // 只有当 delta 足够大时才滚动，避免微小抖动
-          if (delta > 5) {
-            window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
-          }
+          window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
         }
       }, 50);
     };
@@ -254,13 +232,10 @@ export default function App() {
     document.addEventListener('selectionchange', handleSelectionChange);
     const vv = window.visualViewport;
     vv?.addEventListener('resize', handleSelectionChange);
-    window.addEventListener('scroll', handleScroll, { passive: true });
     
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange);
       vv?.removeEventListener('resize', handleSelectionChange);
-      window.removeEventListener('scroll', handleScroll);
-      clearTimeout(scrollTimeout);
     };
   }, []);
 
@@ -322,19 +297,7 @@ export default function App() {
     const editor = editorRef.current;
     if (!editor) return;
     const onFocusIn = () => setIsEditorFocused(true);
-    const onFocusOut = () => {
-      setIsEditorFocused(false);
-      // 移动设备上光标失焦后，工具栏自动消失
-      if (window.innerWidth < 768) {
-        setSelectionRect(null);
-        setSelectionRange(null);
-        setEmptyLineRect(null);
-        setIsLineToolbarExpanded(false);
-        setShowLinkInput(false);
-        setShowImageInput(false);
-        setShowTableInput(false);
-      }
-    };
+    const onFocusOut = () => setIsEditorFocused(false);
     editor.addEventListener('focusin', onFocusIn);
     editor.addEventListener('focusout', onFocusOut);
     return () => {
@@ -1158,7 +1121,7 @@ export default function App() {
         fallback.textContent = "[ Image failed to load ]";
         fallback.style.cssText =
           "max-width:100%;height:40px;display:flex;align-items:center;justify-content:center;" +
-          "background:#27272a;color:#71717a;font-size:12px;" +
+          "background:#27272a;color:#71717a;font-family:var(--font-sans);font-size:12px;" +
           "margin:0.5rem 0;padding:0 1rem;border-radius:4px;";
         img.replaceWith(fallback);
       };
@@ -1933,12 +1896,9 @@ export default function App() {
                     e.stopPropagation();
                     setEditingTabId(tab.id);
                     setEditingTitle(getTabRawTitle(tab));
-                    // 延迟滚动，等待移动设备键盘激活后再滚动到顶部
-                    setTimeout(() => {
-                      window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-                    }, 100);
+                    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
                   }}
-                  className={`relative flex items-center pl-0 pr-1.5 pt-1.5 pb-1 text-sm md:text-base font-mono select-none cursor-pointer transition-opacity ${
+                  className={`relative flex items-center pl-0 pr-1.5 pt-1.5 pb-1 text-sm md:text-base font-sans select-none cursor-pointer transition-opacity ${
                     active
                       ? "text-white"
                       : "text-zinc-500 hover:text-zinc-300"
@@ -1954,7 +1914,7 @@ export default function App() {
                         onBlur={() => handleRenameSave(tab.id)}
                         onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
                         onFocus={(e) => e.target.select()}
-                        className="bg-transparent border-b border-zinc-500 text-white outline-none font-mono text-sm pb-0.5 max-w-[120px]"
+                        className="bg-transparent border-b border-zinc-500 text-white outline-none font-sans text-sm pb-0.5 max-w-[120px]"
                         onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => e.stopPropagation()}
                       />

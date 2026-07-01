@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600;700;800&family=LXGW+WenKai:wght@300;400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600;700;800&display=swap');
+@import url('https://cdn.jsdelivr.net/npm/lxgw-wenkai-webfont@1.7.0/style.css');
 @import "tailwindcss";
 @import "highlight.js/scss/atom-one-dark.scss";
 
@@ -29,6 +30,9 @@ input {
 }
 
 /* Markdown Preview Styling */
+.markdown-body {
+  font-family: var(--font-sans);
+}
 .markdown-body h1 {
   font-size: 1.5rem;
   font-weight: 600;
@@ -159,6 +163,7 @@ input {
   text-decoration: line-through;
 }
 .editor-body {
+  font-family: var(--font-sans);
   word-wrap: break-word;
 }
 .editor-body h1 {

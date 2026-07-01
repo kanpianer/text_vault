@@ -189,9 +189,28 @@ export default function App() {
   useEffect(() => {
     if (window.innerWidth >= 768) return;
 
+    let isScrolling = false;
+    let scrollTimeout: ReturnType<typeof setTimeout>;
+    let lastScrollY = window.scrollY;
+
+    const handleScroll = () => {
+      isScrolling = true;
+      lastScrollY = window.scrollY;
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        isScrolling = false;
+      }, 150);
+    };
+
     const handleSelectionChange = () => {
+      // 如果正在滑动，不处理光标滚动，避免页面跳动
+      if (isScrolling) return;
+      
       // Small timeout to allow DOM/layout updates
       setTimeout(() => {
+        // 再次检查是否在滑动
+        if (isScrolling) return;
+        
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0) return;
         
@@ -224,7 +243,10 @@ export default function App() {
 
         if (cursorBottomInVv > bottomThreshold) {
           const delta = cursorBottomInVv - bottomThreshold;
-          window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
+          // 只有当 delta 足够大时才滚动，避免微小抖动
+          if (delta > 5) {
+            window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
+          }
         }
       }, 50);
     };
@@ -232,10 +254,13 @@ export default function App() {
     document.addEventListener('selectionchange', handleSelectionChange);
     const vv = window.visualViewport;
     vv?.addEventListener('resize', handleSelectionChange);
+    window.addEventListener('scroll', handleScroll, { passive: true });
     
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange);
       vv?.removeEventListener('resize', handleSelectionChange);
+      window.removeEventListener('scroll', handleScroll);
+      clearTimeout(scrollTimeout);
     };
   }, []);
 

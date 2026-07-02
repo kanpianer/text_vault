@@ -374,9 +374,9 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
         // Click on empty area below editor content → create a new edit block
         if (target === editorRef.current && !readOnly) {
           // Find the last block-level element
-          const blocks = editorRef.current.querySelectorAll<HTMLElement>(
+          const blocks = editorRef.current.querySelectorAll(
             'p, h1, h2, h3, h4, h5, h6, div, blockquote, pre, li, ul, ol'
-          );
+          ) as NodeListOf<HTMLElement>;
           if (blocks.length > 0) {
             const lastBlock = blocks[blocks.length - 1];
             const lastText = (lastBlock.textContent || '').replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim();

@@ -17,8 +17,14 @@ import {
   calculateEmptyLinePositionLeft,
   shouldShowBackToTop,
 } from "./toolbarPosition";
-import { useMobileViewport, useScrollToVisible } from "./viewportManager";
-import { getMobileToolbarStyle } from "./mobileToolbarPosition";
+import {
+  calculateMobileToolbarBottom,
+  calculateScrollDeltaForVisibility,
+  DEFAULT_MOBILE_TOOLBAR_HEIGHT,
+  getSelectionVisibleRect,
+  isMobileViewport,
+  readViewportMetrics,
+} from "./mobileViewport";
 
 export default function App() {
   // Navigation & Router
@@ -72,20 +78,17 @@ export default function App() {
   const [pcSelectionStyle, setPcSelectionStyle] = useState<React.CSSProperties>({});
   const [pcEmptyLineStyle, setPcEmptyLineStyle] = useState<React.CSSProperties>({});
 
-  // Mobile: unified viewport & keyboard state
-  const mobileViewport = useMobileViewport();
-  const { scrollToMakeVisible, ensureRangeVisible } = useScrollToVisible({ editorRef });
-
   const [showBackToTop, setShowBackToTop] = useState<boolean>(false);
   const [isEditorFocused, setIsEditorFocused] = useState<boolean>(false);
   const [scrollProgress, setScrollProgress] = useState<number>(0);
   const backToTopRef = useRef<HTMLDivElement>(null);
   const [backToTopSize, setBackToTopSize] = useState<{ w: number; h: number }>({ w: 0, h: 30 });
 
+  const [viewportMetrics, setViewportMetrics] = useState(() => readViewportMetrics(window));
+
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [selectionRange, setSelectionRange] = useState<Range | null>(null);
-  const [emptyLineRect, setEmptyLineRect] = useState<DOMRect | null>(null);
-  const [isLineToolbarExpanded, setIsLineToolbarExpanded] = useState<boolean>(false);
+  const [emptyLineElement, setEmptyLineElement] = useState<HTMLElement | null>(null);
   const [showLinkInput, setShowLinkInput] = useState<boolean>(false);
   const [showImageInput, setShowImageInput] = useState<boolean>(false);
   const [showTableInput, setShowTableInput] = useState<boolean>(false);
@@ -102,10 +105,114 @@ export default function App() {
     requestAnimationFrame(() => setToolbarTick(t => t + 1));
   }, []);
 
+  const clearToolbarInputs = useCallback(() => {
+    setShowLinkInput(false);
+    setShowImageInput(false);
+    setShowTableInput(false);
+  }, []);
+
+  const clearEditorInteractionState = useCallback(() => {
+    setSelectionRect(null);
+    setSelectionRange(null);
+    setEmptyLineElement(null);
+  }, []);
+
+  const resolveEditableBlock = useCallback((node: Node | null) => {
+    let block: HTMLElement | null =
+      node?.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement | null);
+
+    while (
+      block &&
+      block !== editorRef.current &&
+      window.getComputedStyle(block).display !== "block" &&
+      block.tagName !== "BLOCKQUOTE" &&
+      block.tagName !== "LI" &&
+      block.tagName !== "DIV" &&
+      block.tagName !== "P"
+    ) {
+      block = block.parentElement;
+    }
+
+    return block;
+  }, []);
+
+  const syncEditorSelection = useCallback(() => {
+    clearToolbarInputs();
+
+    const editor = editorRef.current;
+    const sel = window.getSelection();
+    if (!editor || !sel || sel.rangeCount === 0) {
+      clearEditorInteractionState();
+      return;
+    }
+
+    const containsAnchor = !!sel.anchorNode && editor.contains(sel.anchorNode);
+    const containsFocus = !!sel.focusNode && editor.contains(sel.focusNode);
+    if (!containsAnchor && !containsFocus) {
+      clearEditorInteractionState();
+      return;
+    }
+
+    if (!sel.isCollapsed && sel.toString().trim() !== "") {
+      const range = sel.getRangeAt(0).cloneRange();
+      setSelectionRect(range.getBoundingClientRect());
+      setSelectionRange(range);
+      setEmptyLineElement(null);
+      return;
+    }
+
+    setSelectionRect(null);
+    const range = sel.getRangeAt(0).cloneRange();
+    const block = resolveEditableBlock(sel.anchorNode);
+    const isEmptyBlock = (value: string | null | undefined) =>
+      (value || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim() === "";
+
+    if (block && block !== editor) {
+      if (isEmptyBlock(block.textContent)) {
+        setEmptyLineElement(block);
+        setSelectionRange(range);
+        return;
+      }
+    } else {
+      const firstBlock = editor.querySelector<HTMLElement>(
+        "p, h1, h2, h3, h4, h5, h6, div, blockquote, pre, li, ul, ol",
+      );
+      const fallbackBlock = firstBlock ?? editor;
+
+      if (isEmptyBlock(fallbackBlock.textContent)) {
+        setEmptyLineElement(fallbackBlock);
+        setSelectionRange(range);
+        return;
+      }
+    }
+
+    setEmptyLineElement(null);
+    setSelectionRange(null);
+  }, [clearEditorInteractionState, clearToolbarInputs, resolveEditableBlock]);
+
+  useEffect(() => {
+    const updateViewportMetrics = () => setViewportMetrics(readViewportMetrics(window));
+    updateViewportMetrics();
+
+    window.addEventListener("resize", updateViewportMetrics, { passive: true });
+    window.addEventListener("scroll", updateViewportMetrics, { passive: true });
+
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", updateViewportMetrics);
+    vv?.addEventListener("scroll", updateViewportMetrics);
+
+    return () => {
+      window.removeEventListener("resize", updateViewportMetrics);
+      window.removeEventListener("scroll", updateViewportMetrics);
+      vv?.removeEventListener("resize", updateViewportMetrics);
+      vv?.removeEventListener("scroll", updateViewportMetrics);
+    };
+  }, []);
+
   // Refactored: unified selection-toolbar position using last-line client rect
   useLayoutEffect(() => {
     const toolbar = pcSelectionToolbarContainerRef.current;
-    if (!selectionRange || !editorRef.current?.parentElement || !toolbar) {
+    if (isMobileViewport(viewportMetrics) || !selectionRange || !editorRef.current?.parentElement || !toolbar) {
       return;
     }
 
@@ -113,111 +220,117 @@ export default function App() {
     const toolbarRect = toolbar.getBoundingClientRect();
     const pos = calculateSelectionPosition(selectionRange, parent, toolbarRect.width);
     setPcSelectionStyle(pos);
-  }, [selectionRange, toolbarTick, showLinkInput, showImageInput, showTableInput]);
+  }, [selectionRange, toolbarTick, showLinkInput, showImageInput, showTableInput, viewportMetrics]);
 
   // Refactored: unified empty-line-toolbar position
   useLayoutEffect(() => {
     const toolbar = pcEmptyLineToolbarContainerRef.current;
-    if (!emptyLineRect || !editorRef.current?.parentElement || !toolbar) {
+    if (isMobileViewport(viewportMetrics) || !emptyLineElement || !editorRef.current?.parentElement || !toolbar) {
       return;
     }
 
     const parent = editorRef.current.parentElement;
     const toolbarRect = toolbar.getBoundingClientRect();
-    const pos = calculateEmptyLinePositionLeft(emptyLineRect, parent, toolbarRect.width);
+    const pos = calculateEmptyLinePositionLeft(
+      emptyLineElement.getBoundingClientRect(),
+      parent,
+      toolbarRect.width,
+    );
     setPcEmptyLineStyle(pos);
-  }, [emptyLineRect, toolbarTick, showLinkInput, showImageInput, showTableInput]);
+  }, [emptyLineElement, toolbarTick, showLinkInput, showImageInput, showTableInput, viewportMetrics]);
 
   // Recalculate toolbar position on window resize, editor scroll, and IME composition
   useEffect(() => {
     const editorParent = editorRef.current?.parentElement;
     if (!editorParent) return;
 
-    window.addEventListener('resize', scheduleToolbarUpdate, { passive: true });
-    window.addEventListener('scroll', scheduleToolbarUpdate, { passive: true });
-    editorParent.addEventListener('scroll', scheduleToolbarUpdate, { passive: true });
+    window.addEventListener("resize", scheduleToolbarUpdate, { passive: true });
+    window.addEventListener("scroll", scheduleToolbarUpdate, { passive: true });
+    editorParent.addEventListener("scroll", scheduleToolbarUpdate, { passive: true });
 
     // IME composition may change layout – listen on the editor itself
     const editor = editorRef.current;
-    editor?.addEventListener('compositionstart', scheduleToolbarUpdate);
-    editor?.addEventListener('compositionend', scheduleToolbarUpdate);
+    editor?.addEventListener("compositionstart", scheduleToolbarUpdate);
+    editor?.addEventListener("compositionend", scheduleToolbarUpdate);
 
     // visualViewport resize (mobile keyboard / IME)
     const vv = window.visualViewport;
-    vv?.addEventListener('resize', scheduleToolbarUpdate);
+    vv?.addEventListener("resize", scheduleToolbarUpdate);
+    vv?.addEventListener("scroll", scheduleToolbarUpdate);
 
     return () => {
-      window.removeEventListener('resize', scheduleToolbarUpdate);
-      window.removeEventListener('scroll', scheduleToolbarUpdate);
-      editorParent.removeEventListener('scroll', scheduleToolbarUpdate);
-      editor?.removeEventListener('compositionstart', scheduleToolbarUpdate);
-      editor?.removeEventListener('compositionend', scheduleToolbarUpdate);
-      vv?.removeEventListener('resize', scheduleToolbarUpdate);
+      window.removeEventListener("resize", scheduleToolbarUpdate);
+      window.removeEventListener("scroll", scheduleToolbarUpdate);
+      editorParent.removeEventListener("scroll", scheduleToolbarUpdate);
+      editor?.removeEventListener("compositionstart", scheduleToolbarUpdate);
+      editor?.removeEventListener("compositionend", scheduleToolbarUpdate);
+      vv?.removeEventListener("resize", scheduleToolbarUpdate);
+      vv?.removeEventListener("scroll", scheduleToolbarUpdate);
     };
   }, [scheduleToolbarUpdate]);
 
-  // Keep active cursor/selection visible in the visual viewport on mobile
-  // Uses the new useScrollToVisible hook via imperative calls on selection changes
   useEffect(() => {
-    if (window.innerWidth >= 768) return;
-
     const handleSelectionChange = () => {
-      setTimeout(() => {
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0) return;
-        if (!editorRef.current || !editorRef.current.contains(sel.focusNode)) return;
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || !editorRef.current) return;
 
-        const range = sel.getRangeAt(0);
-        let cursorRect = range.getBoundingClientRect();
+      const containsAnchor = !!sel.anchorNode && editorRef.current.contains(sel.anchorNode);
+      const containsFocus = !!sel.focusNode && editorRef.current.contains(sel.focusNode);
+      if (!containsAnchor && !containsFocus) return;
 
-        if (cursorRect.height === 0 && cursorRect.width === 0) {
-          let node = sel.focusNode;
-          if (node?.nodeType === Node.TEXT_NODE) {
-            node = node.parentNode;
-          }
-          if (node instanceof Element) {
-            cursorRect = node.getBoundingClientRect();
-          }
-        }
-
-        if (cursorRect.height === 0) return;
-
-        // Use the scroll-to-visible helper with the current mobile viewport state
-        scrollToMakeVisible(cursorRect, {
-          toolbarHeight: mobileViewport.isKeyboardVisible
-            ? 36 + 8 + mobileViewport.safeAreaBottom
-            : 36 + 8 + mobileViewport.safeAreaBottom,
-          padding: 8,
-          behavior: 'auto',
-        });
-      }, 50);
+      syncEditorSelection();
+      scheduleToolbarUpdate();
     };
 
-    document.addEventListener('selectionchange', handleSelectionChange);
-    const vv = window.visualViewport;
-    vv?.addEventListener('resize', handleSelectionChange);
+    document.addEventListener("selectionchange", handleSelectionChange);
 
     return () => {
-      document.removeEventListener('selectionchange', handleSelectionChange);
-      vv?.removeEventListener('resize', handleSelectionChange);
+      document.removeEventListener("selectionchange", handleSelectionChange);
     };
-  }, [scrollToMakeVisible, mobileViewport]);
+  }, [scheduleToolbarUpdate, syncEditorSelection]);
 
-  // Dismiss toolbars when mobile keyboard hides (transition: visible → hidden)
-  const wasKeyboardVisibleRef = useRef(false);
+  // Keep active cursor/selection visible in the visual viewport on mobile
   useEffect(() => {
-    if (window.innerWidth >= 768) return;
+    if (!isMobileViewport(viewportMetrics)) return;
+    if (!selectionRect && !emptyLineElement) return;
 
-    if (wasKeyboardVisibleRef.current && !mobileViewport.isKeyboardVisible) {
-      setSelectionRect(null);
-      setEmptyLineRect(null);
-      setIsLineToolbarExpanded(false);
-      setShowLinkInput(false);
-      setShowImageInput(false);
-      setShowTableInput(false);
-    }
-    wasKeyboardVisibleRef.current = mobileViewport.isKeyboardVisible;
-  }, [mobileViewport.isKeyboardVisible]);
+    const timeoutId = window.setTimeout(() => {
+      const targetRect =
+        selectionRect && selectionRange
+          ? getSelectionVisibleRect(selectionRange)
+          : emptyLineElement
+            ? emptyLineElement.getBoundingClientRect()
+            : null;
+
+      if (!targetRect) return;
+
+      const activeToolbar = selectionRect
+        ? pcSelectionToolbarContainerRef.current
+        : pcEmptyLineToolbarContainerRef.current;
+      const toolbarHeight =
+        activeToolbar?.getBoundingClientRect().height || DEFAULT_MOBILE_TOOLBAR_HEIGHT;
+      const toolbarBottomOffset = calculateMobileToolbarBottom(viewportMetrics);
+      const delta = calculateScrollDeltaForVisibility(targetRect, viewportMetrics, {
+        toolbarHeight,
+        toolbarBottomOffset,
+      });
+
+      if (Math.abs(delta) > 1) {
+        window.scrollBy({ top: delta, left: 0, behavior: "auto" });
+      }
+    }, 40);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    emptyLineElement,
+    selectionRange,
+    selectionRect,
+    showImageInput,
+    showLinkInput,
+    showTableInput,
+    toolbarTick,
+    viewportMetrics,
+  ]);
 
   useEffect(() => {
     const handleDocumentMouseDown = (e: MouseEvent) => {
@@ -227,26 +340,18 @@ export default function App() {
       const inPcEmptyLine = pcEmptyLineToolbarContainerRef.current?.contains(target);
       
       if (!inEditor && !inPcSelection && !inPcEmptyLine) {
-        setSelectionRect(null);
-        setSelectionRange(null);
-        setEmptyLineRect(null);
-        setIsLineToolbarExpanded(false);
-        
-        if (showTableInput) setShowTableInput(false);
-        if (showLinkInput) setShowLinkInput(false);
-        if (showImageInput) setShowImageInput(false);
+        clearEditorInteractionState();
+        clearToolbarInputs();
       } else if (showTableInput || showLinkInput || showImageInput) {
         if (!inPcSelection && !inPcEmptyLine) {
-          if (showTableInput) setShowTableInput(false);
-          if (showLinkInput) setShowLinkInput(false);
-          if (showImageInput) setShowImageInput(false);
+          clearToolbarInputs();
         }
       }
     };
     
     document.addEventListener("mousedown", handleDocumentMouseDown);
     return () => document.removeEventListener("mousedown", handleDocumentMouseDown);
-  }, [showTableInput, showLinkInput, showImageInput]);
+  }, [clearEditorInteractionState, clearToolbarInputs, showTableInput, showLinkInput, showImageInput]);
 
   // Back to top: track scroll depth, progress, and editor focus state
   useEffect(() => {
@@ -855,123 +960,32 @@ export default function App() {
   };
 
   const handleEditorInput = (html: string, currentTarget: HTMLElement | null) => {
-    let changed = false;
-
     const sel = window.getSelection();
     if (sel && sel.isCollapsed) {
-       const node = sel.anchorNode;
-       if (node && node.textContent === "/") {
-          let block: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
-          while (block && block !== currentTarget && window.getComputedStyle(block).display !== "block") {
-             block = block.parentElement;
-          }
-          if (block) {
-             setEmptyLineRect(block.getBoundingClientRect());
-             setIsLineToolbarExpanded(true);
-          }
-       } else if (node && node.textContent?.trim() === "") {
-          setIsLineToolbarExpanded(false);
-       }
+      const node = sel.anchorNode;
+      if (node && node.textContent === "/") {
+        let block: HTMLElement | null =
+          node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+        while (block && block !== currentTarget && window.getComputedStyle(block).display !== "block") {
+          block = block.parentElement;
+        }
+        if (block) {
+          setEmptyLineElement(block);
+        }
+      } else if (node && node.textContent?.trim() === "") {
+      }
     }
 
     const newText = html;
     setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, text: newText } : t));
     setHasUnsavedChanges(true);
+    scheduleToolbarUpdate();
   };
 
-  const handleEditorSelect = () => {
-    setShowLinkInput(false);
-    setShowImageInput(false);
-    setShowTableInput(false);
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) {
-      setSelectionRect(null);
-      setSelectionRange(null);
-      setEmptyLineRect(null);
-      setIsLineToolbarExpanded(false);
-      return;
-    }
-
-    if (!sel.isCollapsed && sel.toString().trim() !== "") {
-      const range = sel.getRangeAt(0);
-      setSelectionRect(range.getBoundingClientRect());
-      setSelectionRange(range);
-      setEmptyLineRect(null);
-      setIsLineToolbarExpanded(false);
-
-      // Mobile: ensure the selected text is visible above the toolbar
-      if (window.innerWidth < 768) {
-        const toolbarH = 36 + 8 + mobileViewport.safeAreaBottom;
-        ensureRangeVisible(range, {
-          toolbarHeight: toolbarH,
-          padding: 8,
-          behavior: 'auto',
-        });
-      }
-    } else {
-      setSelectionRect(null);
-      setSelectionRange(null);
-      let node = sel.anchorNode;
-      if (node) {
-        let block: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
-        while (block && block !== editorRef.current && window.getComputedStyle(block).display !== "block") {
-           block = block.parentElement;
-        }
-        if (block && block !== editorRef.current) {
-           if ((block.textContent || "").trim() === "") {
-              setEmptyLineRect(block.getBoundingClientRect());
-              setSelectionRange(sel.getRangeAt(0));
-              setIsLineToolbarExpanded(true);
-
-              // Mobile: ensure the empty line cursor is visible above the toolbar
-              if (window.innerWidth < 768) {
-                const toolbarH = 36 + 8 + mobileViewport.safeAreaBottom;
-                scrollToMakeVisible(block.getBoundingClientRect(), {
-                  toolbarHeight: toolbarH,
-                  padding: 8,
-                  behavior: 'auto',
-                });
-              }
-              return;
-           }
-        } else {
-          // Cursor is at editor level — find the first block-level child
-          // so the toolbar sits right below the actual content line rather
-          // than at the bottom of the full-height editor container.
-          const firstBlock = editorRef.current?.querySelector<HTMLElement>(
-            'p, h1, h2, h3, h4, h5, h6, div, blockquote, pre, li, ul, ol'
-          );
-          const targetRect = firstBlock
-            ? firstBlock.getBoundingClientRect()
-            : editorRef.current?.getBoundingClientRect();
-
-          if (targetRect) {
-            if (firstBlock) {
-              setEmptyLineRect(firstBlock.getBoundingClientRect());
-            } else if (editorRef.current) {
-              setEmptyLineRect(editorRef.current!.getBoundingClientRect());
-            }
-            setSelectionRange(sel.getRangeAt(0));
-            setIsLineToolbarExpanded(true);
-
-            // Mobile: ensure visible
-            if (window.innerWidth < 768) {
-              const toolbarH = 36 + 8 + mobileViewport.safeAreaBottom;
-              scrollToMakeVisible(targetRect, {
-                toolbarHeight: toolbarH,
-                padding: 8,
-                behavior: 'auto',
-              });
-            }
-            return;
-          }
-        }
-      }
-      setEmptyLineRect(null);
-      setSelectionRange(null);
-      setIsLineToolbarExpanded(false);
-    }
-  };
+  const handleEditorSelect = useCallback(() => {
+    syncEditorSelection();
+    scheduleToolbarUpdate();
+  }, [scheduleToolbarUpdate, syncEditorSelection]);
 
   const applyCommand = (command: string, value?: string) => {
     document.execCommand(command, false, value);
@@ -1987,24 +2001,26 @@ export default function App() {
             readOnly={saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed"}
           />
 
-          {/* Selection toolbar — PC: absolute; Mobile: fixed-bottom */}
+          {/* PC Mode selection toolbar */}
           {saveStatus === "idle" && selectionRect && editorRef.current?.parentElement && (() => {
-            const isMobile = window.innerWidth < 768;
-            const mobileStyle = isMobile
-              ? getMobileToolbarStyle(mobileViewport, pcSelectionToolbarContainerRef.current)
-              : null;
+            const useMobileToolbar = isMobileViewport(viewportMetrics);
+            const mobileToolbarBottom = calculateMobileToolbarBottom(viewportMetrics);
             return (
             <div 
               ref={pcSelectionToolbarContainerRef}
               className="flex z-50 mt-1 shadow-2xl"
-              style={isMobile && mobileStyle
-                ? mobileStyle.style
-                : {
-                  position: 'absolute',
-                  top: pcSelectionStyle.top,
-                  left: pcSelectionStyle.left,
-                  visibility: pcSelectionStyle.visibility || 'hidden'
-                }}
+              style={useMobileToolbar ? {
+                position: "fixed",
+                bottom: mobileToolbarBottom + "px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 100,
+              } : {
+                position: "absolute",
+                top: pcSelectionStyle.top,
+                left: pcSelectionStyle.left,
+                visibility: pcSelectionStyle.visibility || "hidden"
+              }}
             >
               {showLinkInput ? (
                 <div className="flex items-center gap-1 font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[400px] my-1 animate-fade-in">
@@ -2154,23 +2170,25 @@ export default function App() {
             )
             })()}
 
-          {/* Empty-line toolbar — PC: absolute; Mobile: fixed-bottom */}
-          {saveStatus === "idle" && emptyLineRect && !selectionRect && editorRef.current?.parentElement && (() => {
-            const isMobile = window.innerWidth < 768;
-            const mobileStyle = isMobile
-              ? getMobileToolbarStyle(mobileViewport, pcEmptyLineToolbarContainerRef.current)
-              : null;
+          {/* PC Mode local empty-line toolbar */}
+          {saveStatus === "idle" && emptyLineElement && !selectionRect && editorRef.current?.parentElement && (() => {
+            const useMobileToolbar = isMobileViewport(viewportMetrics);
+            const mobileToolbarBottom = calculateMobileToolbarBottom(viewportMetrics);
             return (
             <div 
               ref={pcEmptyLineToolbarContainerRef}
               className="flex z-50 mt-1 shadow-2xl transition-all duration-300 ease-in-out"
-              style={isMobile && mobileStyle
-                ? mobileStyle.style
-                : {
-                  position: 'absolute',
-                  top: pcEmptyLineStyle.top,
+              style={useMobileToolbar ? {
+                position: "fixed",
+                bottom: mobileToolbarBottom + "px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 100,
+              } : {
+                position: "absolute",
+                top: pcEmptyLineStyle.top,
                 left: pcEmptyLineStyle.left,
-                visibility: pcEmptyLineStyle.visibility || 'hidden'
+                visibility: pcEmptyLineStyle.visibility || "hidden"
               }}
             >
               {showLinkInput ? (
@@ -2311,7 +2329,7 @@ export default function App() {
                           e.stopPropagation();
                           handleToolClick(tool);
                           if (tool.format !== "image" && tool.type !== "link" && tool.format !== "table") {
-                            setEmptyLineRect(null);
+                            setEmptyLineElement(null);
                           }
                         }}
                         className="hover:text-white hover:underline cursor-pointer"
@@ -2587,7 +2605,7 @@ export default function App() {
         showBackToTop,
         isEditorFocused,
         selectionVisible: !!selectionRect,
-        emptyLineVisible: !!emptyLineRect,
+        emptyLineVisible: !!emptyLineElement,
         saveStatusIdle: saveStatus === "idle",
       }) && (() => {
         const r = 4; // matches Tailwind 'rounded'

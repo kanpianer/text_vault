@@ -1816,7 +1816,13 @@ export default function App() {
         <div className="w-full max-w-4xl px-4 md:px-8 py-4 flex justify-between items-center mx-auto">
           <div className="flex items-center gap-4">
             <span
-              onClick={() => { handleLock(); navigateTo(""); }}
+              onClick={async () => {
+                if (hasUnsavedChanges) {
+                  await performSaveAction();
+                }
+                handleLock();
+                navigateTo("");
+              }}
               className="font-mono text-sm md:text-base tracking-widest font-semibold select-none flex items-center cursor-pointer group"
             >
               <span className="text-zinc-500 tracking-normal group-hover:text-white transition-colors">Text_Vault/</span><span className="lowercase text-white group-hover:text-zinc-500 transition-colors">{vaultName}</span>

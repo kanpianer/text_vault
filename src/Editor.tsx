@@ -440,25 +440,7 @@ export function Editor({ activeTabId, initialContent, onChange, onSelect, editor
           if (target.tagName === "IMG") return;
           removeVirtualCursors(editorRef.current);
           editorRef.current.contentEditable = "true";
-
-          // Check if document is empty
-          const textContent = (editorRef.current.textContent || '').replace(ZERO_WIDTH_CHARS, '').trim();
-
-          if (!textContent) {
-            // Empty document: focus at the beginning of the first line
-            editorRef.current.focus({ preventScroll: true });
-          } else {
-            // Non-empty document: place cursor at nearest line to touch point
-            const touch = e.changedTouches[0];
-            const range = document.caretRangeFromPoint(touch.clientX, touch.clientY);
-            if (range) {
-              const sel = window.getSelection();
-              sel?.removeAllRanges();
-              sel?.addRange(range);
-            }
-            editorRef.current.focus({ preventScroll: true });
-          }
-
+          editorRef.current.focus({ preventScroll: true });
           setIsActive(true);
         }
         // 重置状态

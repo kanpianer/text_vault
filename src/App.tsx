@@ -17,6 +17,8 @@ import {
   calculateEmptyLinePositionLeft,
   shouldShowBackToTop,
 } from "./toolbarPosition";
+import { useMobileViewport, useScrollToVisible } from "./viewportManager";
+import { getMobileToolbarStyle } from "./mobileToolbarPosition";
 
 export default function App() {
   // Navigation & Router
@@ -64,22 +66,21 @@ export default function App() {
   }, [activeTabId]);
   const pcSelectionToolbarScrollRef = useRef<HTMLDivElement>(null);
   const pcEmptyLineToolbarScrollRef = useRef<HTMLDivElement>(null);
-  const mobileSelectionToolbarScrollRef = useRef<HTMLDivElement>(null);
-  const mobileEmptyLineToolbarScrollRef = useRef<HTMLDivElement>(null);
 
   const pcSelectionToolbarContainerRef = useRef<HTMLDivElement>(null);
   const pcEmptyLineToolbarContainerRef = useRef<HTMLDivElement>(null);
   const [pcSelectionStyle, setPcSelectionStyle] = useState<React.CSSProperties>({});
   const [pcEmptyLineStyle, setPcEmptyLineStyle] = useState<React.CSSProperties>({});
 
+  // Mobile: unified viewport & keyboard state
+  const mobileViewport = useMobileViewport();
+  const { scrollToMakeVisible, ensureRangeVisible } = useScrollToVisible({ editorRef });
+
   const [showBackToTop, setShowBackToTop] = useState<boolean>(false);
   const [isEditorFocused, setIsEditorFocused] = useState<boolean>(false);
   const [scrollProgress, setScrollProgress] = useState<number>(0);
   const backToTopRef = useRef<HTMLDivElement>(null);
   const [backToTopSize, setBackToTopSize] = useState<{ w: number; h: number }>({ w: 0, h: 30 });
-
-  // Mobile keyboard offset: distance from visual-viewport bottom to window bottom
-  const [keyboardOffset, setKeyboardOffset] = useState<number>(0);
 
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [selectionRange, setSelectionRange] = useState<Range | null>(null);
@@ -99,36 +100,6 @@ export default function App() {
   const [toolbarTick, setToolbarTick] = useState<number>(0);
   const scheduleToolbarUpdate = useCallback(() => {
     requestAnimationFrame(() => setToolbarTick(t => t + 1));
-  }, []);
-
-  // Track mobile keyboard offset via visualViewport
-  const keyboardVisibleRef = useRef(false);
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-
-    const updateOffset = () => {
-      const offset = window.innerHeight - vv.height - vv.offsetTop;
-      const isVisible = offset > 80;
-      setKeyboardOffset(isVisible ? offset : 0);
-      // Dismiss toolbars when mobile keyboard is hidden
-      if (keyboardVisibleRef.current && !isVisible && window.innerWidth < 768) {
-        setSelectionRect(null);
-        setEmptyLineRect(null);
-        setIsLineToolbarExpanded(false);
-        setShowLinkInput(false);
-        setShowImageInput(false);
-        setShowTableInput(false);
-      }
-      keyboardVisibleRef.current = isVisible;
-    };
-    updateOffset();
-    vv.addEventListener('resize', updateOffset);
-    vv.addEventListener('scroll', updateOffset);
-    return () => {
-      vv.removeEventListener('resize', updateOffset);
-      vv.removeEventListener('scroll', updateOffset);
-    };
   }, []);
 
   // Refactored: unified selection-toolbar position using last-line client rect
@@ -186,20 +157,19 @@ export default function App() {
   }, [scheduleToolbarUpdate]);
 
   // Keep active cursor/selection visible in the visual viewport on mobile
+  // Uses the new useScrollToVisible hook via imperative calls on selection changes
   useEffect(() => {
     if (window.innerWidth >= 768) return;
 
     const handleSelectionChange = () => {
-      // Small timeout to allow DOM/layout updates
       setTimeout(() => {
         const sel = window.getSelection();
         if (!sel || sel.rangeCount === 0) return;
-        
         if (!editorRef.current || !editorRef.current.contains(sel.focusNode)) return;
-        
+
         const range = sel.getRangeAt(0);
         let cursorRect = range.getBoundingClientRect();
-        
+
         if (cursorRect.height === 0 && cursorRect.width === 0) {
           let node = sel.focusNode;
           if (node?.nodeType === Node.TEXT_NODE) {
@@ -212,32 +182,42 @@ export default function App() {
 
         if (cursorRect.height === 0) return;
 
-        const vv = window.visualViewport;
-        if (!vv) return;
-
-        // The toolbar height might be around 40-50px, plus some margin
-        const toolbarHeight = 50; 
-        const bottomThreshold = vv.height - toolbarHeight - 20; 
-        
-        // Calculate the absolute position within the visual viewport
-        const cursorBottomInVv = cursorRect.bottom - vv.offsetTop;
-
-        if (cursorBottomInVv > bottomThreshold) {
-          const delta = cursorBottomInVv - bottomThreshold;
-          window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
-        }
+        // Use the scroll-to-visible helper with the current mobile viewport state
+        scrollToMakeVisible(cursorRect, {
+          toolbarHeight: mobileViewport.isKeyboardVisible
+            ? 36 + 8 + mobileViewport.safeAreaBottom
+            : 36 + 8 + mobileViewport.safeAreaBottom,
+          padding: 8,
+          behavior: 'auto',
+        });
       }, 50);
     };
 
     document.addEventListener('selectionchange', handleSelectionChange);
     const vv = window.visualViewport;
     vv?.addEventListener('resize', handleSelectionChange);
-    
+
     return () => {
       document.removeEventListener('selectionchange', handleSelectionChange);
       vv?.removeEventListener('resize', handleSelectionChange);
     };
-  }, []);
+  }, [scrollToMakeVisible, mobileViewport]);
+
+  // Dismiss toolbars when mobile keyboard hides (transition: visible → hidden)
+  const wasKeyboardVisibleRef = useRef(false);
+  useEffect(() => {
+    if (window.innerWidth >= 768) return;
+
+    if (wasKeyboardVisibleRef.current && !mobileViewport.isKeyboardVisible) {
+      setSelectionRect(null);
+      setEmptyLineRect(null);
+      setIsLineToolbarExpanded(false);
+      setShowLinkInput(false);
+      setShowImageInput(false);
+      setShowTableInput(false);
+    }
+    wasKeyboardVisibleRef.current = mobileViewport.isKeyboardVisible;
+  }, [mobileViewport.isKeyboardVisible]);
 
   useEffect(() => {
     const handleDocumentMouseDown = (e: MouseEvent) => {
@@ -918,6 +898,16 @@ export default function App() {
       setSelectionRange(range);
       setEmptyLineRect(null);
       setIsLineToolbarExpanded(false);
+
+      // Mobile: ensure the selected text is visible above the toolbar
+      if (window.innerWidth < 768) {
+        const toolbarH = 36 + 8 + mobileViewport.safeAreaBottom;
+        ensureRangeVisible(range, {
+          toolbarHeight: toolbarH,
+          padding: 8,
+          behavior: 'auto',
+        });
+      }
     } else {
       setSelectionRect(null);
       setSelectionRange(null);
@@ -932,6 +922,16 @@ export default function App() {
               setEmptyLineRect(block.getBoundingClientRect());
               setSelectionRange(sel.getRangeAt(0));
               setIsLineToolbarExpanded(true);
+
+              // Mobile: ensure the empty line cursor is visible above the toolbar
+              if (window.innerWidth < 768) {
+                const toolbarH = 36 + 8 + mobileViewport.safeAreaBottom;
+                scrollToMakeVisible(block.getBoundingClientRect(), {
+                  toolbarHeight: toolbarH,
+                  padding: 8,
+                  behavior: 'auto',
+                });
+              }
               return;
            }
         } else {
@@ -941,14 +941,30 @@ export default function App() {
           const firstBlock = editorRef.current?.querySelector<HTMLElement>(
             'p, h1, h2, h3, h4, h5, h6, div, blockquote, pre, li, ul, ol'
           );
-          if (firstBlock) {
-            setEmptyLineRect(firstBlock.getBoundingClientRect());
-          } else if (editorRef.current) {
-            setEmptyLineRect(editorRef.current!.getBoundingClientRect());
+          const targetRect = firstBlock
+            ? firstBlock.getBoundingClientRect()
+            : editorRef.current?.getBoundingClientRect();
+
+          if (targetRect) {
+            if (firstBlock) {
+              setEmptyLineRect(firstBlock.getBoundingClientRect());
+            } else if (editorRef.current) {
+              setEmptyLineRect(editorRef.current!.getBoundingClientRect());
+            }
+            setSelectionRange(sel.getRangeAt(0));
+            setIsLineToolbarExpanded(true);
+
+            // Mobile: ensure visible
+            if (window.innerWidth < 768) {
+              const toolbarH = 36 + 8 + mobileViewport.safeAreaBottom;
+              scrollToMakeVisible(targetRect, {
+                toolbarHeight: toolbarH,
+                padding: 8,
+                behavior: 'auto',
+              });
+            }
+            return;
           }
-          setSelectionRange(sel.getRangeAt(0));
-          setIsLineToolbarExpanded(true);
-          return;
         }
       }
       setEmptyLineRect(null);
@@ -1971,25 +1987,24 @@ export default function App() {
             readOnly={saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed"}
           />
 
-          {/* PC Mode selection toolbar */}
+          {/* Selection toolbar — PC: absolute; Mobile: fixed-bottom */}
           {saveStatus === "idle" && selectionRect && editorRef.current?.parentElement && (() => {
-            const isMobileKeyboard = window.innerWidth < 768 && keyboardOffset > 0;
+            const isMobile = window.innerWidth < 768;
+            const mobileStyle = isMobile
+              ? getMobileToolbarStyle(mobileViewport, pcSelectionToolbarContainerRef.current)
+              : null;
             return (
             <div 
               ref={pcSelectionToolbarContainerRef}
               className="flex z-50 mt-1 shadow-2xl"
-              style={isMobileKeyboard ? {
-                position: 'fixed',
-                bottom: keyboardOffset + 'px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                zIndex: 100,
-              } : {
-                position: 'absolute',
-                top: pcSelectionStyle.top,
-                left: pcSelectionStyle.left,
-                visibility: pcSelectionStyle.visibility || 'hidden'
-              }}
+              style={isMobile && mobileStyle
+                ? mobileStyle.style
+                : {
+                  position: 'absolute',
+                  top: pcSelectionStyle.top,
+                  left: pcSelectionStyle.left,
+                  visibility: pcSelectionStyle.visibility || 'hidden'
+                }}
             >
               {showLinkInput ? (
                 <div className="flex items-center gap-1 font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] px-2 select-none border border-zinc-800 rounded w-full max-w-[400px] my-1 animate-fade-in">
@@ -2139,22 +2154,21 @@ export default function App() {
             )
             })()}
 
-          {/* PC Mode local empty-line toolbar */}
+          {/* Empty-line toolbar — PC: absolute; Mobile: fixed-bottom */}
           {saveStatus === "idle" && emptyLineRect && !selectionRect && editorRef.current?.parentElement && (() => {
-            const isMobileKeyboard = window.innerWidth < 768 && keyboardOffset > 0;
+            const isMobile = window.innerWidth < 768;
+            const mobileStyle = isMobile
+              ? getMobileToolbarStyle(mobileViewport, pcEmptyLineToolbarContainerRef.current)
+              : null;
             return (
             <div 
               ref={pcEmptyLineToolbarContainerRef}
               className="flex z-50 mt-1 shadow-2xl transition-all duration-300 ease-in-out"
-              style={isMobileKeyboard ? {
-                position: 'fixed',
-                bottom: keyboardOffset + 'px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                zIndex: 100,
-              } : {
-                position: 'absolute',
-                top: pcEmptyLineStyle.top,
+              style={isMobile && mobileStyle
+                ? mobileStyle.style
+                : {
+                  position: 'absolute',
+                  top: pcEmptyLineStyle.top,
                 left: pcEmptyLineStyle.left,
                 visibility: pcEmptyLineStyle.visibility || 'hidden'
               }}

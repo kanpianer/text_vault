@@ -17,14 +17,7 @@ import {
   calculateEmptyLinePositionLeft,
   shouldShowBackToTop,
 } from "./toolbarPosition";
-import {
-  calculateMobileToolbarBottom,
-  calculateScrollDeltaForVisibility,
-  DEFAULT_MOBILE_TOOLBAR_HEIGHT,
-  getSelectionVisibleRect,
-  isMobileViewport,
-  readViewportMetrics,
-} from "./mobileViewport";
+
 
 export default function App() {
   // Navigation & Router
@@ -77,15 +70,11 @@ export default function App() {
   const pcEmptyLineToolbarContainerRef = useRef<HTMLDivElement>(null);
   const [pcSelectionStyle, setPcSelectionStyle] = useState<React.CSSProperties>({});
   const [pcEmptyLineStyle, setPcEmptyLineStyle] = useState<React.CSSProperties>({});
-  const [mobileEmptyLineStyle, setMobileEmptyLineStyle] = useState<React.CSSProperties>({});
-
   const [showBackToTop, setShowBackToTop] = useState<boolean>(false);
   const [isEditorFocused, setIsEditorFocused] = useState<boolean>(false);
   const [scrollProgress, setScrollProgress] = useState<number>(0);
   const backToTopRef = useRef<HTMLDivElement>(null);
   const [backToTopSize, setBackToTopSize] = useState<{ w: number; h: number }>({ w: 0, h: 30 });
-
-  const [viewportMetrics, setViewportMetrics] = useState(() => readViewportMetrics(window));
 
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [selectionRange, setSelectionRange] = useState<Range | null>(null);
@@ -191,29 +180,10 @@ export default function App() {
     setSelectionRange(null);
   }, [clearEditorInteractionState, clearToolbarInputs, resolveEditableBlock]);
 
-  useEffect(() => {
-    const updateViewportMetrics = () => setViewportMetrics(readViewportMetrics(window));
-    updateViewportMetrics();
-
-    window.addEventListener("resize", updateViewportMetrics, { passive: true });
-    window.addEventListener("scroll", updateViewportMetrics, { passive: true });
-
-    const vv = window.visualViewport;
-    vv?.addEventListener("resize", updateViewportMetrics);
-    vv?.addEventListener("scroll", updateViewportMetrics);
-
-    return () => {
-      window.removeEventListener("resize", updateViewportMetrics);
-      window.removeEventListener("scroll", updateViewportMetrics);
-      vv?.removeEventListener("resize", updateViewportMetrics);
-      vv?.removeEventListener("scroll", updateViewportMetrics);
-    };
-  }, []);
-
   // Refactored: unified selection-toolbar position using last-line client rect
   useLayoutEffect(() => {
     const toolbar = pcSelectionToolbarContainerRef.current;
-    if (isMobileViewport(viewportMetrics) || !selectionRange || !editorRef.current?.parentElement || !toolbar) {
+    if (!selectionRange || !editorRef.current?.parentElement || !toolbar) {
       return;
     }
 
@@ -221,12 +191,12 @@ export default function App() {
     const toolbarRect = toolbar.getBoundingClientRect();
     const pos = calculateSelectionPosition(selectionRange, parent, toolbarRect.width);
     setPcSelectionStyle(pos);
-  }, [selectionRange, toolbarTick, showLinkInput, showImageInput, showTableInput, viewportMetrics]);
+  }, [selectionRange, toolbarTick, showLinkInput, showImageInput, showTableInput]);
 
   // Refactored: unified empty-line-toolbar position
   useLayoutEffect(() => {
     const toolbar = pcEmptyLineToolbarContainerRef.current;
-    if (isMobileViewport(viewportMetrics) || !emptyLineElement || !editorRef.current?.parentElement || !toolbar) {
+    if (!emptyLineElement || !editorRef.current?.parentElement || !toolbar) {
       return;
     }
 
@@ -238,31 +208,7 @@ export default function App() {
       toolbarRect.width,
     );
     setPcEmptyLineStyle(pos);
-  }, [emptyLineElement, toolbarTick, showLinkInput, showImageInput, showTableInput, viewportMetrics]);
-
-  // Mobile: position empty-line toolbar right below the line, left-aligned
-  useLayoutEffect(() => {
-    if (!isMobileViewport(viewportMetrics) || !emptyLineElement || !pcEmptyLineToolbarContainerRef.current) {
-      return;
-    }
-
-    const lineRect = emptyLineElement.getBoundingClientRect();
-    const toolbarHeight = pcEmptyLineToolbarContainerRef.current.getBoundingClientRect().height;
-    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-
-    // Prefer below the line; flip above if too close to viewport bottom
-    let top = lineRect.bottom + 4;
-    if (top + toolbarHeight > viewportHeight - 8) {
-      top = lineRect.top - toolbarHeight - 4;
-    }
-
-    setMobileEmptyLineStyle({
-      position: "fixed" as const,
-      top: Math.max(0, top),
-      left: Math.max(0, lineRect.left),
-      zIndex: 100,
-    });
-  }, [emptyLineElement, toolbarTick, showLinkInput, showImageInput, showTableInput, viewportMetrics]);
+  }, [emptyLineElement, toolbarTick, showLinkInput, showImageInput, showTableInput]);
 
   // Recalculate toolbar position on window resize, editor scroll, and IME composition
   useEffect(() => {
@@ -314,42 +260,6 @@ export default function App() {
     };
   }, [scheduleToolbarUpdate, syncEditorSelection]);
 
-  // Keep active selection visible in the visual viewport on mobile
-  useEffect(() => {
-    if (!isMobileViewport(viewportMetrics)) return;
-    if (!selectionRect) return;
-
-    const timeoutId = window.setTimeout(() => {
-      const targetRect =
-        selectionRect && selectionRange
-          ? getSelectionVisibleRect(selectionRange)
-          : null;
-
-      if (!targetRect) return;
-
-      const toolbarHeight =
-        pcSelectionToolbarContainerRef.current?.getBoundingClientRect().height || DEFAULT_MOBILE_TOOLBAR_HEIGHT;
-      const toolbarBottomOffset = calculateMobileToolbarBottom(viewportMetrics);
-      const delta = calculateScrollDeltaForVisibility(targetRect, viewportMetrics, {
-        toolbarHeight,
-        toolbarBottomOffset,
-      });
-
-      if (Math.abs(delta) > 1) {
-        window.scrollBy({ top: delta, left: 0, behavior: "auto" });
-      }
-    }, 40);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [
-    selectionRange,
-    selectionRect,
-    showImageInput,
-    showLinkInput,
-    showTableInput,
-    toolbarTick,
-    viewportMetrics,
-  ]);
 
   useEffect(() => {
     const handleDocumentMouseDown = (e: MouseEvent) => {
@@ -2026,21 +1936,12 @@ export default function App() {
             readOnly={saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed"}
           />
 
-          {/* PC Mode selection toolbar */}
-          {saveStatus === "idle" && selectionRect && editorRef.current?.parentElement && (() => {
-            const useMobileToolbar = isMobileViewport(viewportMetrics);
-            const mobileToolbarBottom = calculateMobileToolbarBottom(viewportMetrics);
-            return (
+          {/* Selection toolbar */}
+          {saveStatus === "idle" && selectionRect && editorRef.current?.parentElement && (
             <div 
               ref={pcSelectionToolbarContainerRef}
               className="flex z-50 mt-1 shadow-2xl"
-              style={useMobileToolbar ? {
-                position: "fixed",
-                bottom: mobileToolbarBottom + "px",
-                left: "50%",
-                transform: "translateX(-50%)",
-                zIndex: 100,
-              } : {
+              style={{
                 position: "absolute",
                 top: pcSelectionStyle.top,
                 left: pcSelectionStyle.left,
@@ -2192,17 +2093,14 @@ export default function App() {
                 </div>
               )}
             </div>
-            )
-            })()}
+          )}
 
-          {/* PC Mode local empty-line toolbar */}
-          {saveStatus === "idle" && emptyLineElement && !selectionRect && editorRef.current?.parentElement && (() => {
-            const useMobileToolbar = isMobileViewport(viewportMetrics);
-            return (
+          {/* Empty-line toolbar */}
+          {saveStatus === "idle" && emptyLineElement && !selectionRect && editorRef.current?.parentElement && (
             <div 
               ref={pcEmptyLineToolbarContainerRef}
               className="flex z-50 mt-1 shadow-2xl transition-all duration-300 ease-in-out"
-              style={useMobileToolbar ? mobileEmptyLineStyle : {
+              style={{
                 position: "absolute",
                 top: pcEmptyLineStyle.top,
                 left: pcEmptyLineStyle.left,
@@ -2360,8 +2258,7 @@ export default function App() {
                 </div>
               )}
             </div>
-            )
-            })()}
+          )}
         </div>
       </main>
 

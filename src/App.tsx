@@ -77,6 +77,7 @@ export default function App() {
   const pcEmptyLineToolbarContainerRef = useRef<HTMLDivElement>(null);
   const [pcSelectionStyle, setPcSelectionStyle] = useState<React.CSSProperties>({});
   const [pcEmptyLineStyle, setPcEmptyLineStyle] = useState<React.CSSProperties>({});
+  const [mobileEmptyLineStyle, setMobileEmptyLineStyle] = useState<React.CSSProperties>({});
 
   const [showBackToTop, setShowBackToTop] = useState<boolean>(false);
   const [isEditorFocused, setIsEditorFocused] = useState<boolean>(false);
@@ -239,6 +240,30 @@ export default function App() {
     setPcEmptyLineStyle(pos);
   }, [emptyLineElement, toolbarTick, showLinkInput, showImageInput, showTableInput, viewportMetrics]);
 
+  // Mobile: position empty-line toolbar right below the line, left-aligned
+  useLayoutEffect(() => {
+    if (!isMobileViewport(viewportMetrics) || !emptyLineElement || !pcEmptyLineToolbarContainerRef.current) {
+      return;
+    }
+
+    const lineRect = emptyLineElement.getBoundingClientRect();
+    const toolbarHeight = pcEmptyLineToolbarContainerRef.current.getBoundingClientRect().height;
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+
+    // Prefer below the line; flip above if too close to viewport bottom
+    let top = lineRect.bottom + 4;
+    if (top + toolbarHeight > viewportHeight - 8) {
+      top = lineRect.top - toolbarHeight - 4;
+    }
+
+    setMobileEmptyLineStyle({
+      position: "fixed" as const,
+      top: Math.max(0, top),
+      left: Math.max(0, lineRect.left),
+      zIndex: 100,
+    });
+  }, [emptyLineElement, toolbarTick, showLinkInput, showImageInput, showTableInput, viewportMetrics]);
+
   // Recalculate toolbar position on window resize, editor scroll, and IME composition
   useEffect(() => {
     const editorParent = editorRef.current?.parentElement;
@@ -289,26 +314,21 @@ export default function App() {
     };
   }, [scheduleToolbarUpdate, syncEditorSelection]);
 
-  // Keep active cursor/selection visible in the visual viewport on mobile
+  // Keep active selection visible in the visual viewport on mobile
   useEffect(() => {
     if (!isMobileViewport(viewportMetrics)) return;
-    if (!selectionRect && !emptyLineElement) return;
+    if (!selectionRect) return;
 
     const timeoutId = window.setTimeout(() => {
       const targetRect =
         selectionRect && selectionRange
           ? getSelectionVisibleRect(selectionRange)
-          : emptyLineElement
-            ? emptyLineElement.getBoundingClientRect()
-            : null;
+          : null;
 
       if (!targetRect) return;
 
-      const activeToolbar = selectionRect
-        ? pcSelectionToolbarContainerRef.current
-        : pcEmptyLineToolbarContainerRef.current;
       const toolbarHeight =
-        activeToolbar?.getBoundingClientRect().height || DEFAULT_MOBILE_TOOLBAR_HEIGHT;
+        pcSelectionToolbarContainerRef.current?.getBoundingClientRect().height || DEFAULT_MOBILE_TOOLBAR_HEIGHT;
       const toolbarBottomOffset = calculateMobileToolbarBottom(viewportMetrics);
       const delta = calculateScrollDeltaForVisibility(targetRect, viewportMetrics, {
         toolbarHeight,
@@ -322,7 +342,6 @@ export default function App() {
 
     return () => window.clearTimeout(timeoutId);
   }, [
-    emptyLineElement,
     selectionRange,
     selectionRect,
     showImageInput,
@@ -2173,18 +2192,11 @@ export default function App() {
           {/* PC Mode local empty-line toolbar */}
           {saveStatus === "idle" && emptyLineElement && !selectionRect && editorRef.current?.parentElement && (() => {
             const useMobileToolbar = isMobileViewport(viewportMetrics);
-            const mobileToolbarBottom = calculateMobileToolbarBottom(viewportMetrics);
             return (
             <div 
               ref={pcEmptyLineToolbarContainerRef}
               className="flex z-50 mt-1 shadow-2xl transition-all duration-300 ease-in-out"
-              style={useMobileToolbar ? {
-                position: "fixed",
-                bottom: mobileToolbarBottom + "px",
-                left: "50%",
-                transform: "translateX(-50%)",
-                zIndex: 100,
-              } : {
+              style={useMobileToolbar ? mobileEmptyLineStyle : {
                 position: "absolute",
                 top: pcEmptyLineStyle.top,
                 left: pcEmptyLineStyle.left,

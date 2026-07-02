@@ -1621,7 +1621,7 @@ export default function App() {
         {/* PASSWORD PROMPT MODAL */}
         <AnimatePresence>
           {vaultName && !isDecrypting && (
-            <div className="fixed inset-0 bg-[#0c0c0e] flex items-center justify-center z-50">
+            <div className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center md:pt-[28vh] z-50">
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -2324,7 +2324,7 @@ export default function App() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="fixed inset-0 bg-[#0c0c0e] flex items-center justify-center p-4 z-50"
+            className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-50"
           >
             <div className="w-full max-w-sm flex flex-col gap-6 relative">
               <h3 className="text-zinc-100 font-mono tracking-wide text-lg text-center uppercase">
@@ -2354,7 +2354,7 @@ export default function App() {
         )}
 
         {showChangePasswordModal && (
-          <div className="fixed inset-0 bg-[#0c0c0e] flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center md:pt-[28vh] z-50">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -2454,7 +2454,7 @@ export default function App() {
       {/* 3-PHASE DESTRUCTION POPUP CONFIRM */}
       <AnimatePresence>
         {showDeleteModal && (
-          <div className="fixed inset-0 bg-[#0c0c0e] flex items-center justify-center p-4 z-50">
+          <div className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-50">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

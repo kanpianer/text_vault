@@ -109,6 +109,10 @@ input {
   margin-top: 1rem;
   margin-bottom: 1rem;
 }
+.markdown-body strong {
+  font-weight: 600;
+  color: #ffffff;
+}
 .markdown-body blockquote {
   border-left: 4px solid #52525b;
   padding-left: 1rem;
@@ -119,10 +123,6 @@ input {
   background-color: rgba(24, 24, 27, 0.4);
   padding-top: 0.5rem;
   padding-bottom: 0.5rem;
-}
-.markdown-body strong {
-  font-weight: 600;
-  color: #ffffff;
 }
 .markdown-body em {
   font-style: italic;

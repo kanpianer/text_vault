@@ -1470,11 +1470,11 @@ export default function App() {
       const char = cleanTitle[i];
       visualLength += char.charCodeAt(0) > 255 ? 2 : 1;
       if (visualLength > 9) {
-        return "[" + result + "..]";
+        return result + "..";
       }
       result += char;
     }
-    return "[" + result + "]";
+    return result;
   }
 
   function getTabRawTitle(tab: TabContent): string {
@@ -1885,10 +1885,10 @@ export default function App() {
                       />
                     ) : (
                       <span 
-                        className={`tracking-wide text-zinc-100 block whitespace-nowrap border-b ${active ? "border-zinc-300" : "border-transparent"}`} 
+                        className="tracking-wide text-zinc-100 block whitespace-nowrap" 
                         title={getTabRawTitle(tab)}
                       >
-                        {getTabDisplayTitle(tab.text, tab.title)}
+                        [<span className={`pb-px border-b ${active ? "border-zinc-300" : "border-transparent"}`}>{getTabDisplayTitle(tab.text, tab.title)}</span>]
                       </span>
                     )}
 

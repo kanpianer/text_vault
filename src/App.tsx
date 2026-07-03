@@ -1469,12 +1469,12 @@ export default function App() {
     for (let i = 0; i < cleanTitle.length; i++) {
       const char = cleanTitle[i];
       visualLength += char.charCodeAt(0) > 255 ? 2 : 1;
-      if (visualLength > 14) {
-        return result + "..";
+      if (visualLength > 9) {
+        return "[" + result + "..]";
       }
       result += char;
     }
-    return result;
+    return "[" + result + "]";
   }
 
   function getTabRawTitle(tab: TabContent): string {

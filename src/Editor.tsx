@@ -10,12 +10,10 @@ import {
 const EDITOR_CLASS =
   "editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-relaxed pt-2";
 
-const TOOLBAR_TOOLS = [
-  "H1", "H2", "H3", "Task", "List", "Quote", "Table", "Image", "Code",
-  "Bold", "Italic", "Strike", "Under", "Line", "Center",
-] as const;
+const EMPTY_LINE_TOOLS = ["H1", "H2", "H3", "Task", "List", "Quote", "Image", "Code", "Line", "Center", "Table"] as const;
+const SELECTION_TOOLS = ["Bold", "Italic", "Strike", "Under", "Quote", "Link", "Center", "Code"] as const;
 
-type Tool = (typeof TOOLBAR_TOOLS)[number];
+type Tool = (typeof EMPTY_LINE_TOOLS)[number] | (typeof SELECTION_TOOLS)[number];
 
 // ── helpers ─────────────────────────────────────────────────────────
 
@@ -97,14 +95,6 @@ function insertTableBlock() {
   document.execCommand("insertHTML", false, html);
 }
 
-function insertImageBlock(el: HTMLElement) {
-  const url = prompt("Image URL:")?.trim();
-  if (!url) return;
-  const html = `<img src="${url}" class="max-w-full rounded border border-zinc-800 my-2 block" contenteditable="false" draggable="false" style="user-select:none;-webkit-user-select:none">`;
-  document.execCommand("insertHTML", false, html);
-  normalizeEditorNodes(el);
-}
-
 function handleToolClick(tool: Tool, editorEl: HTMLElement) {
   editorEl.focus();
   const sel = window.getSelection();
@@ -118,7 +108,6 @@ function handleToolClick(tool: Tool, editorEl: HTMLElement) {
     case "List":   document.execCommand("insertUnorderedList", false); break;
     case "Quote":  applyBlock(editorEl, "blockquote"); break;
     case "Table":  insertTableBlock(); break;
-    case "Image":  insertImageBlock(editorEl); break;
     case "Code":
       if (hasSel) {
         document.execCommand(
@@ -186,15 +175,24 @@ function detectInlinePattern(textBefore: string): InlineMatch | null {
 
 // ── component ───────────────────────────────────────────────────────
 
-export function Editor({ activeTabId, initialContent, onChange, editorRef, readOnly }: any) {
+export function Editor({ activeTabId, initialContent, onChange, editorRef, readOnly, onActiveChange }: any) {
   const previousTabId = useRef(activeTabId);
   const isFirstRender = useRef(true);
   const [isActive, setIsActive] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const toolbarScrollRef = useRef<HTMLDivElement>(null);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [showLinkInput, setShowLinkInput] = useState(false);
+  const [linkValue, setLinkValue] = useState("");
+  const linkInputRef = useRef<HTMLInputElement>(null);
+  const [showImageInput, setShowImageInput] = useState(false);
+  const [imageValue, setImageValue] = useState("");
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const toolbarPosRef = useRef<{ top: number; left: number }>({ top: 0, left: 0 });
+  const savedRangeRef = useRef<Range | null>(null);
 
   // floating toolbar state
-  const [toolbarStyle, setToolbarStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
+  const [toolbarStyle, setToolbarStyle] = useState<React.CSSProperties>({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
   const hideToolbarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── tab switching / content init ──────────────────────────────────
@@ -225,7 +223,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   }, [isActive, editorRef]);
 
   useEffect(() => { if (readOnly) setIsActive(false); }, [readOnly]);
-  useEffect(() => { setIsActive(false); setToolbarStyle({ visibility: "hidden" }); }, [activeTabId]);
+  useEffect(() => { setIsActive(false); setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" }); }, [activeTabId]);
+  useEffect(() => { onActiveChange?.(isActive && !readOnly); }, [isActive, readOnly, onActiveChange]);
 
   // ── toolbar position updater ──────────────────────────────────────
 
@@ -234,18 +233,21 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     if (!el || readOnly) return;
 
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) { setToolbarStyle({ visibility: "hidden" }); return; }
+    if (!sel || sel.rangeCount === 0) { setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" }); return; }
 
     const range = sel.getRangeAt(0);
     const container = el.parentElement as HTMLElement;
     if (!container) return;
 
     const tw = toolbarRef.current?.offsetWidth || 320;
+    const selecting = !sel.isCollapsed;
+    setHasSelection(selecting);
 
-    if (!sel.isCollapsed) {
+    if (selecting) {
       // text selected → show below last line of selection
       const pos = calculateSelectionPosition(range, container, tw);
-      setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, visibility: pos.visibility });
+      toolbarPosRef.current = { top: pos.top, left: pos.left };
+      setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, opacity: 1, pointerEvents: "auto", transform: "translateY(0)" });
     } else {
       // cursor on empty line → show left-aligned
       const node = range.startContainer;
@@ -255,11 +257,12 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         if (text === "") {
           const blockRect = block.getBoundingClientRect();
           const pos = calculateEmptyLinePositionLeft(blockRect, container, tw);
-          setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, visibility: pos.visibility });
+          toolbarPosRef.current = { top: pos.top, left: pos.left };
+          setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, opacity: 1, pointerEvents: "auto", transform: "translateY(0)" });
           return;
         }
       }
-      setToolbarStyle({ visibility: "hidden" });
+      setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
     }
   }, [editorRef, readOnly]);
 
@@ -268,9 +271,68 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const scheduleHideToolbar = useCallback(() => {
     if (hideToolbarTimer.current) clearTimeout(hideToolbarTimer.current);
     hideToolbarTimer.current = setTimeout(() => {
-      setToolbarStyle({ visibility: "hidden" });
+      setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
     }, 300);
   }, []);
+
+  // ── link submission ───────────────────────────────────────────────
+
+  const handleLinkSubmit = (url: string) => {
+    const el = editorRef.current as HTMLElement | null;
+    if (!el || !url) return;
+    const finalUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+
+    // restore saved selection before creating link
+    const sel = window.getSelection();
+    if (savedRangeRef.current && sel) {
+      sel.removeAllRanges();
+      sel.addRange(savedRangeRef.current);
+    }
+
+    // reactivate editor (may have been deactivated when focus moved to link input)
+    if (!isActive && !readOnly) {
+      el.contentEditable = "true";
+      setIsActive(true);
+    }
+    el.focus();
+    document.execCommand("createLink", false, finalUrl);
+    normalizeEditorNodes(el);
+    onChange(el.innerHTML, el);
+    setShowLinkInput(false);
+    setLinkValue("");
+    setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+    savedRangeRef.current = null;
+  };
+
+  // ── image submission ──────────────────────────────────────────────
+
+  const handleImageSubmit = (url: string) => {
+    const el = editorRef.current as HTMLElement | null;
+    if (!el || !url) return;
+
+    // reactivate editor if focus was lost to the image input
+    if (!isActive && !readOnly) {
+      el.contentEditable = "true";
+      setIsActive(true);
+    }
+
+    // restore saved cursor position before inserting image
+    const sel = window.getSelection();
+    if (savedRangeRef.current && sel) {
+      sel.removeAllRanges();
+      sel.addRange(savedRangeRef.current);
+    }
+
+    const html = `<img src="${url}" class="max-w-full rounded border border-zinc-800 my-2 block" contenteditable="false" draggable="false" style="user-select:none;-webkit-user-select:none">`;
+    el.focus();
+    document.execCommand("insertHTML", false, html);
+    normalizeEditorNodes(el);
+    onChange(el.innerHTML, el);
+    setShowImageInput(false);
+    setImageValue("");
+    setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+    savedRangeRef.current = null;
+  };
 
   // ── selectionchange: show toolbar on mobile text selection ────────
 
@@ -578,7 +640,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
   const handleBlur = () => {
     if (!readOnly) setIsActive(false);
-    setToolbarStyle({ visibility: "hidden" });
+    setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
   };
 
   // ── toolbar scroll ────────────────────────────────────────────────
@@ -618,7 +680,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       {/* Floating toolbar */}
       <div
         ref={toolbarRef}
-        className="flex items-center select-none font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[calc(100vw-2rem)]"
+        className="flex items-center select-none font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[calc(100vw-2rem)] transition-all duration-150 ease-out"
         style={toolbarStyle}
         onMouseDown={(e) => e.preventDefault()}
         onMouseEnter={() => {
@@ -636,14 +698,38 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
           ref={toolbarScrollRef}
           className="flex items-center overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap"
         >
-          {TOOLBAR_TOOLS.map((tool) => (
+          {(hasSelection ? SELECTION_TOOLS : EMPTY_LINE_TOOLS).map((tool) => (
             <button
               key={tool}
               onMouseDown={(e) => {
                 e.preventDefault();
+                if (tool === "Link") {
+                  if (hasSelection) {
+                    const sel = window.getSelection();
+                    if (sel && sel.rangeCount > 0) {
+                      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+                    }
+                    setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+                    setShowLinkInput(true);
+                    setLinkValue("");
+                    setTimeout(() => linkInputRef.current?.focus(), 0);
+                  }
+                  return;
+                }
+                if (tool === "Image") {
+                  const sel = window.getSelection();
+                  if (sel && sel.rangeCount > 0) {
+                    savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+                  }
+                  setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+                  setShowImageInput(true);
+                  setImageValue("");
+                  setTimeout(() => imageInputRef.current?.focus(), 0);
+                  return;
+                }
                 handleToolClick(tool, editorRef.current);
                 onChange(editorRef.current.innerHTML, editorRef.current);
-                setTimeout(() => setToolbarStyle({ visibility: "hidden" }), 200);
+                setTimeout(() => setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" }), 200);
               }}
               className="px-1.5 py-0.5 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
             >
@@ -658,6 +744,82 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
           ]
         </span>
       </div>
+
+      {/* Link input */}
+      {showLinkInput && (
+        <div
+          className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px] transition-all duration-150 ease-out"
+          style={{
+            position: "absolute",
+            top: toolbarPosRef.current.top,
+            left: toolbarPosRef.current.left,
+          }}
+        >
+          <span className="px-2">[</span>
+          <input
+            ref={linkInputRef}
+            type="text"
+            value={linkValue}
+            placeholder="输入链接地址"
+            onChange={(e) => setLinkValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleLinkSubmit(linkInputRef.current?.value || linkValue);
+              } else if (e.key === "Escape") {
+                setShowLinkInput(false);
+                setLinkValue("");
+              }
+            }}
+            className="bg-transparent outline-none border-none text-zinc-200 w-full placeholder-zinc-600 font-mono text-xs"
+          />
+          <span className="px-2">]</span>
+          <span
+            className="px-2 cursor-pointer hover:text-white font-bold"
+            onMouseDown={(e) => { e.preventDefault(); handleLinkSubmit(linkInputRef.current?.value || linkValue); }}
+          >
+            OK
+          </span>
+        </div>
+      )}
+
+      {/* Image input */}
+      {showImageInput && (
+        <div
+          className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px]"
+          style={{
+            position: "absolute",
+            top: toolbarPosRef.current.top,
+            left: toolbarPosRef.current.left,
+          }}
+        >
+          <span className="px-2">[</span>
+          <input
+            ref={imageInputRef}
+            type="text"
+            value={imageValue}
+            placeholder="输入图片地址"
+            onChange={(e) => setImageValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleImageSubmit(imageInputRef.current?.value || imageValue);
+              } else if (e.key === "Escape") {
+                setShowImageInput(false);
+                setImageValue("");
+              }
+            }}
+            className="bg-transparent outline-none border-none text-zinc-200 w-full placeholder-zinc-600 font-mono text-xs"
+          />
+          <span className="px-2">]</span>
+          <span
+            className="px-2 cursor-pointer hover:text-white font-bold"
+            onMouseDown={(e) => { e.preventDefault(); handleImageSubmit(imageInputRef.current?.value || imageValue); }}
+          >
+            OK
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -241,8 +241,12 @@ input {
   overflow-x: auto;
 }
 .editor-body b, .editor-body strong {
-  font-weight: 700;
+  font-weight: 900;
   color: #ffffff;
+  -webkit-text-stroke: 0.5px currentColor;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 0.5px currentColor;
+  font-size: 1.02em;
 }
 .editor-body i, .editor-body em {
   font-style: italic;
@@ -296,6 +300,11 @@ input {
 
 .animate-fast-pulse {
   animation: fast-pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+html, body {
+  overscroll-behavior: none;
+}
+
 }
 
 

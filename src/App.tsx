@@ -83,18 +83,6 @@ export default function App() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Measure Back to top button dimensions for SVG border
-  useEffect(() => {
-    const el = backToTopRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      setBackToTopSize({ w: el.offsetWidth, h: el.offsetHeight });
-    });
-    ro.observe(el);
-    setBackToTopSize({ w: el.offsetWidth, h: el.offsetHeight });
-    return () => ro.disconnect();
-  }, [showBackToTop]);
-
   // isEditorFocused now driven by Editor's onActiveChange callback
 
   // Save State Transition
@@ -147,7 +135,19 @@ export default function App() {
     setErrorText("");
   };
 
-  // Focus password input when prompt is visible
+  // Measure Back to top button dimensions for SVG border
+  useEffect(() => {
+    const el = backToTopRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setBackToTopSize({ w: el.offsetWidth, h: el.offsetHeight });
+    });
+    ro.observe(el);
+    setBackToTopSize({ w: el.offsetWidth, h: el.offsetHeight });
+    return () => ro.disconnect();
+  }, [showBackToTop, isEditorFocused, showMenu, showChangePasswordModal, showDeleteModal]);
+
+  // Focus password input when prompt is visible
   useEffect(() => {
     if (vaultName && !isVerified) {
       if (passwordInputRef.current) {
@@ -965,10 +965,14 @@ export default function App() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.12, ease: "easeOut" }}
-          className="fixed inset-0 flex items-center md:items-start justify-center md:pt-[28vh] bg-[#0c0c0e] z-50 pointer-events-none"
-        >
-          <span className="font-mono text-sm tracking-widest text-[#ffffff] font-medium block uppercase animate-pulse">
-            Decrypting
+          className="fixed inset-0 flex items-center md:items-start justify-center md:pt-[28vh] bg-[#0c0c0e] z-50 pointer-events-none"
+
+        >
+
+          <span className="font-mono text-sm tracking-widest text-[#ffffff] font-medium block uppercase animate-pulse">
+
+            Decrypting
+
           </span>
         </motion.div>
       )}

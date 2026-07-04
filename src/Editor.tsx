@@ -191,6 +191,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const isFirstRender = useRef(true);
   const [isActive, setIsActive] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const toolbarScrollRef = useRef<HTMLDivElement>(null);
 
   // floating toolbar state
   const [toolbarStyle, setToolbarStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
@@ -270,6 +271,22 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       setToolbarStyle({ visibility: "hidden" });
     }, 300);
   }, []);
+
+  // ── selectionchange: show toolbar on mobile text selection ────────
+
+  useEffect(() => {
+    const onSelectionChange = () => {
+      const el = editorRef.current as HTMLElement | null;
+      if (!el || readOnly || !isActive) return;
+      const sel = window.getSelection();
+      // only respond to non-collapsed selections (text is selected)
+      if (sel && !sel.isCollapsed && el.contains(sel.anchorNode)) {
+        updateToolbar();
+      }
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => document.removeEventListener("selectionchange", onSelectionChange);
+  }, [isActive, readOnly, updateToolbar]);
 
   // ── beforeinput: handle enter in pre / quote / task ───────────────
 
@@ -564,6 +581,15 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     setToolbarStyle({ visibility: "hidden" });
   };
 
+  // ── toolbar scroll ────────────────────────────────────────────────
+
+  const scrollToolbar = (direction: "left" | "right") => {
+    const el = toolbarScrollRef.current;
+    if (!el) return;
+    const amount = direction === "left" ? -120 : 120;
+    el.scrollBy({ left: amount, behavior: "smooth" });
+  };
+
   // ── render ────────────────────────────────────────────────────────
 
   return (
@@ -592,7 +618,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       {/* Floating toolbar */}
       <div
         ref={toolbarRef}
-        className="flex items-center flex-wrap select-none font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl"
+        className="flex items-center select-none font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[calc(100vw-2rem)]"
         style={toolbarStyle}
         onMouseDown={(e) => e.preventDefault()}
         onMouseEnter={() => {
@@ -600,23 +626,37 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         }}
         onMouseLeave={scheduleHideToolbar}
       >
-        <span className="px-2">[</span>
-        {TOOLBAR_TOOLS.map((tool) => (
-          <button
-            key={tool}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              handleToolClick(tool, editorRef.current);
-              onChange(editorRef.current.innerHTML, editorRef.current);
-              // hide toolbar after action
-              setTimeout(() => setToolbarStyle({ visibility: "hidden" }), 200);
-            }}
-            className="px-1.5 py-0.5 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
-          >
-            {tool}
-          </button>
-        ))}
-        <span className="px-2">]</span>
+        <span
+          className="px-2 cursor-pointer hover:text-white flex-shrink-0"
+          onMouseDown={(e) => { e.preventDefault(); scrollToolbar("left"); }}
+        >
+          [
+        </span>
+        <div
+          ref={toolbarScrollRef}
+          className="flex items-center overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap"
+        >
+          {TOOLBAR_TOOLS.map((tool) => (
+            <button
+              key={tool}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                handleToolClick(tool, editorRef.current);
+                onChange(editorRef.current.innerHTML, editorRef.current);
+                setTimeout(() => setToolbarStyle({ visibility: "hidden" }), 200);
+              }}
+              className="px-1.5 py-0.5 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+            >
+              {tool}
+            </button>
+          ))}
+        </div>
+        <span
+          className="px-2 cursor-pointer hover:text-white flex-shrink-0"
+          onMouseDown={(e) => { e.preventDefault(); scrollToolbar("right"); }}
+        >
+          ]
+        </span>
       </div>
     </div>
   );

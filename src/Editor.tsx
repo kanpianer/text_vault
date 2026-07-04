@@ -1,939 +1,623 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { marked } from "marked";
+import {
+  calculateSelectionPosition,
+  calculateEmptyLinePositionLeft,
+} from "./toolbarPosition";
 
-const ZERO_WIDTH_CHARS = /[\u200B\u200C\u200D\uFEFF]/g;
+// ── style definitions ──────────────────────────────────────────────
+
+const EDITOR_CLASS =
+  "editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-relaxed pt-2";
+
+const TOOLBAR_TOOLS = [
+  "H1", "H2", "H3", "Task", "List", "Quote", "Table", "Image", "Code",
+  "Bold", "Italic", "Strike", "Under", "Line", "Center",
+] as const;
+
+type Tool = (typeof TOOLBAR_TOOLS)[number];
+
+// ── helpers ─────────────────────────────────────────────────────────
 
 export function normalizeEditorNodes(root: HTMLElement | null) {
   if (!root) return;
-
   root.querySelectorAll("img").forEach((img) => {
     img.setAttribute("contenteditable", "false");
     img.setAttribute("draggable", "false");
-    img.style.userSelect = "none";
-    img.style.webkitUserSelect = "none";
+    (img as HTMLElement).style.userSelect = "none";
+    (img as HTMLElement).style.webkitUserSelect = "none";
   });
-
-  root.querySelectorAll("a[href]").forEach((anchor) => {
-    anchor.setAttribute("target", "_blank");
-    anchor.setAttribute("rel", "noopener noreferrer");
+  root.querySelectorAll("a[href]").forEach((a) => {
+    a.setAttribute("target", "_blank");
+    a.setAttribute("rel", "noopener noreferrer");
   });
 }
 
-function removeVirtualCursors(root: HTMLElement | null) {
-  if (!root) return;
-  root.querySelectorAll('.virtual-cursor').forEach(el => el.remove());
+function getCurrentBlock(root: HTMLElement, node: Node): HTMLElement | null {
+  let el: HTMLElement | null =
+    node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+  while (el && el !== root && !["P","DIV","H1","H2","H3","H4","H5","H6","BLOCKQUOTE","PRE","LI","UL","OL"].includes(el.tagName)) {
+    el = el.parentElement;
+  }
+  return el && el !== root ? el : null;
 }
 
-function getBoundaryAdjacentImage(
-  container: Node,
-  offset: number,
-  direction: "backward" | "forward",
-  root: HTMLElement | null
-) {
-  const resolveCandidate = (candidate: Node | null): HTMLImageElement | null => {
-    let current = candidate;
-    while (current) {
-      if (current.nodeName === "IMG") return current as HTMLImageElement;
-      if (current.nodeType === Node.TEXT_NODE) {
-        const meaningfulText = (current.textContent || "").replace(ZERO_WIDTH_CHARS, "");
-        if (meaningfulText.length > 0) return null;
-      }
+// ── toolbar actions ─────────────────────────────────────────────────
 
-      if (current.nodeType !== Node.ELEMENT_NODE || current.nodeName === "IMG") {
-        return null;
-      }
+function applyBlock(editorEl: HTMLElement, tag: string) {
+  editorEl.focus();
+  document.execCommand("formatBlock", false, tag);
+}
 
-      current = direction === "backward"
-        ? current.lastChild
-        : current.firstChild;
-    }
+function applyAlign(align: string) {
+  document.execCommand("justify" + align, false);
+}
 
-    return null;
-  };
-
-  const findFromAncestors = (start: Node): HTMLImageElement | null => {
-    let current: Node | null = start;
-    while (current && current !== root) {
-      const sibling = direction === "backward" ? current.previousSibling : current.nextSibling;
-      const resolved = resolveCandidate(sibling);
-      if (resolved) return resolved;
-      current = current.parentNode;
-    }
-    return null;
-  };
-
-  if (container.nodeType === Node.TEXT_NODE) {
-    const text = container.textContent || "";
-    const boundaryText = direction === "backward" ? text.slice(0, offset) : text.slice(offset);
-    if (boundaryText.replace(ZERO_WIDTH_CHARS, "").length > 0) return null;
-
-    const sibling = direction === "backward" ? container.previousSibling : container.nextSibling;
-    return resolveCandidate(sibling) || findFromAncestors(container);
+function insertTaskBlock(el: HTMLElement) {
+  const sel = window.getSelection();
+  const block = getCurrentBlock(el, sel?.anchorNode || el);
+  const tag = block ? block.tagName.toLowerCase() : "p";
+  const cb = block?.querySelector('input[type="checkbox"]');
+  if (cb) { document.execCommand("insertUnorderedList", false); return; }
+  const p = document.createElement(tag);
+  const inp = document.createElement("input");
+  inp.type = "checkbox";
+  inp.style.marginRight = "8px";
+  inp.setAttribute("contenteditable", "false");
+  p.appendChild(inp);
+  const zw = document.createTextNode("\u200B");
+  p.appendChild(zw);
+  if (block?.parentNode) {
+    block.parentNode.insertBefore(p, block.nextSibling);
+  } else {
+    el.appendChild(p);
   }
+  const r = document.createRange();
+  r.setStartAfter(zw);
+  r.collapse(true);
+  sel?.removeAllRanges();
+  sel?.addRange(r);
+}
 
-  if (container.nodeType === Node.ELEMENT_NODE) {
-    const children = container.childNodes;
-    const childIndex = direction === "backward" ? offset - 1 : offset;
-    if (childIndex >= 0 && childIndex < children.length) {
-      return resolveCandidate(children[childIndex]);
+function insertTableBlock() {
+  const cols = 3;
+  const rows = 2;
+  let html =
+    '<div style="overflow-x:auto;max-width:100%;margin:1rem 0"><table style="border-collapse:collapse;width:100%;text-align:left">';
+  for (let r = 0; r < rows; r++) {
+    html += "<tr>";
+    for (let c = 0; c < cols; c++) {
+      const tag = r === 0 ? "th" : "td";
+      const bg = r === 0 ? 'background:rgba(39,39,42,0.5)' : "";
+      html += `<${tag} style="border:1px solid #3f3f46;padding:0.5rem;${bg}"><br></${tag}>`;
     }
-    return findFromAncestors(container);
+    html += "</tr>";
   }
+  html += "</table></div><p><br></p>";
+  document.execCommand("insertHTML", false, html);
+}
 
+function insertImageBlock(el: HTMLElement) {
+  const url = prompt("Image URL:")?.trim();
+  if (!url) return;
+  const html = `<img src="${url}" class="max-w-full rounded border border-zinc-800 my-2 block" contenteditable="false" draggable="false" style="user-select:none;-webkit-user-select:none">`;
+  document.execCommand("insertHTML", false, html);
+  normalizeEditorNodes(el);
+}
+
+function handleToolClick(tool: Tool, editorEl: HTMLElement) {
+  editorEl.focus();
+  const sel = window.getSelection();
+  const hasSel = sel && !sel.isCollapsed;
+
+  switch (tool) {
+    case "H1":     applyBlock(editorEl, "H1"); break;
+    case "H2":     applyBlock(editorEl, "H2"); break;
+    case "H3":     applyBlock(editorEl, "H3"); break;
+    case "Task":   insertTaskBlock(editorEl); break;
+    case "List":   document.execCommand("insertUnorderedList", false); break;
+    case "Quote":  applyBlock(editorEl, "blockquote"); break;
+    case "Table":  insertTableBlock(); break;
+    case "Image":  insertImageBlock(editorEl); break;
+    case "Code":
+      if (hasSel) {
+        document.execCommand(
+          "insertHTML",
+          false,
+          `<code class="bg-zinc-800 text-red-400 px-1 py-0.5 rounded font-mono text-xs">${sel?.toString()}</code>`
+        );
+      } else {
+        applyBlock(editorEl, "PRE");
+      }
+      break;
+    case "Bold":   document.execCommand("bold", false); break;
+    case "Italic": document.execCommand("italic", false); break;
+    case "Strike": document.execCommand("strikeThrough", false); break;
+    case "Under":  document.execCommand("underline", false); break;
+    case "Line":   document.execCommand("insertHorizontalRule", false); break;
+    case "Center": applyAlign("Center"); break;
+  }
+}
+
+// ── markdown patterns ───────────────────────────────────────────────
+
+interface PatternMatch {
+  type: "heading" | "quote" | "list" | "olist" | "task" | "codeblock" | "center";
+  level?: number;
+}
+
+function detectLineStartPattern(textBefore: string): PatternMatch | null {
+  if (/^#{1,6}$/.test(textBefore)) return { type: "heading", level: textBefore.length };
+  if (/^>$/.test(textBefore)) return { type: "quote" };
+  if (/^[-*]$/.test(textBefore)) return { type: "list" };
+  if (/^1\.$/.test(textBefore)) return { type: "olist" };
+  if (/^\[\s?\]$/.test(textBefore)) return { type: "task" };
+  if (/^```$/.test(textBefore) || /^    $/.test(textBefore)) return { type: "codeblock" };
+  if (/^->$/.test(textBefore)) return { type: "center" };
   return null;
 }
 
-function deleteImageWithUndo(image: HTMLImageElement) {
-  const selection = window.getSelection();
-  if (!selection) return false;
-
-  const range = document.createRange();
-  range.selectNode(image);
-  selection.removeAllRanges();
-  selection.addRange(range);
-
-  return document.execCommand("delete");
+interface InlineMatch {
+  type: "bold" | "italic" | "strike" | "underline" | "code" | "image" | "link";
+  content: string;
+  url?: string;
 }
 
-export function Editor({ activeTabId, initialContent, onChange, onSelect, editorRef, readOnly }: any) {
-  
+function detectInlinePattern(textBefore: string): InlineMatch | null {
+  let m: RegExpMatchArray | null;
+  m = textBefore.match(/!\[([^\]]*)\]\(([^)]+)\)$/);
+  if (m) return { type: "image", content: m[1], url: m[2] };
+  m = textBefore.match(/(^|[^!])\[([^\]]+)\]\(([^)]+)\)$/);
+  if (m) return { type: "link", content: m[2], url: m[3] };
+  m = textBefore.match(/(?:\*\*|__)([^*_]+)(?:\*\*|__)$/);
+  if (m) return { type: "bold", content: m[1] };
+  m = textBefore.match(/(?<!\*)\*(?!\*)([^*]+)(?<!\*)\*(?!\*)$/);
+  if (m) return { type: "italic", content: m[1] };
+  m = textBefore.match(/(?<!_)_(?!_)([^_]+)(?<!_)_(?!_)$/);
+  if (m) return { type: "italic", content: m[1] };
+  m = textBefore.match(/~~([^~]+)~~$/);
+  if (m) return { type: "strike", content: m[1] };
+  m = textBefore.match(/<u>([^<]+)<\/u>$/);
+  if (m) return { type: "underline", content: m[1] };
+  m = textBefore.match(/`([^`]+)`$/);
+  if (m) return { type: "code", content: m[1] };
+  return null;
+}
+
+// ── component ───────────────────────────────────────────────────────
+
+export function Editor({ activeTabId, initialContent, onChange, editorRef, readOnly }: any) {
   const previousTabId = useRef(activeTabId);
   const isFirstRender = useRef(true);
   const [isActive, setIsActive] = useState(false);
+  const toolbarRef = useRef<HTMLDivElement>(null);
 
-  // Touch-swipe detection refs — prevent scroll from accidentally activating editor
-  const touchRef = useRef({ startX: 0, startY: 0, startTime: 0, isScroll: false, hasMoved: false });
+  // floating toolbar state
+  const [toolbarStyle, setToolbarStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
+  const hideToolbarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync isActive with readOnly: deactivate when becoming read-only
-  useEffect(() => {
-    if (readOnly) setIsActive(false);
-  }, [readOnly]);
+  // ── tab switching / content init ──────────────────────────────────
 
-  // Deactivate when switching tabs
-  useEffect(() => {
-    setIsActive(false);
-  }, [activeTabId]);
+  useLayoutEffect(() => {
+    const el = editorRef.current as HTMLElement | null;
+    if (!el) return;
+    if (activeTabId !== previousTabId.current || isFirstRender.current) {
+      el.innerHTML = initialContent || "<p><br></p>";
+      normalizeEditorNodes(el);
+      previousTabId.current = activeTabId;
+      isFirstRender.current = false;
+    } else {
+      const hasFocus = document.activeElement === el || el.contains(document.activeElement);
+      if (!hasFocus && el.innerHTML !== initialContent) {
+        el.innerHTML = initialContent || "<p><br></p>";
+        normalizeEditorNodes(el);
+      }
+    }
+  }, [activeTabId, initialContent, editorRef]);
 
-  // When editor activates, focus without scrolling (prevents mobile page jump)
+  // ── focus on activate ─────────────────────────────────────────────
+
   useEffect(() => {
     if (isActive && editorRef.current && document.activeElement !== editorRef.current) {
       editorRef.current.focus({ preventScroll: true });
     }
-  }, [isActive]);
+  }, [isActive, editorRef]);
 
-  useLayoutEffect(() => {
-    if (!editorRef.current) return;
+  useEffect(() => { if (readOnly) setIsActive(false); }, [readOnly]);
+  useEffect(() => { setIsActive(false); setToolbarStyle({ visibility: "hidden" }); }, [activeTabId]);
 
-    const injectEmptyCursor = (el: HTMLElement) => {
-      const firstP = el.querySelector('p');
-      if (!firstP) return;
-      // Only add if content is essentially empty
-      const text = (el.textContent || '').trim();
-      if (text === '') {
-        if (!firstP.querySelector('.virtual-cursor')) {
-          const cursor = document.createElement('span');
-          cursor.className = 'virtual-cursor';
-          cursor.setAttribute('data-no-undo', 'true');
-          firstP.insertBefore(cursor, firstP.firstChild);
-        }
-      }
-    };
+  // ── toolbar position updater ──────────────────────────────────────
 
-    if (activeTabId !== previousTabId.current || isFirstRender.current) {
-      editorRef.current.innerHTML = initialContent || "<p><br></p>";
-      normalizeEditorNodes(editorRef.current);
-      if (!initialContent || initialContent.trim() === '') {
-        injectEmptyCursor(editorRef.current);
-      }
-      previousTabId.current = activeTabId;
-      isFirstRender.current = false;
+  const updateToolbar = useCallback(() => {
+    const el = editorRef.current as HTMLElement | null;
+    if (!el || readOnly) return;
+
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) { setToolbarStyle({ visibility: "hidden" }); return; }
+
+    const range = sel.getRangeAt(0);
+    const container = el.parentElement as HTMLElement;
+    if (!container) return;
+
+    const tw = toolbarRef.current?.offsetWidth || 320;
+
+    if (!sel.isCollapsed) {
+      // text selected → show below last line of selection
+      const pos = calculateSelectionPosition(range, container, tw);
+      setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, visibility: pos.visibility });
     } else {
-      // If we didn't switch tabs, only update if the editor doesn't have focus (e.g., from external sync).
-      const hasFocus = document.activeElement === editorRef.current || editorRef.current.contains(document.activeElement);
-      if (!hasFocus && editorRef.current.innerHTML !== initialContent) {
-        editorRef.current.innerHTML = initialContent || "<p><br></p>";
-        normalizeEditorNodes(editorRef.current);
-        if (!initialContent || initialContent.trim() === '') {
-          injectEmptyCursor(editorRef.current);
+      // cursor on empty line → show left-aligned
+      const node = range.startContainer;
+      const block = getCurrentBlock(el, node);
+      if (block) {
+        const text = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
+        if (text === "") {
+          const blockRect = block.getBoundingClientRect();
+          const pos = calculateEmptyLinePositionLeft(blockRect, container, tw);
+          setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, visibility: pos.visibility });
+          return;
         }
       }
+      setToolbarStyle({ visibility: "hidden" });
     }
-  }, [activeTabId, initialContent]);
+  }, [editorRef, readOnly]);
+
+  // ── schedule toolbar hide ─────────────────────────────────────────
+
+  const scheduleHideToolbar = useCallback(() => {
+    if (hideToolbarTimer.current) clearTimeout(hideToolbarTimer.current);
+    hideToolbarTimer.current = setTimeout(() => {
+      setToolbarStyle({ visibility: "hidden" });
+    }, 300);
+  }, []);
+
+  // ── beforeinput: handle enter in pre / quote / task ───────────────
 
   useEffect(() => {
-    const el = editorRef.current;
+    const el = editorRef.current as HTMLElement | null;
     if (!el) return;
 
-    const handleBeforeInput = (e: InputEvent) => {
-      if (e.inputType === "insertLineBreak" || e.inputType === "insertParagraph") {
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0) return;
-        
-        const range = sel.getRangeAt(0);
-        let node: Node | null = range.startContainer;
-        
-        // Prevent breaking out of PRE blocks on mobile/desktop
-        let curr: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
-        while (curr && curr !== el) {
-          if (curr.tagName === "PRE") {
-            e.preventDefault();
-            document.execCommand("insertText", false, "\n");
-            onChange(el.innerHTML, el);
-            return;
-          }
-          curr = curr.parentElement;
+    const onBeforeInput = (e: InputEvent) => {
+      if (e.inputType !== "insertLineBreak" && e.inputType !== "insertParagraph") return;
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      let node: Node | null = range.startContainer;
+
+      // pre block: insert literal newline
+      let curr: HTMLElement | null =
+        node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+      while (curr && curr !== el) {
+        if (curr.tagName === "PRE") {
+          e.preventDefault();
+          document.execCommand("insertText", false, "\n");
+          onChange(el.innerHTML, el);
+          return;
         }
-        
-        let block: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
-        while (block && block !== el && window.getComputedStyle(block).display !== "block" && block.tagName !== "BLOCKQUOTE" && block.tagName !== "LI" && block.tagName !== "DIV" && block.tagName !== "P") {
-          block = block.parentElement;
+        curr = curr.parentElement;
+      }
+
+      const block = getCurrentBlock(el, node);
+      if (!block) return;
+
+      // quote
+      if (block.tagName === "BLOCKQUOTE") {
+        if ((block.textContent || "").trim() === "") {
+          e.preventDefault();
+          document.execCommand("formatBlock", false, "P");
+          return;
         }
-        
-        if (block && block !== el) {
-          // Check for Quote
-          if (block.tagName === "BLOCKQUOTE") {
-            if ((block.textContent || "").trim() === "") {
-              e.preventDefault();
-              document.execCommand("formatBlock", false, "P");
-              return;
-            }
-            // Non-empty quote: insert <br> to allow line breaks within the quote
-            e.preventDefault();
-            const br = document.createElement("br");
-            range.insertNode(br);
-            range.setStartAfter(br);
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
-            onChange(el.innerHTML, el);
-            return;
-          }
+        e.preventDefault();
+        const br = document.createElement("br");
+        range.insertNode(br);
+        range.setStartAfter(br);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        onChange(el.innerHTML, el);
+        return;
+      }
 
-          // Check for Task
-          const checkbox = block.querySelector('input[type="checkbox"]');
-          if (checkbox) {
-            const rawText = block.textContent || "";
-            const textContent = rawText.replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
-            if (textContent.trim() === "") {
-              e.preventDefault();
-              checkbox.remove();
-              // If it becomes completely empty, ensure it can be focused
-              if (block.innerHTML.trim() === "" || block.innerHTML === " " || block.innerHTML === "&nbsp;") {
-                block.innerHTML = "<br>";
-              }
-              
-              // Restore cursor inside the block
-              const sel = window.getSelection();
-              const r = document.createRange();
-              r.selectNodeContents(block);
-              r.collapse(true);
-              sel?.removeAllRanges();
-              sel?.addRange(r);
-              
-              onChange(el.innerHTML, el);
-              return;
-            } else {
-              // Has content, hit enter. Manually create new task block atomically to avoid toolbar flash and cursor jump.
-              e.preventDefault();
-
-              const sel = window.getSelection();
-              if (!sel || sel.rangeCount === 0) return;
-              const range = sel.getRangeAt(0);
-              
-              // Clone current block as new task block
-              const newBlock = document.createElement(block.tagName.toLowerCase());
-              const newCheckbox = document.createElement('input');
-              newCheckbox.type = "checkbox";
-              newCheckbox.style.marginRight = "8px";
-              const zeroWidth = document.createTextNode('\u200B');
-              newBlock.appendChild(newCheckbox);
-              newBlock.appendChild(zeroWidth);
-
-              // Split content: move text/children after cursor into newBlock
-              if (range.startContainer === block) {
-                // Cursor at block level - move all children after offset
-                const children = Array.from(block.childNodes);
-                for (let i = range.startOffset; i < children.length; i++) {
-                  newBlock.appendChild(children[i]);
-                }
-              } else {
-                // Cursor inside a text node - split text
-                const textNode = range.startContainer as Text;
-                const afterText = textNode.textContent?.substring(range.startOffset) || '';
-                textNode.textContent = textNode.textContent?.substring(0, range.startOffset) || '';
-                
-                // Move siblings after text node to new block
-                let sibling = textNode.nextSibling;
-                while (sibling) {
-                  const next = sibling.nextSibling;
-                  newBlock.appendChild(sibling);
-                  sibling = next;
-                }
-                
-                // Append remaining text to new block
-                if (afterText) {
-                  newBlock.appendChild(document.createTextNode(afterText));
-                }
-              }
-
-              // Insert new block after current block
-              block.parentNode?.insertBefore(newBlock, block.nextSibling);
-              
-              // Place cursor after checkbox zero-width space
-              const r = document.createRange();
-              r.setStartAfter(zeroWidth);
-              r.collapse(true);
-              sel.removeAllRanges();
-              sel.addRange(r);
-              
-              onChange(el.innerHTML, el);
-              return;
-            }
-          }
+      // task
+      const cb = block.querySelector('input[type="checkbox"]');
+      if (cb) {
+        const raw = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+        if (raw.trim() === "") {
+          e.preventDefault();
+          cb.remove();
+          if (!block.textContent?.trim()) block.innerHTML = "<br>";
+          const r = document.createRange();
+          r.selectNodeContents(block);
+          r.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(r);
+          onChange(el.innerHTML, el);
+          return;
         }
+        // auto-create next task
+        e.preventDefault();
+        const newBlock = document.createElement(block.tagName.toLowerCase());
+        const newCb = document.createElement("input");
+        newCb.type = "checkbox";
+        newCb.style.marginRight = "8px";
+        newCb.setAttribute("contenteditable", "false");
+        const zw = document.createTextNode("\u200B");
+        newBlock.appendChild(newCb);
+        newBlock.appendChild(zw);
+        if (range.startContainer === block) {
+          const kids = Array.from(block.childNodes);
+          for (let i = range.startOffset; i < kids.length; i++) newBlock.appendChild(kids[i]);
+        } else {
+          const tn = range.startContainer as Text;
+          const after = tn.textContent?.substring(range.startOffset) || "";
+          tn.textContent = tn.textContent?.substring(0, range.startOffset) || "";
+          let sib = tn.nextSibling;
+          while (sib) { const n = sib.nextSibling; newBlock.appendChild(sib); sib = n; }
+          if (after) newBlock.appendChild(document.createTextNode(after));
+        }
+        block.parentNode?.insertBefore(newBlock, block.nextSibling);
+        const r = document.createRange();
+        r.setStartAfter(zw);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        onChange(el.innerHTML, el);
       }
     };
 
-    el.addEventListener("beforeinput", handleBeforeInput);
-    return () => {
-      el.removeEventListener("beforeinput", handleBeforeInput);
-    };
+    el.addEventListener("beforeinput", onBeforeInput);
+    return () => el.removeEventListener("beforeinput", onBeforeInput);
   }, [onChange, editorRef]);
 
-  const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
+  // ── paste: parse markdown to styled HTML ──────────────────────────
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
     e.preventDefault();
-    let text = e.clipboardData.getData("text/plain");
-    let rtf = e.clipboardData.getData("text/html");
-    
-    // If there is HTML (e.g. copied from a website), we might want to just insert it directly, 
-    // or if the user copied raw markdown, parse it.
-    // The user specifically requested "Markdown text copied into the edit box will directly display the format of the text style"
-    // This usually means if it is plain text containing markdown, parse it.
-    
-    if (text) {
-      // If it looks like raw markdown, parse it using marked
-      // To prevent parsing normal text unnecessarily, we can just run everything through marked. 
-      // marked parses normal text into paragraphs, which is standard.
-      let html = await marked.parse(text, { breaks: true });
-      
-      // Post-process the generated HTML to match our custom checkbox styling for tasks
-      html = html.replace(/<input disabled="" type="checkbox">/gi, '<input type="checkbox" style="margin-right: 8px;">');
-      html = html.replace(/<input checked="" disabled="" type="checkbox">/gi, '<input type="checkbox" checked style="margin-right: 8px;">');
-      
-      document.execCommand("insertHTML", false, html);
-      normalizeEditorNodes(editorRef.current);
+    const text = e.clipboardData.getData("text/plain");
+    if (!text) return;
+    let html = await marked.parse(text, { breaks: true });
+    html = html.replace(
+      /<input disabled="" type="checkbox">/gi,
+      '<input type="checkbox" style="margin-right:8px" contenteditable="false">'
+    );
+    html = html.replace(
+      /<input checked="" disabled="" type="checkbox">/gi,
+      '<input type="checkbox" checked style="margin-right:8px" contenteditable="false">'
+    );
+    document.execCommand("insertHTML", false, html);
+    normalizeEditorNodes(editorRef.current);
+    onChange(editorRef.current.innerHTML, editorRef.current);
+  };
+
+  // ── keydown: markdown shortcuts ───────────────────────────────────
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const el = editorRef.current as HTMLElement | null;
+    if (!el || readOnly) return;
+
+    if (e.key === " ") {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const node = sel.getRangeAt(0).startContainer;
+      if (node.nodeType !== Node.TEXT_NODE) return;
+      const text = node.textContent || "";
+      const offset = sel.getRangeAt(0).startOffset;
+      const textBefore = text.substring(0, offset);
+
+      // inline patterns
+      const inline = detectInlinePattern(textBefore);
+      if (inline) {
+        e.preventDefault();
+        const matchedLen = (() => {
+          switch (inline.type) {
+            case "bold": return inline.content.length + 4;
+            case "italic": return inline.content.length + 2;
+            case "strike": return inline.content.length + 4;
+            case "underline": return inline.content.length + 7;
+            case "code": return inline.content.length + 2;
+            case "image": return inline.content.length + (inline.url?.length || 0) + 5;
+            case "link": return inline.content.length + (inline.url?.length || 0) + 4;
+          }
+        })();
+        const startIdx = offset - matchedLen;
+        const before = text.substring(0, startIdx);
+        const after = text.substring(offset);
+        (node as Text).textContent = before;
+
+        let html = "";
+        switch (inline.type) {
+          case "bold": html = `<b>${inline.content}</b>`; break;
+          case "italic": html = `<i>${inline.content}</i>`; break;
+          case "strike": html = `<strike>${inline.content}</strike>`; break;
+          case "underline": html = `<u>${inline.content}</u>`; break;
+          case "code": html = `<code class="bg-zinc-800 text-red-400 px-1 py-0.5 rounded font-mono text-xs">${inline.content}</code>`; break;
+          case "image": html = `<img src="${inline.url}" alt="${inline.content}" class="max-w-full rounded border border-zinc-800 my-2 block" contenteditable="false" draggable="false" style="user-select:none;-webkit-user-select:none">`; break;
+          case "link": html = `<a href="${inline.url}" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline cursor-pointer">${inline.content}</a>`; break;
+        }
+
+        const tail = document.createTextNode("\u200B" + after);
+        const parent = node.parentNode;
+        const next = node.nextSibling;
+        const tpl = document.createElement("span");
+        tpl.innerHTML = html;
+        while (tpl.firstChild) parent?.insertBefore(tpl.firstChild, next);
+        parent?.insertBefore(tail, next);
+
+        const r = document.createRange();
+        r.setStart(tail, 1);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        normalizeEditorNodes(el);
+        onChange(el.innerHTML, el);
+        return;
+      }
+
+      // line-start patterns
+      const pattern = detectLineStartPattern(textBefore);
+      if (pattern) {
+        e.preventDefault();
+        (node as Text).textContent = text.substring(offset);
+        const block = getCurrentBlock(el, node);
+        if (block) {
+          const r = document.createRange();
+          r.selectNodeContents(block);
+          r.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(r);
+
+          switch (pattern.type) {
+            case "heading": document.execCommand("formatBlock", false, `H${pattern.level}`); break;
+            case "quote": document.execCommand("formatBlock", false, "blockquote"); break;
+            case "list": document.execCommand("insertUnorderedList", false); break;
+            case "olist": document.execCommand("insertOrderedList", false); break;
+            case "task": {
+              document.execCommand("formatBlock", false, "P");
+              const b2 = getCurrentBlock(el, node) || block;
+              const cb = document.createElement("input");
+              cb.type = "checkbox";
+              cb.style.marginRight = "8px";
+              cb.setAttribute("contenteditable", "false");
+              const zw = document.createTextNode("\u200B");
+              const tailText = text.substring(offset);
+              b2.innerHTML = "";
+              b2.appendChild(cb);
+              b2.appendChild(zw);
+              if (tailText) b2.appendChild(document.createTextNode(tailText));
+              const rr = document.createRange();
+              rr.setStartAfter(zw);
+              rr.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(rr);
+              break;
+            }
+            case "codeblock": document.execCommand("formatBlock", false, "PRE"); document.execCommand("insertHTML", false, "\n"); break;
+            case "center": block.style.textAlign = "center"; break;
+          }
+        }
+        onChange(el.innerHTML, el);
+      }
+    }
+
+    // update toolbar on any key that might change selection
+    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Backspace", "Delete"].includes(e.key)) {
+      setTimeout(updateToolbar, 0);
     }
   };
 
+  // ── mouse / selection events for floating toolbar ─────────────────
+
+  const handleMouseUp = () => {
+    setTimeout(updateToolbar, 0);
+  };
+
+  const handleKeyUp = () => {
+    updateToolbar();
+  };
+
+  // ── click: activate editor ────────────────────────────────────────
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.tagName === "IMG") {
+      e.preventDefault();
+      return;
+    }
+    if (!isActive && !readOnly) {
+      editorRef.current.contentEditable = "true";
+      editorRef.current.focus({ preventScroll: true });
+      setIsActive(true);
+    }
+  };
+
+  // ── touch: detect tap to activate ─────────────────────────────────
+
+  const touchRef = useRef({ startX: 0, startY: 0, startTime: 0, hasMoved: false });
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.tagName === "IMG") { e.preventDefault(); return; }
+    const tc = e.touches[0];
+    touchRef.current = { startX: tc.clientX, startY: tc.clientY, startTime: Date.now(), hasMoved: false };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const tc = e.touches[0];
+    if (Math.abs(tc.clientX - touchRef.current.startX) > 15 || Math.abs(tc.clientY - touchRef.current.startY) > 15) {
+      touchRef.current.hasMoved = true;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    const { startTime, hasMoved } = touchRef.current;
+    if (!hasMoved && Date.now() - startTime < 300 && !isActive && !readOnly) {
+      editorRef.current.contentEditable = "true";
+      editorRef.current.focus({ preventScroll: true });
+      setIsActive(true);
+    }
+  };
+
+  // ── blur: deactivate + hide toolbar ───────────────────────────────
+
+  const handleBlur = () => {
+    if (!readOnly) setIsActive(false);
+    setToolbarStyle({ visibility: "hidden" });
+  };
+
+  // ── render ────────────────────────────────────────────────────────
+
   return (
-    <div
-      ref={editorRef}
-      className="editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-relaxed"
-      contentEditable={isActive && !readOnly}
-      suppressContentEditableWarning
-      onInput={(e) => {
-        normalizeEditorNodes(e.currentTarget);
-        onChange(e.currentTarget.innerHTML, editorRef.current);
-      }}
-      onSelect={isActive ? onSelect : undefined}
-      onPaste={handlePaste}
-      onMouseDown={(e) => {
-        const target = e.target as HTMLElement;
-        if (target.tagName === "IMG") {
-          e.preventDefault();
-          e.stopPropagation();
-          return;
-        }
-        // Activate editor on click/tap.
-        // Set contentEditable directly on the DOM so the browser's
-        // native click→cursor-placement runs with edit enabled.
-        if (!isActive && !readOnly) {
-          removeVirtualCursors(editorRef.current);
-          editorRef.current.contentEditable = "true";
-          editorRef.current.focus({ preventScroll: true });
-          setIsActive(true);
-        }
-      }}
-      onClick={(e) => {
-        const target = e.target as HTMLElement;
-        if (target.tagName === "IMG") {
-          e.preventDefault();
-          e.stopPropagation();
-          return;
-        }
+    <div className="flex flex-col w-full relative">
+      {/* Editor body */}
+      <div
+        ref={editorRef}
+        className={EDITOR_CLASS}
+        contentEditable={isActive && !readOnly}
+        suppressContentEditableWarning
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onKeyUp={handleKeyUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onPaste={handlePaste}
+        onInput={(e) => {
+          normalizeEditorNodes(e.currentTarget);
+          onChange(e.currentTarget.innerHTML, editorRef.current);
+        }}
+        onKeyDown={handleKeyDown}
+        onBlur={handleBlur}
+      />
 
-        const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
-
-        if (anchor) {
-          e.preventDefault();
-          e.stopPropagation();
-          window.open(anchor.href, "_blank", "noopener,noreferrer");
-          return;
-        }
-
-        // Click on empty area below editor content → create a new edit block
-        if (target === editorRef.current && !readOnly) {
-          // Find the last block-level element
-          const blocks = editorRef.current.querySelectorAll(
-            'p, h1, h2, h3, h4, h5, h6, div, blockquote, pre, li, ul, ol'
-          ) as NodeListOf<HTMLElement>;
-          if (blocks.length > 0) {
-            const lastBlock = blocks[blocks.length - 1];
-            const lastText = (lastBlock.textContent || '').replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim();
-            if (lastText.length > 0) {
+      {/* Floating toolbar */}
+      <div
+        ref={toolbarRef}
+        className="flex items-center flex-wrap select-none font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl"
+        style={toolbarStyle}
+        onMouseDown={(e) => e.preventDefault()}
+        onMouseEnter={() => {
+          if (hideToolbarTimer.current) clearTimeout(hideToolbarTimer.current);
+        }}
+        onMouseLeave={scheduleHideToolbar}
+      >
+        <span className="px-2">[</span>
+        {TOOLBAR_TOOLS.map((tool) => (
+          <button
+            key={tool}
+            onMouseDown={(e) => {
               e.preventDefault();
-              // Activate editor
-              if (!isActive) {
-                removeVirtualCursors(editorRef.current);
-                editorRef.current.contentEditable = "true";
-                setIsActive(true);
-              }
-              const newP = document.createElement('p');
-              newP.innerHTML = '<br>';
-              editorRef.current.appendChild(newP);
-              const sel = window.getSelection();
-              const r = document.createRange();
-              r.selectNodeContents(newP);
-              r.collapse(true);
-              sel?.removeAllRanges();
-              sel?.addRange(r);
+              handleToolClick(tool, editorRef.current);
               onChange(editorRef.current.innerHTML, editorRef.current);
-              return;
-            }
-          }
-        }
-      }}
-      onTouchStart={(e) => {
-        const target = e.target as HTMLElement;
-        if (target.tagName === "IMG") {
-          e.preventDefault();
-          e.stopPropagation();
-          return;
-        }
-        // Record touch origin for swipe detection
-        const touch = e.touches[0];
-        touchRef.current = {
-          startX: touch.clientX,
-          startY: touch.clientY,
-          startTime: Date.now(),
-          isScroll: false,
-          hasMoved: false,
-        };
-      }}
-      onTouchMove={(e) => {
-        const touch = e.touches[0];
-        const dx = Math.abs(touch.clientX - touchRef.current.startX);
-        const dy = Math.abs(touch.clientY - touchRef.current.startY);
-        // 提高滑动检测阈值，从 10 增加到 15，更严格判断是否为滑动
-        if (dx > 15 || dy > 15) {
-          touchRef.current.isScroll = true;
-          touchRef.current.hasMoved = true;
-        }
-      }}
-      onTouchEnd={(e) => {
-        const { startTime, isScroll, hasMoved } = touchRef.current;
-        const elapsed = Date.now() - startTime;
-        // 只有当没有移动且时间小于 300ms 才认为是点击
-        const wasTap = !isScroll && !hasMoved && elapsed < 300;
-        if (wasTap && !isActive && !readOnly) {
-          const target = e.target as HTMLElement;
-          if (target.tagName === "IMG") return;
-          removeVirtualCursors(editorRef.current);
-          editorRef.current.contentEditable = "true";
-          editorRef.current.focus({ preventScroll: true });
-          setIsActive(true);
-        }
-        // 重置状态
-        touchRef.current.isScroll = false;
-        touchRef.current.hasMoved = false;
-      }}
-      onBlur={() => {
-        if (!readOnly) setIsActive(false);
-      }}
-      onKeyDown={(e) => {
-        if (readOnly) return;
-
-        if (e.key === "Backspace" || e.key === "Delete") {
-          const sel = window.getSelection();
-          if (sel && sel.rangeCount > 0) {
-            const range = sel.getRangeAt(0);
-            if (sel.isCollapsed) {
-              const direction = e.key === "Backspace" ? "backward" : "forward";
-              const imageToRemove = getBoundaryAdjacentImage(
-                range.startContainer,
-                range.startOffset,
-                direction,
-                editorRef.current
-              );
-
-              if (imageToRemove) {
-                e.preventDefault();
-                const deleted = deleteImageWithUndo(imageToRemove);
-                if (!deleted) {
-                  imageToRemove.remove();
-                }
-                normalizeEditorNodes(editorRef.current);
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                return;
-              }
-            }
-          }
-        }
-
-        if (e.key === " ") {
-          const sel = window.getSelection();
-          if (sel && sel.rangeCount > 0) {
-            const range = sel.getRangeAt(0);
-            const node = range.startContainer;
-            if (node.nodeType === Node.TEXT_NODE) {
-              const text = node.textContent || "";
-              const caretOffset = range.startOffset;
-              const textBeforeCaret = text.substring(0, caretOffset);
-              
-              let block: HTMLElement | null = node.parentElement;
-              while (block && block !== editorRef.current && window.getComputedStyle(block).display !== "block" && block.tagName !== "DIV" && block.tagName !== "P") {
-                block = block.parentElement;
-              }
-              
-              if (block && block !== editorRef.current) {
-                let handled = false;
-                
-                if (textBeforeCaret === "#") {
-                  e.preventDefault();
-                  node.textContent = text.substring(caretOffset);
-                  document.execCommand("formatBlock", false, "H1");
-                  handled = true;
-                } else if (textBeforeCaret === "##") {
-                  e.preventDefault();
-                  node.textContent = text.substring(caretOffset);
-                  document.execCommand("formatBlock", false, "H2");
-                  handled = true;
-                } else if (textBeforeCaret === "###") {
-                  e.preventDefault();
-                  node.textContent = text.substring(caretOffset);
-                  document.execCommand("formatBlock", false, "H3");
-                  handled = true;
-                } else if (textBeforeCaret === ">") {
-                  e.preventDefault();
-                  node.textContent = text.substring(caretOffset);
-                  document.execCommand("formatBlock", false, "blockquote");
-                  handled = true;
-                } else if (textBeforeCaret === "-" || textBeforeCaret === "*") {
-                  e.preventDefault();
-                  node.textContent = text.substring(caretOffset);
-                  document.execCommand("insertUnorderedList", false);
-                  handled = true;
-                } else if (textBeforeCaret === "1.") {
-                  e.preventDefault();
-                  node.textContent = text.substring(caretOffset);
-                  document.execCommand("insertOrderedList", false);
-                  handled = true;
-                } else if (textBeforeCaret === "[]" || textBeforeCaret === "[ ]") {
-                  e.preventDefault();
-                  node.textContent = text.substring(caretOffset);
-                  
-                  const checkbox = document.createElement('input');
-                  checkbox.type = "checkbox";
-                  checkbox.style.marginRight = "8px";
-                  
-                  const remainingText = text.substring(caretOffset);
-                  block.innerHTML = "";
-                  block.appendChild(checkbox);
-                  const spaceNode = document.createTextNode("\u200B" + remainingText);
-                  block.appendChild(spaceNode);
-                  
-                  const r = document.createRange();
-                  r.setStart(spaceNode, 1);
-                  r.collapse(true);
-                  sel.removeAllRanges();
-                  sel.addRange(r);
-                  handled = true;
-                } else if (textBeforeCaret === "->") {
-                  e.preventDefault();
-                  node.textContent = text.substring(caretOffset);
-                  block.style.textAlign = "center";
-                  handled = true;
-                } else if (textBeforeCaret === "    ") {
-                  e.preventDefault();
-                  node.textContent = text.substring(caretOffset);
-                  document.execCommand("formatBlock", false, "PRE");
-                  handled = true;
-                } else if (textBeforeCaret === "```") {
-                  e.preventDefault();
-                  node.textContent = text.substring(caretOffset);
-                  document.execCommand("formatBlock", false, "PRE");
-                  handled = true;
-                }
-                
-                if (handled) {
-                  onChange(editorRef.current.innerHTML, editorRef.current);
-                  return;
-                }
-              }
-              
-              let match;
-              if ((match = textBeforeCaret.match(/(?:\*\*|__)([^*_]+)(?:\*\*|__)$/))) {
-                e.preventDefault();
-                const matchedStr = match[0];
-                const content = match[1];
-                const startIndex = caretOffset - matchedStr.length;
-                
-                const beforeText = text.substring(0, startIndex);
-                const afterText = text.substring(caretOffset);
-                
-                const bNode = document.createElement("b");
-                bNode.textContent = content;
-                
-                node.textContent = beforeText;
-                const parent = node.parentNode;
-                if (parent) {
-                  const nextSibling = node.nextSibling;
-                  parent.insertBefore(bNode, nextSibling);
-                  const textAfterNode = document.createTextNode("\u200B" + afterText);
-                  parent.insertBefore(textAfterNode, bNode.nextSibling);
-                  
-                  const r = document.createRange();
-                  r.setStart(textAfterNode, 1);
-                  r.collapse(true);
-                  sel.removeAllRanges();
-                  sel.addRange(r);
-                }
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                return;
-              } else if ((match = textBeforeCaret.match(/(?:\*|_)([^*_]+)(?:\*|_)$/))) {
-                e.preventDefault();
-                const matchedStr = match[0];
-                const content = match[1];
-                const startIndex = caretOffset - matchedStr.length;
-                
-                const beforeText = text.substring(0, startIndex);
-                const afterText = text.substring(caretOffset);
-                
-                const iNode = document.createElement("i");
-                iNode.textContent = content;
-                
-                node.textContent = beforeText;
-                const parent = node.parentNode;
-                if (parent) {
-                  const nextSibling = node.nextSibling;
-                  parent.insertBefore(iNode, nextSibling);
-                  const textAfterNode = document.createTextNode("\u200B" + afterText);
-                  parent.insertBefore(textAfterNode, iNode.nextSibling);
-                  
-                  const r = document.createRange();
-                  r.setStart(textAfterNode, 1);
-                  r.collapse(true);
-                  sel.removeAllRanges();
-                  sel.addRange(r);
-                }
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                return;
-              } else if ((match = textBeforeCaret.match(/~~([^~]+)~~$/))) {
-                e.preventDefault();
-                const matchedStr = match[0];
-                const content = match[1];
-                const startIndex = caretOffset - matchedStr.length;
-                
-                const beforeText = text.substring(0, startIndex);
-                const afterText = text.substring(caretOffset);
-                
-                const sNode = document.createElement("strike");
-                sNode.textContent = content;
-                
-                node.textContent = beforeText;
-                const parent = node.parentNode;
-                if (parent) {
-                  const nextSibling = node.nextSibling;
-                  parent.insertBefore(sNode, nextSibling);
-                  const textAfterNode = document.createTextNode("\u200B" + afterText);
-                  parent.insertBefore(textAfterNode, sNode.nextSibling);
-                  
-                  const r = document.createRange();
-                  r.setStart(textAfterNode, 1);
-                  r.collapse(true);
-                  sel.removeAllRanges();
-                  sel.addRange(r);
-                }
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                return;
-              } else if ((match = textBeforeCaret.match(/<u>([^<]+)<\/u>$/))) {
-                e.preventDefault();
-                const matchedStr = match[0];
-                const content = match[1];
-                const startIndex = caretOffset - matchedStr.length;
-                
-                const beforeText = text.substring(0, startIndex);
-                const afterText = text.substring(caretOffset);
-                
-                const uNode = document.createElement("u");
-                uNode.textContent = content;
-                
-                node.textContent = beforeText;
-                const parent = node.parentNode;
-                if (parent) {
-                  const nextSibling = node.nextSibling;
-                  parent.insertBefore(uNode, nextSibling);
-                  const textAfterNode = document.createTextNode("\u200B" + afterText);
-                  parent.insertBefore(textAfterNode, uNode.nextSibling);
-                  
-                  const r = document.createRange();
-                  r.setStart(textAfterNode, 1);
-                  r.collapse(true);
-                  sel.removeAllRanges();
-                  sel.addRange(r);
-                }
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                return;
-              } else if ((match = textBeforeCaret.match(/`([^`]+)`$/))) {
-                e.preventDefault();
-                const matchedStr = match[0];
-                const content = match[1];
-                const startIndex = caretOffset - matchedStr.length;
-                
-                const beforeText = text.substring(0, startIndex);
-                const afterText = text.substring(caretOffset);
-                
-                const codeNode = document.createElement("code");
-                codeNode.className = "bg-zinc-800 text-red-400 px-1 py-0.5 rounded font-mono text-xs";
-                codeNode.textContent = content;
-                
-                node.textContent = beforeText;
-                const parent = node.parentNode;
-                if (parent) {
-                  const nextSibling = node.nextSibling;
-                  parent.insertBefore(codeNode, nextSibling);
-                  const textAfterNode = document.createTextNode("\u200B" + afterText);
-                  parent.insertBefore(textAfterNode, codeNode.nextSibling);
-                  
-                  const r = document.createRange();
-                  r.setStart(textAfterNode, 1);
-                  r.collapse(true);
-                  sel.removeAllRanges();
-                  sel.addRange(r);
-                }
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                return;
-              } else if ((match = textBeforeCaret.match(/!\[([^\]]*)\]\(([^)]+)\)$/))) {
-                e.preventDefault();
-                const matchedStr = match[0];
-                const alt = match[1];
-                const url = match[2];
-                const startIndex = caretOffset - matchedStr.length;
-                
-                const beforeText = text.substring(0, startIndex);
-                const afterText = text.substring(caretOffset);
-                
-                const imgNode = document.createElement("img");
-                imgNode.src = url;
-                if (alt) imgNode.alt = alt;
-                imgNode.className = "max-w-full rounded border border-zinc-800 my-2 block";
-                imgNode.setAttribute("contenteditable", "false");
-                imgNode.setAttribute("draggable", "false");
-                imgNode.style.userSelect = "none";
-                imgNode.style.webkitUserSelect = "none";
-                
-                node.textContent = beforeText;
-                const parent = node.parentNode;
-                if (parent) {
-                  const nextSibling = node.nextSibling;
-                  parent.insertBefore(imgNode, nextSibling);
-                  const textAfterNode = document.createTextNode("\u200B" + afterText);
-                  parent.insertBefore(textAfterNode, imgNode.nextSibling);
-                  
-                  const r = document.createRange();
-                  r.setStart(textAfterNode, 1);
-                  r.collapse(true);
-                  sel.removeAllRanges();
-                  sel.addRange(r);
-                }
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                return;
-              } else if ((match = textBeforeCaret.match(/(^|[^!])\[([^\]]+)\]\(([^)]+)\)$/))) {
-                e.preventDefault();
-                const matchedStr = match[0];
-                const isStart = match[1] === "";
-                const content = match[2];
-                const url = match[3];
-                const startIndex = caretOffset - matchedStr.length + (isStart ? 0 : 1);
-                
-                const beforeText = text.substring(0, startIndex);
-                const afterText = text.substring(caretOffset);
-                
-                const aNode = document.createElement("a");
-                aNode.href = url;
-                aNode.textContent = content;
-                aNode.className = "text-blue-400 underline cursor-pointer";
-                aNode.target = "_blank";
-                aNode.rel = "noopener noreferrer";
-                
-                node.textContent = beforeText;
-                const parent = node.parentNode;
-                if (parent) {
-                  const nextSibling = node.nextSibling;
-                  parent.insertBefore(aNode, nextSibling);
-                  const textAfterNode = document.createTextNode("\u200B" + afterText);
-                  parent.insertBefore(textAfterNode, aNode.nextSibling);
-                  
-                  const r = document.createRange();
-                  r.setStart(textAfterNode, 1);
-                  r.collapse(true);
-                  sel.removeAllRanges();
-                  sel.addRange(r);
-                }
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                return;
-              }
-            }
-          }
-        }
-
-        if (e.key === "Enter" || e.keyCode === 13) {
-          const sel = window.getSelection();
-          if (!sel || sel.rangeCount === 0) return;
-          
-          const range = sel.getRangeAt(0);
-          let node: Node | null = range.startContainer;
-          
-          // Prevent breaking out of PRE blocks on mobile/desktop
-          let curr: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
-          while (curr && curr !== editorRef.current) {
-            if (curr.tagName === "PRE") {
-              e.preventDefault();
-              document.execCommand("insertText", false, "\n");
-              onChange(editorRef.current.innerHTML, editorRef.current);
-              return;
-            }
-            curr = curr.parentElement;
-          }
-          
-          if (node.nodeType === Node.TEXT_NODE) {
-            const text = node.textContent || "";
-            const caretOffset = range.startOffset;
-            const textBeforeCaret = text.substring(0, caretOffset);
-            
-            if (textBeforeCaret.trim() === "```" || textBeforeCaret === "    ") {
-              e.preventDefault();
-              let block: HTMLElement | null = node.parentElement;
-              while (block && block !== editorRef.current && window.getComputedStyle(block).display !== "block") {
-                block = block.parentElement;
-              }
-              if (block && block !== editorRef.current) {
-                node.textContent = text.substring(caretOffset); // keep text after caret if any
-                const r = document.createRange();
-                r.selectNodeContents(block);
-                r.collapse(false);
-                sel.removeAllRanges();
-                sel.addRange(r);
-                document.execCommand("formatBlock", false, "PRE");
-                
-                // For a pre block, we might want a newline inserted so the user is ready to type code
-                document.execCommand("insertHTML", false, "\n");
-                
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                return;
-              }
-            }
-            
-            const match = textBeforeCaret.match(/^\|(.+)\|$/);
-            if (match) {
-              e.preventDefault();
-              const cols = match[1].split('|').map(s => s.trim());
-              
-              let tableHTML = '<div class="overflow-x-auto w-full max-w-full my-4"><table border="1" class="border-collapse border border-zinc-700 w-full text-left">';
-              
-              tableHTML += '<tr>';
-              cols.forEach(col => {
-                tableHTML += `<th class="border border-zinc-700 p-2 bg-zinc-800/50">${col || '<br>'}</th>`;
-              });
-              tableHTML += '</tr>';
-              
-              tableHTML += '<tr>';
-              cols.forEach(() => {
-                tableHTML += `<td class="border border-zinc-700 p-2"><br></td>`;
-              });
-              tableHTML += '</tr>';
-              tableHTML += '</table></div><p><br></p>';
-              
-              // We need to replace the current block with this table
-              let block: HTMLElement | null = node.parentElement;
-              while (block && block !== editorRef.current && window.getComputedStyle(block).display !== "block") {
-                block = block.parentElement;
-              }
-              if (block && block !== editorRef.current) {
-                // Remove text from node, as it's being converted
-                node.textContent = text.substring(caretOffset); // keep text after caret if any
-                
-                // Select the block and insertHTML to replace it
-                const r = document.createRange();
-                r.selectNode(block);
-                sel.removeAllRanges();
-                sel.addRange(r);
-                
-                document.execCommand("insertHTML", false, tableHTML);
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                return;
-              }
-            }
-          }
-          
-          let block: HTMLElement | null = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
-          while (block && block !== editorRef.current && window.getComputedStyle(block).display !== "block" && block.tagName !== "BLOCKQUOTE" && block.tagName !== "LI" && block.tagName !== "DIV" && block.tagName !== "P") {
-            block = block.parentElement;
-          }
-          
-          if (block && block !== editorRef.current) {
-            // Check for Quote
-            if (block.tagName === "BLOCKQUOTE") {
-              if ((block.textContent || "").trim() === "") {
-                e.preventDefault();
-                // Break out of quote
-                document.execCommand("formatBlock", false, "P");
-                return;
-              }
-              // Non-empty quote: insert <br> to allow line breaks within the quote
-              e.preventDefault();
-              const br = document.createElement("br");
-              range.insertNode(br);
-              range.setStartAfter(br);
-              range.collapse(true);
-              sel.removeAllRanges();
-              sel.addRange(range);
-              onChange(editorRef.current.innerHTML, editorRef.current);
-              return;
-            }
-
-            // Check for Task
-            // In our implementation, a task might be a DIV or P containing an input type=checkbox
-            const checkbox = block.querySelector('input[type="checkbox"]');
-            if (checkbox) {
-              const rawText = block.textContent || "";
-              const textContent = rawText.replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
-              if (textContent.trim() === "") {
-                e.preventDefault();
-                checkbox.remove();
-                // If it becomes completely empty, ensure it can be focused
-                if (block.innerHTML.trim() === "" || block.innerHTML === " " || block.innerHTML === "&nbsp;") {
-                  block.innerHTML = "<br>";
-                }
-                
-                // Restore cursor inside the block
-                const sel = window.getSelection();
-                const r = document.createRange();
-                r.selectNodeContents(block);
-                r.collapse(true);
-                sel?.removeAllRanges();
-                sel?.addRange(r);
-                
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                return;
-              }
-              // Has content: beforeinput handler takes care of creating the new task block atomically.
-              return;
-            }
-          }
-        }
-      }}
-    />
+              // hide toolbar after action
+              setTimeout(() => setToolbarStyle({ visibility: "hidden" }), 200);
+            }}
+            className="px-1.5 py-0.5 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+          >
+            {tool}
+          </button>
+        ))}
+        <span className="px-2">]</span>
+      </div>
+    </div>
   );
 }
-

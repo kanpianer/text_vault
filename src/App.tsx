@@ -95,18 +95,7 @@ export default function App() {
     return () => ro.disconnect();
   }, [showBackToTop]);
 
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const onFocusIn = () => setIsEditorFocused(true);
-    const onFocusOut = () => setIsEditorFocused(false);
-    editor.addEventListener('focusin', onFocusIn);
-    editor.addEventListener('focusout', onFocusOut);
-    return () => {
-      editor.removeEventListener('focusin', onFocusIn);
-      editor.removeEventListener('focusout', onFocusOut);
-    };
-  }, []);
+  // isEditorFocused now driven by Editor's onActiveChange callback
 
   // Save State Transition
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -548,7 +537,9 @@ export default function App() {
     if (hasUnsavedChanges && saveStatus === "idle") {
       timer = setTimeout(() => {
         if (hasUnsavedRef.current && saveStatusRef.current === "idle") {
-          performSaveAction({ silent: true });
+
+          performSaveAction();
+
         }
       }, 20000);
     }
@@ -974,10 +965,10 @@ export default function App() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.12, ease: "easeOut" }}
-          className="fixed inset-0 flex items-center justify-center bg-[#0c0c0e] z-50 pointer-events-none"
-        >
-          <span className="font-mono text-sm tracking-widest text-[#ffffff] font-medium block uppercase animate-pulse">
-            Decrypting
+          className="fixed inset-0 flex items-center md:items-start justify-center md:pt-[28vh] bg-[#0c0c0e] z-50 pointer-events-none"
+        >
+          <span className="font-mono text-sm tracking-widest text-[#ffffff] font-medium block uppercase animate-pulse">
+            Decrypting
           </span>
         </motion.div>
       )}
@@ -1416,6 +1407,7 @@ export default function App() {
 
             onChange={handleEditorInput}
 
+            onActiveChange={setIsEditorFocused}
             readOnly={saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed"}
 
           />
@@ -1677,11 +1669,19 @@ export default function App() {
       </AnimatePresence>
       {/* Back to top button */}
       {shouldShowBackToTop({
+
         showBackToTop,
+
         isEditorFocused,
-        selectionVisible: false,
+
+        selectionVisible: false,
+
         emptyLineVisible: false,
+
         saveStatusIdle: saveStatus === "idle",
+
+        anyModalOpen: showMenu || showChangePasswordModal || showDeleteModal,
+
       }) && (() => {
         const r = 4; // matches Tailwind 'rounded'
         const { w, h } = backToTopSize;

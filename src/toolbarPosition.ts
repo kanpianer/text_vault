@@ -144,11 +144,19 @@ function clamp(value: number, min: number, max: number): number {
 // ---------------------------------------------------------------------------
 
 export interface BackToTopState {
+
   showBackToTop: boolean;
+
   isEditorFocused: boolean;
+
   selectionVisible: boolean;
+
   emptyLineVisible: boolean;
+
   saveStatusIdle: boolean;
+
+  anyModalOpen: boolean;
+
 }
 
 /**
@@ -158,11 +166,19 @@ export interface BackToTopState {
  * toolbar).
  */
 export function shouldShowBackToTop(state: BackToTopState): boolean {
+
   return (
+
     state.showBackToTop &&
+
     !state.isEditorFocused &&
+
     !state.selectionVisible &&
+
     !state.emptyLineVisible &&
-    state.saveStatusIdle
+
+    state.saveStatusIdle &&
+    !state.anyModalOpen
   );
+
 }

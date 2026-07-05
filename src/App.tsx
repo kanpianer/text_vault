@@ -88,6 +88,11 @@ export default function App() {
   // Save State Transition
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
 
+  const [autoSaveAnim, setAutoSaveAnim] = useState<"saving" | "saved" | null>(null);
+
+
+
+
 
   // Sandwich settings menu
   const [showMenu, setShowMenu] = useState<boolean>(false);
@@ -135,19 +140,32 @@ export default function App() {
     setErrorText("");
   };
 
-  // Measure Back to top button dimensions for SVG border
-  useEffect(() => {
-    const el = backToTopRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      setBackToTopSize({ w: el.offsetWidth, h: el.offsetHeight });
-    });
-    ro.observe(el);
-    setBackToTopSize({ w: el.offsetWidth, h: el.offsetHeight });
-    return () => ro.disconnect();
-  }, [showBackToTop, isEditorFocused, showMenu, showChangePasswordModal, showDeleteModal]);
-
-  // Focus password input when prompt is visible
+  // Measure Back to top button dimensions for SVG border
+
+  useEffect(() => {
+
+    const el = backToTopRef.current;
+
+    if (!el) return;
+
+    const ro = new ResizeObserver(() => {
+
+      setBackToTopSize({ w: el.offsetWidth, h: el.offsetHeight });
+
+    });
+
+    ro.observe(el);
+
+    setBackToTopSize({ w: el.offsetWidth, h: el.offsetHeight });
+
+    return () => ro.disconnect();
+
+  }, [showBackToTop, isEditorFocused, showMenu, showChangePasswordModal, showDeleteModal]);
+
+
+
+  // Focus password input when prompt is visible
+
   useEffect(() => {
     if (vaultName && !isVerified) {
       if (passwordInputRef.current) {
@@ -535,12 +553,20 @@ export default function App() {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     if (hasUnsavedChanges && saveStatus === "idle") {
-      timer = setTimeout(() => {
+      timer = setTimeout(async () => {
+
         if (hasUnsavedRef.current && saveStatusRef.current === "idle") {
 
-          performSaveAction();
+          setAutoSaveAnim("saving");
+
+          await performSaveAction({ silent: true });
+
+          setAutoSaveAnim("saved");
+
+          setTimeout(() => setAutoSaveAnim(null), 200);
 
         }
+
       }, 20000);
     }
 
@@ -1211,21 +1237,21 @@ export default function App() {
             >
               <span className="text-zinc-500 tracking-normal group-hover:text-white transition-colors">Text_Vault/</span><span className="lowercase text-white group-hover:text-zinc-500 transition-colors">{vaultName}</span>
             </span>
-            {/* Status indicator: UNSAVED / SAVING... / SAVED */}
-            {hasUnsavedChanges && saveStatus === "idle" && (
-              <span className="font-mono text-[10px] md:text-xs text-zinc-500 animate-pulse tracking-wide select-none">
-                [UNSAVED]
-              </span>
-            )}
-            {saveStatus === "saving" && (
-              <span className="font-mono text-[10px] md:text-xs text-zinc-400 animate-pulse tracking-wide select-none">
-                [SAVING...]
-              </span>
-            )}
-            {saveStatus === "saved" && (
-              <span className="font-mono text-[10px] md:text-xs text-zinc-400 tracking-wide select-none">
-                [SAVED]
-              </span>
+            {/* Status indicator: UNSAVED / SAVING... / SAVED */}
+            {hasUnsavedChanges && saveStatus === "idle" && !autoSaveAnim && (
+              <span className="font-mono text-[10px] md:text-xs text-zinc-500 animate-pulse tracking-wide select-none">
+                [UNSAVED]
+              </span>
+            )}
+            {(saveStatus === "saving" || autoSaveAnim === "saving") && (
+              <span className="font-mono text-[10px] md:text-xs text-zinc-400 animate-pulse tracking-wide select-none">
+                [SAVING...]
+              </span>
+            )}
+            {(saveStatus === "saved" || autoSaveAnim === "saved") && (
+              <span className="font-mono text-[10px] md:text-xs text-zinc-400 tracking-wide select-none">
+                [SAVED]
+              </span>
             )}
           </div>
 

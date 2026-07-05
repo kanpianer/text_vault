@@ -10,8 +10,8 @@ import {
 const EDITOR_CLASS =
   "editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-relaxed pt-2";
 
-const EMPTY_LINE_TOOLS = ["H1", "H2", "H3", "Task", "List", "Quote", "Image", "Code", "Line", "Center", "Table"] as const;
-const SELECTION_TOOLS = ["Bold", "Italic", "Strike", "Under", "Quote", "Link", "Center", "Code"] as const;
+const EMPTY_LINE_TOOLS = ["Text", "H1", "H2", "H3", "Task", "List", "Quote", "Image", "Code", "Line", "Center", "Table"] as const;
+const SELECTION_TOOLS = ["Text", "Bold", "Italic", "Strike", "Under", "Quote", "Link", "Center", "Code"] as const;
 
 type Tool = (typeof EMPTY_LINE_TOOLS)[number] | (typeof SELECTION_TOOLS)[number];
 
@@ -125,6 +125,10 @@ function handleToolClick(tool: Tool, editorEl: HTMLElement) {
     case "Under":  document.execCommand("underline", false); break;
     case "Line":   document.execCommand("insertHorizontalRule", false); break;
     case "Center": applyAlign("Center"); break;
+    case "Text":
+      document.execCommand("removeFormat", false);
+      applyBlock(editorEl, "P");
+      break;
   }
 }
 

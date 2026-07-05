@@ -77,9 +77,7 @@ function insertTaskBlock(el: HTMLElement) {
   sel?.addRange(r);
 }
 
-function insertTableBlock() {
-  const cols = 3;
-  const rows = 2;
+function insertTableBlock(rows: number, cols: number) {
   let html =
     '<div style="overflow-x:auto;max-width:100%;margin:1rem 0"><table style="border-collapse:collapse;width:100%;text-align:left">';
   for (let r = 0; r < rows; r++) {
@@ -107,7 +105,7 @@ function handleToolClick(tool: Tool, editorEl: HTMLElement) {
     case "Task":   insertTaskBlock(editorEl); break;
     case "List":   document.execCommand("insertUnorderedList", false); break;
     case "Quote":  applyBlock(editorEl, "blockquote"); break;
-    case "Table":  insertTableBlock(); break;
+
     case "Code":
       if (hasSel) {
         document.execCommand(
@@ -190,9 +188,24 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const [linkValue, setLinkValue] = useState("");
   const linkInputRef = useRef<HTMLInputElement>(null);
   const [showImageInput, setShowImageInput] = useState(false);
+
   const [imageValue, setImageValue] = useState("");
+
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const inputOpenTimeRef = useRef(0);
+
+  const [showTableInput, setShowTableInput] = useState(false);
+
+  const [tableRowValue, setTableRowValue] = useState("");
+
+  const [tableColValue, setTableColValue] = useState("3");
+
+  const tableRowRef = useRef<HTMLInputElement>(null);
+
+  const tableColRef = useRef<HTMLInputElement>(null);
+
   const toolbarPosRef = useRef<{ top: number; left: number }>({ top: 0, left: 0 });
+
   const savedRangeRef = useRef<Range | null>(null);
 
   // floating toolbar state
@@ -232,10 +245,10 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
   // ── toolbar position updater ──────────────────────────────────────
 
-  const updateToolbar = useCallback(() => {
-    const el = editorRef.current as HTMLElement | null;
-    if (!el || readOnly) return;
-
+  const updateToolbar = useCallback(() => {
+    const el = editorRef.current as HTMLElement | null;
+    if (!el || readOnly) return;
+
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) { setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" }); return; }
 
@@ -334,6 +347,35 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     onChange(el.innerHTML, el);
     setShowImageInput(false);
     setImageValue("");
+    setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+    savedRangeRef.current = null;
+  };
+
+  // ── table submission ──────────────────────────────────────────────
+
+  const handleTableSubmit = () => {
+    const el = editorRef.current as HTMLElement | null;
+    if (!el) return;
+    const rows = Math.max(3, Math.min(30, parseInt(tableRowValue) || 3));
+    const cols = Math.max(3, Math.min(15, parseInt(tableColValue) || 3));
+
+    if (!isActive && !readOnly) {
+      el.contentEditable = "true";
+      setIsActive(true);
+    }
+
+    // restore saved cursor position before inserting table
+    const sel = window.getSelection();
+    if (savedRangeRef.current && sel) {
+      sel.removeAllRanges();
+      sel.addRange(savedRangeRef.current);
+    }
+
+    el.focus();
+    insertTableBlock(rows, cols);
+    normalizeEditorNodes(el);
+    onChange(el.innerHTML, el);
+    setShowTableInput(false);
     setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
     savedRangeRef.current = null;
   };
@@ -443,21 +485,36 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         r.setStartAfter(zw);
         r.collapse(true);
         sel.removeAllRanges();
-        sel.addRange(r);
-        onChange(el.innerHTML, el);
-        return;
-      }
-
-      // empty list item → exit list
-      if (block.tagName === "LI") {
-        const raw = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
-        if (raw === "") {
-          e.preventDefault();
-          document.execCommand("outdent", false);
-          onChange(el.innerHTML, el);
-          return;
-        }
-      }
+        sel.addRange(r);
+
+        onChange(el.innerHTML, el);
+
+        return;
+
+      }
+
+
+
+      // empty list item → exit list
+
+      if (block.tagName === "LI") {
+
+        const raw = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
+
+        if (raw === "") {
+
+          e.preventDefault();
+
+          document.execCommand("outdent", false);
+
+          onChange(el.innerHTML, el);
+
+          return;
+
+        }
+
+      }
+
     };
 
     el.addEventListener("beforeinput", onBeforeInput);
@@ -833,6 +890,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                       savedRangeRef.current = sel.getRangeAt(0).cloneRange();
                     }
                     setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+                    inputOpenTimeRef.current = Date.now();
                     setShowLinkInput(true);
                     setLinkValue("");
                     setTimeout(() => linkInputRef.current?.focus(), 0);
@@ -840,15 +898,40 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                   return;
                 }
                 if (tool === "Image") {
+
+                  const sel = window.getSelection();
+
+                  if (sel && sel.rangeCount > 0) {
+
+                    savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+
+                  }
+
+                  setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+
+                  setShowImageInput(true);
+
+                  setImageValue("");
+
+                  setTimeout(() => imageInputRef.current?.focus(), 0);
+
+                  return;
+
+                }
+
+                if (tool === "Table") {
                   const sel = window.getSelection();
                   if (sel && sel.rangeCount > 0) {
                     savedRangeRef.current = sel.getRangeAt(0).cloneRange();
                   }
                   setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
-                  setShowImageInput(true);
-                  setImageValue("");
-                  setTimeout(() => imageInputRef.current?.focus(), 0);
+                  setShowTableInput(true);
+                  setTableRowValue("");
+                  setTableColValue("");
+                  setTimeout(() => tableRowRef.current?.focus(), 0);
+
                   return;
+
                 }
                 handleToolClick(tool, editorRef.current);
                 onChange(editorRef.current.innerHTML, editorRef.current);
@@ -904,7 +987,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
             }}
 
-            onBlur={() => { setShowLinkInput(false); setLinkValue(""); }}
+            onBlur={() => { if (Date.now() - inputOpenTimeRef.current > 200) { setShowLinkInput(false); setLinkValue(""); } }}
 
             className="bg-transparent outline-none border-none text-zinc-200 w-full placeholder-zinc-600 font-mono text-xs"
 
@@ -962,7 +1045,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
             }}
 
-            onBlur={() => { setShowImageInput(false); setImageValue(""); }}
+            onBlur={() => { if (Date.now() - inputOpenTimeRef.current > 200) { setShowImageInput(false); setImageValue(""); } }}
 
             className="bg-transparent outline-none border-none text-zinc-200 w-full placeholder-zinc-600 font-mono text-xs"
           />
@@ -970,6 +1053,71 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
           <span
             className="px-2 cursor-pointer hover:text-white font-bold"
             onMouseDown={(e) => { e.preventDefault(); handleImageSubmit(imageInputRef.current?.value || imageValue); }}
+          >
+            OK
+          </span>
+        </div>
+      )}
+
+      {/* Table input */}
+      {showTableInput && (
+        <div
+          className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[500px]"
+          style={{
+            position: "absolute",
+            top: toolbarPosRef.current.top,
+            left: toolbarPosRef.current.left,
+          }}
+        >
+          <span className="px-2">[</span>
+          <label className="flex items-center gap-1">
+            <span>row:</span>
+            <input
+              ref={tableRowRef}
+              type="number"
+              min={3}
+              max={30}
+              value={tableRowValue}
+              onChange={(e) => setTableRowValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); handleTableSubmit(); }
+                if (e.key === "Escape") { setShowTableInput(false); }
+                if (e.key === "Tab") { e.preventDefault(); tableColRef.current?.focus(); }
+              }}
+              onBlur={() => {
+                if (Date.now() - inputOpenTimeRef.current < 200) return;
+                const v = parseInt(tableRowValue);
+                if (isNaN(v) || v < 3) setTableRowValue("3");
+                else if (v > 30) setTableRowValue("30");
+              }}
+              className="bg-transparent outline-none border-none text-zinc-200 w-10 font-mono text-xs text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          </label>
+          <label className="flex items-center gap-1 ml-2">
+            <span>column:</span>
+            <input
+              ref={tableColRef}
+              type="number"
+              min={3}
+              max={15}
+              value={tableColValue}
+              onChange={(e) => setTableColValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); handleTableSubmit(); }
+                if (e.key === "Escape") { setShowTableInput(false); }
+              }}
+              onBlur={() => {
+                const v = parseInt(tableColValue);
+                if (isNaN(v) || v < 3) setTableColValue("3");
+                else if (v > 15) setTableColValue("15");
+              }}
+              className="bg-transparent outline-none border-none text-zinc-200 w-10 font-mono text-xs text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          </label>
+          <span className="px-2">]</span>
+          <span
+            className="px-2 cursor-pointer hover:text-white font-bold"
+            onMouseDown={(e) => { e.preventDefault(); handleTableSubmit(); }}
           >
             OK
           </span>

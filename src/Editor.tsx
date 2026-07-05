@@ -633,6 +633,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       editorRef.current.contentEditable = "true";
       editorRef.current.focus({ preventScroll: true });
       setIsActive(true);
+      setTimeout(updateToolbar, 100);
     }
   };
 

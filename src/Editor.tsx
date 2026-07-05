@@ -443,9 +443,21 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         r.setStartAfter(zw);
         r.collapse(true);
         sel.removeAllRanges();
-        sel.addRange(r);
-        onChange(el.innerHTML, el);
-      }
+        sel.addRange(r);
+        onChange(el.innerHTML, el);
+        return;
+      }
+
+      // empty list item → exit list
+      if (block.tagName === "LI") {
+        const raw = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
+        if (raw === "") {
+          e.preventDefault();
+          document.execCommand("outdent", false);
+          onChange(el.innerHTML, el);
+          return;
+        }
+      }
     };
 
     el.addEventListener("beforeinput", onBeforeInput);
@@ -474,61 +486,116 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
   // ── keydown: markdown shortcuts ───────────────────────────────────
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    const el = editorRef.current as HTMLElement | null;
-    if (!el || readOnly) return;
-
-    // Backspace / Delete: remove adjacent image
-    if (e.key === "Backspace" || e.key === "Delete") {
-      const sel = window.getSelection();
-      if (sel && sel.isCollapsed && sel.rangeCount > 0) {
-        const range = sel.getRangeAt(0);
-        const dir = e.key === "Backspace" ? "backward" : "forward";
-
-        // walk DOM from cursor to find an adjacent image
-        let node: Node | null = range.startContainer;
-        const offset = range.startOffset;
-
-        // find the sibling node adjacent to cursor
-        let candidate: Node | null = null;
-        if (node.nodeType === Node.TEXT_NODE) {
-          const text = node.textContent || "";
-          const checkStr = dir === "backward" ? text.substring(0, offset) : text.substring(offset);
-          if (checkStr.trim().length === 0) {
-            candidate = dir === "backward" ? node.previousSibling : node.nextSibling;
-          }
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-          const children = node.childNodes;
-          const idx = dir === "backward" ? offset - 1 : offset;
-          if (idx >= 0 && idx < children.length) candidate = children[idx];
-        }
-
-        // check if candidate is an image
-        let img: HTMLImageElement | null = null;
-        if (candidate) {
-          if (candidate.nodeName === "IMG") img = candidate as HTMLImageElement;
-          else {
-            // traverse into the candidate
-            let cur: Node | null = candidate;
-            while (cur) {
-              if (cur.nodeName === "IMG") { img = cur as HTMLImageElement; break; }
-              if (cur.nodeType === Node.TEXT_NODE && (cur.textContent || "").trim().length > 0) break;
-              cur = dir === "backward" ? cur.lastChild : cur.firstChild;
-            }
-          }
-        }
-
-        if (img) {
-          e.preventDefault();
-          img.remove();
-          normalizeEditorNodes(el);
-          onChange(el.innerHTML, el);
-          setTimeout(updateToolbar, 0);
-          return;
-        }
-      }
-    }
-
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+
+    const el = editorRef.current as HTMLElement | null;
+
+    if (!el || readOnly) return;
+
+
+
+    // Backspace / Delete: remove adjacent image
+
+    if (e.key === "Backspace" || e.key === "Delete") {
+
+      const sel = window.getSelection();
+
+      if (sel && sel.isCollapsed && sel.rangeCount > 0) {
+
+        const range = sel.getRangeAt(0);
+
+        const dir = e.key === "Backspace" ? "backward" : "forward";
+
+
+
+        // walk DOM from cursor to find an adjacent image
+
+        let node: Node | null = range.startContainer;
+
+        const offset = range.startOffset;
+
+
+
+        // find the sibling node adjacent to cursor
+
+        let candidate: Node | null = null;
+
+        if (node.nodeType === Node.TEXT_NODE) {
+
+          const text = node.textContent || "";
+
+          const checkStr = dir === "backward" ? text.substring(0, offset) : text.substring(offset);
+
+          if (checkStr.trim().length === 0) {
+
+            candidate = dir === "backward" ? node.previousSibling : node.nextSibling;
+
+          }
+
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+
+          const children = node.childNodes;
+
+          const idx = dir === "backward" ? offset - 1 : offset;
+
+          if (idx >= 0 && idx < children.length) candidate = children[idx];
+
+        }
+
+
+
+        // check if candidate is an image
+
+        let img: HTMLImageElement | null = null;
+
+        if (candidate) {
+
+          if (candidate.nodeName === "IMG") img = candidate as HTMLImageElement;
+
+          else {
+
+            // traverse into the candidate
+
+            let cur: Node | null = candidate;
+
+            while (cur) {
+
+              if (cur.nodeName === "IMG") { img = cur as HTMLImageElement; break; }
+
+              if (cur.nodeType === Node.TEXT_NODE && (cur.textContent || "").trim().length > 0) break;
+
+              cur = dir === "backward" ? cur.lastChild : cur.firstChild;
+
+            }
+
+          }
+
+        }
+
+
+
+        if (img) {
+
+          e.preventDefault();
+
+          img.remove();
+
+          normalizeEditorNodes(el);
+
+          onChange(el.innerHTML, el);
+
+          setTimeout(updateToolbar, 0);
+
+          return;
+
+        }
+
+      }
+
+    }
+
+
+
     if (e.key === " ") {
       const sel = window.getSelection();
       if (!sel || sel.rangeCount === 0) return;

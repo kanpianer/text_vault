@@ -767,23 +767,43 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
             value={linkValue}
             placeholder="输入链接地址"
             onChange={(e) => setLinkValue(e.target.value)}
+
             onKeyDown={(e) => {
+
               if (e.key === "Enter") {
+
                 e.preventDefault();
+
                 handleLinkSubmit(linkInputRef.current?.value || linkValue);
+
               } else if (e.key === "Escape") {
+
                 setShowLinkInput(false);
+
                 setLinkValue("");
+
               }
+
             }}
+
+            onBlur={() => { setShowLinkInput(false); setLinkValue(""); }}
+
             className="bg-transparent outline-none border-none text-zinc-200 w-full placeholder-zinc-600 font-mono text-xs"
+
           />
+
           <span className="px-2">]</span>
+
           <span
+
             className="px-2 cursor-pointer hover:text-white font-bold"
+
             onMouseDown={(e) => { e.preventDefault(); handleLinkSubmit(linkInputRef.current?.value || linkValue); }}
+
           >
+
             OK
+
           </span>
         </div>
       )}
@@ -804,16 +824,17 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
             type="text"
             value={imageValue}
             placeholder="输入图片地址"
-            onChange={(e) => setImageValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleImageSubmit(imageInputRef.current?.value || imageValue);
-              } else if (e.key === "Escape") {
-                setShowImageInput(false);
-                setImageValue("");
-              }
-            }}
+            onChange={(e) => setImageValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleImageSubmit(imageInputRef.current?.value || imageValue);
+              } else if (e.key === "Escape") {
+                setShowImageInput(false);
+                setImageValue("");
+              }
+            }}
+            onBlur={() => { setShowImageInput(false); setImageValue(""); }}
             className="bg-transparent outline-none border-none text-zinc-200 w-full placeholder-zinc-600 font-mono text-xs"
           />
           <span className="px-2">]</span>

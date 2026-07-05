@@ -209,7 +209,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const savedRangeRef = useRef<Range | null>(null);
 
   // floating toolbar state
-  const [toolbarStyle, setToolbarStyle] = useState<React.CSSProperties>({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+  const [toolbarStyle, setToolbarStyle] = useState<React.CSSProperties>({ position: "absolute", opacity: 0, pointerEvents: "none" });
   const hideToolbarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── tab switching / content init ──────────────────────────────────
@@ -240,17 +240,21 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   }, [isActive, editorRef]);
 
   useEffect(() => { if (readOnly) setIsActive(false); }, [readOnly]);
-  useEffect(() => { setIsActive(false); setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" }); }, [activeTabId]);
+  useEffect(() => { setIsActive(false); setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" }); }, [activeTabId]);
   useEffect(() => { onActiveChange?.(isActive && !readOnly); }, [isActive, readOnly, onActiveChange]);
 
   // ── toolbar position updater ──────────────────────────────────────
 
-  const updateToolbar = useCallback(() => {
-    const el = editorRef.current as HTMLElement | null;
-    if (!el || readOnly) return;
-
+  const updateToolbar = useCallback(() => {
+
+    const el = editorRef.current as HTMLElement | null;
+
+    if (!el || readOnly) return;
+
+
+
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) { setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" }); return; }
+    if (!sel || sel.rangeCount === 0) { setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" }); return; }
 
     const range = sel.getRangeAt(0);
     const container = el.parentElement as HTMLElement;
@@ -264,7 +268,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       // text selected → show below last line of selection
       const pos = calculateSelectionPosition(range, container, tw);
       toolbarPosRef.current = { top: pos.top, left: pos.left };
-      setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, opacity: 1, pointerEvents: "auto", transform: "translateY(0)" });
+      setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, opacity: 1, pointerEvents: "auto" });
     } else {
       // cursor on empty line → show left-aligned
       const node = range.startContainer;
@@ -275,11 +279,11 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
           const blockRect = block.getBoundingClientRect();
           const pos = calculateEmptyLinePositionLeft(blockRect, container, tw);
           toolbarPosRef.current = { top: pos.top, left: pos.left };
-          setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, opacity: 1, pointerEvents: "auto", transform: "translateY(0)" });
+          setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, opacity: 1, pointerEvents: "auto" });
           return;
         }
       }
-      setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+      setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
     }
   }, [editorRef, readOnly]);
 
@@ -288,7 +292,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const scheduleHideToolbar = useCallback(() => {
     if (hideToolbarTimer.current) clearTimeout(hideToolbarTimer.current);
     hideToolbarTimer.current = setTimeout(() => {
-      setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+      setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
     }, 300);
   }, []);
 
@@ -317,7 +321,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     onChange(el.innerHTML, el);
     setShowLinkInput(false);
     setLinkValue("");
-    setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+    setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
     savedRangeRef.current = null;
   };
 
@@ -347,7 +351,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     onChange(el.innerHTML, el);
     setShowImageInput(false);
     setImageValue("");
-    setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+    setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
     savedRangeRef.current = null;
   };
 
@@ -376,7 +380,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     normalizeEditorNodes(el);
     onChange(el.innerHTML, el);
     setShowTableInput(false);
-    setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+    setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
     savedRangeRef.current = null;
   };
 
@@ -820,7 +824,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
   const handleBlur = () => {
     if (!readOnly) setIsActive(false);
-    setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+    setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
   };
 
   // ── toolbar scroll ────────────────────────────────────────────────
@@ -853,14 +857,23 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
           normalizeEditorNodes(e.currentTarget);
           onChange(e.currentTarget.innerHTML, editorRef.current);
         }}
-        onKeyDown={handleKeyDown}
-        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        onBlur={handleBlur}
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
+          if (anchor) {
+            e.preventDefault();
+            e.stopPropagation();
+            window.open(anchor.href, "_blank", "noopener,noreferrer");
+          }
+        }}
       />
 
       {/* Floating toolbar */}
       <div
         ref={toolbarRef}
-        className="flex items-center select-none font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[calc(100vw-2rem)] transition-all duration-150 ease-out"
+        className="flex items-center select-none font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[calc(100vw-2rem)]"
         style={toolbarStyle}
         onMouseDown={(e) => e.preventDefault()}
         onMouseEnter={() => {
@@ -889,7 +902,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                     if (sel && sel.rangeCount > 0) {
                       savedRangeRef.current = sel.getRangeAt(0).cloneRange();
                     }
-                    setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+                    setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
                     inputOpenTimeRef.current = Date.now();
                     setShowLinkInput(true);
                     setLinkValue("");
@@ -907,7 +920,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
                   }
 
-                  setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+                  setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
 
                   setShowImageInput(true);
 
@@ -924,7 +937,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                   if (sel && sel.rangeCount > 0) {
                     savedRangeRef.current = sel.getRangeAt(0).cloneRange();
                   }
-                  setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" });
+                  setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
                   setShowTableInput(true);
                   setTableRowValue("");
                   setTableColValue("");
@@ -935,7 +948,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                 }
                 handleToolClick(tool, editorRef.current);
                 onChange(editorRef.current.innerHTML, editorRef.current);
-                setTimeout(() => setToolbarStyle({ opacity: 0, pointerEvents: "none", transform: "translateY(4px)" }), 200);
+                setTimeout(() => setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" }), 200);
               }}
               className="px-1.5 py-0.5 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
             >
@@ -954,7 +967,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       {/* Link input */}
       {showLinkInput && (
         <div
-          className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px] transition-all duration-150 ease-out"
+          className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px]"
           style={{
             position: "absolute",
             top: toolbarPosRef.current.top,

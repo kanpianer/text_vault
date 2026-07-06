@@ -207,6 +207,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const toolbarPosRef = useRef<{ top: number; left: number }>({ top: 0, left: 0 });
 
   const savedRangeRef = useRef<Range | null>(null);
+  const isActiveRef = useRef(isActive);
 
   // floating toolbar state
   const [toolbarStyle, setToolbarStyle] = useState<React.CSSProperties>({ position: "absolute", opacity: 0, pointerEvents: "none" });
@@ -242,6 +243,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   useEffect(() => { if (readOnly) setIsActive(false); }, [readOnly]);
   useEffect(() => { setIsActive(false); setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" }); }, [activeTabId]);
   useEffect(() => { onActiveChange?.(isActive && !readOnly); }, [isActive, readOnly, onActiveChange]);
+  isActiveRef.current = isActive;
 
   // ── toolbar position updater ──────────────────────────────────────
 
@@ -251,7 +253,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
     if (!el || readOnly) return;
 
-
+    if (!isActiveRef.current) return;
 
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) { setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" }); return; }
@@ -820,11 +822,10 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     }
   };
 
-  // ── blur: deactivate + hide toolbar ───────────────────────────────
-
-  const handleBlur = () => {
-    if (!readOnly) setIsActive(false);
-    setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
+  // ── blur: deactivate ──────────────────────────────────────────────
+
+  const handleBlur = () => {
+    if (!readOnly) setIsActive(false);
   };
 
   // ── toolbar scroll ────────────────────────────────────────────────
@@ -857,17 +858,28 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
           normalizeEditorNodes(e.currentTarget);
           onChange(e.currentTarget.innerHTML, editorRef.current);
         }}
-        onKeyDown={handleKeyDown}
-        onBlur={handleBlur}
-        onClick={(e) => {
-          const target = e.target as HTMLElement;
-          const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
-          if (anchor) {
-            e.preventDefault();
-            e.stopPropagation();
-            window.open(anchor.href, "_blank", "noopener,noreferrer");
-          }
-        }}
+        onKeyDown={handleKeyDown}
+
+        onBlur={handleBlur}
+
+        onClick={(e) => {
+
+          const target = e.target as HTMLElement;
+
+          const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
+
+          if (anchor) {
+
+            e.preventDefault();
+
+            e.stopPropagation();
+
+            window.open(anchor.href, "_blank", "noopener,noreferrer");
+
+          }
+
+        }}
+
       />
 
       {/* Floating toolbar */}

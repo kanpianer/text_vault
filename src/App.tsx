@@ -129,10 +129,18 @@ export default function App() {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Refs mirroring state for stable auto-save effect (prevents focus loss)
+
   const hasUnsavedRef = useRef(hasUnsavedChanges);
+
   const saveStatusRef = useRef(saveStatus);
+
+  const tabsRef = useRef(tabs);
+
   hasUnsavedRef.current = hasUnsavedChanges;
+
   saveStatusRef.current = saveStatus;
+
+  tabsRef.current = tabs;
 
   const resetVaultAuthInputs = () => {
     setPassword("");
@@ -484,12 +492,12 @@ export default function App() {
 
   // Save text payload - used by Ctrl+S, manual button, and Auto-save
   const performSaveAction = async (opts?: { silent?: boolean }): Promise<boolean> => {
-    if (!aesKey || !authHash || !vaultName || tabs.length === 0) return false;
-    const silent = opts?.silent ?? false;
-    if (!silent) setSaveStatus("saving");
-    const startTime = Date.now();
-    try {
-      const jsonStr = JSON.stringify({ tabs });
+    if (!aesKey || !authHash || !vaultName || tabsRef.current.length === 0) return false;
+    const silent = opts?.silent ?? false;
+    if (!silent) setSaveStatus("saving");
+    const startTime = Date.now();
+    try {
+      const jsonStr = JSON.stringify({ tabs: tabsRef.current });
       const encryptedStr = await encryptData(jsonStr, aesKey);
 
       const response = await fetch(`/api/vault/${vaultName}/update`, {
@@ -1237,21 +1245,36 @@ export default function App() {
             >
               <span className="text-zinc-500 tracking-normal group-hover:text-white transition-colors">Text_Vault/</span><span className="lowercase text-white group-hover:text-zinc-500 transition-colors">{vaultName}</span>
             </span>
-            {/* Status indicator: UNSAVED / SAVING... / SAVED */}
-            {hasUnsavedChanges && saveStatus === "idle" && !autoSaveAnim && (
-              <span className="font-mono text-[10px] md:text-xs text-zinc-500 animate-pulse tracking-wide select-none">
-                [UNSAVED]
-              </span>
-            )}
-            {(saveStatus === "saving" || autoSaveAnim === "saving") && (
-              <span className="font-mono text-[10px] md:text-xs text-zinc-400 animate-pulse tracking-wide select-none">
-                [SAVING...]
-              </span>
-            )}
-            {(saveStatus === "saved" || autoSaveAnim === "saved") && (
-              <span className="font-mono text-[10px] md:text-xs text-zinc-400 tracking-wide select-none">
-                [SAVED]
-              </span>
+            {/* Status indicator: UNSAVED / SAVING... / SAVED */}
+
+            {hasUnsavedChanges && saveStatus === "idle" && !autoSaveAnim && (
+
+              <span className="font-mono text-[10px] md:text-xs text-zinc-500 animate-pulse tracking-wide select-none">
+
+                [UNSAVED]
+
+              </span>
+
+            )}
+
+            {(saveStatus === "saving" || autoSaveAnim === "saving") && (
+
+              <span className="font-mono text-[10px] md:text-xs text-zinc-400 animate-pulse tracking-wide select-none">
+
+                [SAVING...]
+
+              </span>
+
+            )}
+
+            {(saveStatus === "saved" || autoSaveAnim === "saved") && (
+
+              <span className="font-mono text-[10px] md:text-xs text-zinc-400 tracking-wide select-none">
+
+                [SAVED]
+
+              </span>
+
             )}
           </div>
 

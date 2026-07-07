@@ -202,7 +202,7 @@ function detectInlinePattern(textBefore: string): InlineMatch | null {
 
 // ── component ───────────────────────────────────────────────────────
 
-export function Editor({ activeTabId, initialContent, onChange, editorRef, readOnly, onActiveChange }: any) {
+export function Editor({ activeTabId, initialContent, onChange, editorRef, readOnly, onActiveChange, scrollProgress = 0 }: any) {
   const previousTabId = useRef(activeTabId);
   const isFirstRender = useRef(true);
   const [isActive, setIsActive] = useState(false);
@@ -238,6 +238,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const [toolbarStyle, setToolbarStyle] = useState<React.CSSProperties>({ position: "absolute", opacity: 0, pointerEvents: "none" });
   const hideToolbarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tocItems, setTocItems] = useState<TocItem[]>([]);
+  const [activeHeadingIndex, setActiveHeadingIndex] = useState<number>(-1);
 
   // ── tab switching / content init ──────────────────────────────────
 
@@ -303,6 +304,40 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       window.removeEventListener("load", scheduleTocUpdate);
     };
   }, [activeTabId, initialContent, editorRef, updateToc]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const el = editorRef.current as HTMLElement | null;
+      if (!el || tocItems.length === 0) return;
+
+      const headings = Array.from(el.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6"));
+      let newActiveIndex = -1;
+
+      for (let i = 0; i < tocItems.length; i++) {
+        const item = tocItems[i];
+        const headingEl = headings[item.index];
+        if (headingEl) {
+          const rect = headingEl.getBoundingClientRect();
+          if (rect.top <= window.innerHeight * 0.3) {
+            newActiveIndex = item.index;
+          } else {
+            break;
+          }
+        }
+      }
+      
+      if (window.scrollY < 50) {
+        newActiveIndex = -1;
+      }
+      
+      setActiveHeadingIndex(newActiveIndex);
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [tocItems, editorRef]);
 
   const scrollToTocHeading = useCallback((index: number) => {
     const el = editorRef.current as HTMLElement | null;
@@ -957,18 +992,35 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       />
 
       {tocItems.length > 0 && (
-        <nav className="editor-toc" aria-label="Document headings">
+        <nav className="editor-toc relative" aria-label="Document headings">
+          <div 
+            className="absolute right-0 w-[1px] rounded-full z-[-1]" 
+            style={{ 
+              top: 'calc(0.25rem + 1px)',
+              height: `calc((100% - 0.5rem - 2px) * ${scrollProgress})`,
+              background: 'rgba(255, 255, 255, 0.38)',
+              boxShadow: '0 0 8px rgba(255, 255, 255, 0.08)',
+              transition: 'height 100ms ease-out'
+            }} 
+          />
           {tocItems.map((item) => (
             <button
               key={`${item.index}-${item.title}`}
               type="button"
-              className={`editor-toc-item editor-toc-level-${Math.min(item.level, 6)}`}
+              className={`editor-toc-item editor-toc-level-${Math.min(item.level, 6)} ${activeHeadingIndex === item.index ? 'is-active' : ''}`}
               style={{ "--toc-bar-width": `${item.barWidthRem}rem` } as React.CSSProperties}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => scrollToTocHeading(item.index)}
             >
               <span className="editor-toc-title">{item.title}</span>
-              <span className="editor-toc-bar" />
+              <span 
+                className="editor-toc-bar" 
+                style={activeHeadingIndex === item.index ? { 
+                  opacity: 1, 
+                  background: 'rgba(255, 255, 255, 0.82)', 
+                  boxShadow: '0 0 8px rgba(255, 255, 255, 0.22)' 
+                } : undefined} 
+              />
             </button>
           ))}
         </nav>

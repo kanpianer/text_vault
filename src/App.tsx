@@ -1478,6 +1478,7 @@ export default function App() {
 
             onActiveChange={setIsEditorFocused}
             readOnly={saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed"}
+            scrollProgress={scrollProgress}
 
           />
         </div>

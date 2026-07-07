@@ -15,6 +15,15 @@ import {
 import { shouldShowBackToTop } from "./toolbarPosition";
 
 
+
+// Character limits
+
+const VAULT_MAX_CHARS = 1_000_000;
+
+const TAB_MAX_CHARS = 100_000;
+
+
+
 export default function App() {
   // Navigation & Router
   const [vaultName, setVaultName] = useState<string>("");
@@ -492,11 +501,16 @@ export default function App() {
 
   // Save text payload - used by Ctrl+S, manual button, and Auto-save
   const performSaveAction = async (opts?: { silent?: boolean }): Promise<boolean> => {
-    if (!aesKey || !authHash || !vaultName || tabsRef.current.length === 0) return false;
-    const silent = opts?.silent ?? false;
-    if (!silent) setSaveStatus("saving");
-    const startTime = Date.now();
-    try {
+    if (!aesKey || !authHash || !vaultName || tabsRef.current.length === 0) return false;
+
+    const silent = opts?.silent ?? false;
+
+    if (!silent) setSaveStatus("saving");
+
+    const startTime = Date.now();
+
+    try {
+
       const jsonStr = JSON.stringify({ tabs: tabsRef.current });
       const encryptedStr = await encryptData(jsonStr, aesKey);
 
@@ -642,8 +656,10 @@ export default function App() {
 
   // Active document characters count
   const activeTabContent = tabs.find((t) => t.id === activeTabId)?.text || "";
-  const remainingChars = 10000 - activeTabContent.length;
-
+  const remainingChars = TAB_MAX_CHARS - activeTabContent.length;
+  const vaultTotalChars = tabs.reduce((sum, t) => sum + (t.text?.length || 0), 0);
+  const vaultRemainingChars = VAULT_MAX_CHARS - vaultTotalChars;
+
   const handleTextAreaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     // Left as stub for backward-compatibility / fallback if needed, but we handle line editing directly
   };

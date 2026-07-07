@@ -1003,6 +1003,31 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               transition: 'height 100ms ease-out'
             }} 
           />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className="absolute flex items-center justify-center text-white/30 hover:text-white/90 transition-colors cursor-pointer bg-[#0c0c0e] rounded-full"
+            style={{
+              right: '0.5px',
+              top: `calc(0.25rem + 1px + ((100% - 0.5rem - 2px) * ${scrollProgress}))`,
+              transform: 'translateX(50%)',
+              width: '20px',
+              height: '20px',
+              transition: 'top 100ms ease-out, opacity 150ms ease-out, color 150ms ease-out',
+              opacity: scrollProgress > 0.02 ? 1 : 0,
+              pointerEvents: scrollProgress > 0.02 ? 'auto' : 'none'
+            }}
+            aria-label="Back to top"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-[14px] h-[14px]">
+              <line x1="12" y1="21" x2="12" y2="6"></line>
+              <polyline points="7 11 12 6 17 11"></polyline>
+              <line x1="7" y1="2" x2="17" y2="2"></line>
+            </svg>
+          </button>
           {tocItems.map((item) => (
             <button
               key={`${item.index}-${item.title}`}

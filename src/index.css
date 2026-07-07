@@ -300,11 +300,109 @@ input {
 
 .animate-fast-pulse {
   animation: fast-pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
 
 html, body {
   overscroll-behavior: none;
 }
 
+
+
+
+.editor-toc {
+  position: fixed;
+  top: 5.5rem;
+  bottom: 4.75rem;
+  left: min(calc(100vw - 8.25rem), calc(50vw + 19.75rem));
+  width: 6.25rem;
+  z-index: 60;
+  display: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.28rem;
+  overflow: visible;
+  padding: 0.25rem 0;
+  pointer-events: none;
 }
 
+.editor-toc-item {
+  position: relative;
+  width: 6.25rem;
+  height: 0.5rem;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
 
+.editor-toc-bar {
+  display: block;
+  width: var(--toc-bar-width, 0.75rem);
+  height: 0.125rem;
+  background: rgba(255, 255, 255, 0.38);
+  border-radius: 999px;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.08);
+  transition: width 160ms ease, background-color 160ms ease, opacity 160ms ease, transform 160ms ease;
+}
+
+.editor-toc-level-1 .editor-toc-bar {
+  opacity: 0.88;
+}
+
+.editor-toc-level-2 .editor-toc-bar {
+  opacity: 0.72;
+}
+
+.editor-toc-level-3 .editor-toc-bar,
+.editor-toc-level-4 .editor-toc-bar,
+.editor-toc-level-5 .editor-toc-bar,
+.editor-toc-level-6 .editor-toc-bar {
+  opacity: 0.58;
+}
+
+.editor-toc-title {
+  position: absolute;
+  right: calc(var(--toc-bar-width, 0.75rem) + 0.5rem);
+  max-width: none;
+  overflow: visible;
+  white-space: nowrap;
+  color: rgba(244, 244, 245, 0.92);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  text-align: right;
+  opacity: 0;
+  transform: translateX(0.375rem);
+  transition: opacity 160ms ease, transform 160ms ease;
+  pointer-events: none;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.8);
+}
+
+.editor-toc-item:hover .editor-toc-bar,
+.editor-toc-item:focus-visible .editor-toc-bar {
+  width: calc(var(--toc-bar-width, 0.75rem) + 0.25rem);
+  background: rgba(255, 255, 255, 0.88);
+  opacity: 1;
+  transform: scaleY(1.2);
+}
+
+.editor-toc-item:hover .editor-toc-title,
+.editor-toc-item:focus-visible .editor-toc-title {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.editor-toc-item:focus-visible {
+  outline: none;
+}
+
+@media (min-width: 1024px) {
+  .editor-toc {
+    display: flex;
+  }
+}

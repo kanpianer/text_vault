@@ -15,6 +15,13 @@ const SELECTION_TOOLS = ["Text", "Bold", "Italic", "Strike", "Under", "Quote", "
 
 type Tool = (typeof EMPTY_LINE_TOOLS)[number] | (typeof SELECTION_TOOLS)[number];
 
+interface TocItem {
+  index: number;
+  level: number;
+  title: string;
+  barWidthRem: number;
+}
+
 // ── helpers ─────────────────────────────────────────────────────────
 
 export function normalizeEditorNodes(root: HTMLElement | null) {
@@ -38,6 +45,24 @@ function getCurrentBlock(root: HTMLElement, node: Node): HTMLElement | null {
     el = el.parentElement;
   }
   return el && el !== root ? el : null;
+}
+
+function getTocBarWidthRem(title: string, level: number) {
+  const baseWidth = level === 1 ? 0.21 : level === 2 ? 0.18 : 0.144;
+  return Math.min(1.05, baseWidth + title.length * 0.013);
+}
+
+function collectEditorHeadings(root: HTMLElement): TocItem[] {
+  const headings = Array.from(root.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6"));
+
+  return headings
+    .map((heading, index) => {
+      const title = (heading.textContent || "").replace(/\s+/g, " ").trim();
+      const level = Number(heading.tagName.substring(1)) || 1;
+      const barWidthRem = getTocBarWidthRem(title, level);
+      return { index, level, title, barWidthRem };
+    })
+    .filter((item) => item.title.length > 0);
 }
 
 // ── toolbar actions ─────────────────────────────────────────────────
@@ -212,6 +237,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   // floating toolbar state
   const [toolbarStyle, setToolbarStyle] = useState<React.CSSProperties>({ position: "absolute", opacity: 0, pointerEvents: "none" });
   const hideToolbarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tocItems, setTocItems] = useState<TocItem[]>([]);
 
   // ── tab switching / content init ──────────────────────────────────
 
@@ -244,6 +270,54 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   useEffect(() => { setIsActive(false); setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" }); }, [activeTabId]);
   useEffect(() => { onActiveChange?.(isActive && !readOnly); }, [isActive, readOnly, onActiveChange]);
   isActiveRef.current = isActive;
+
+  const updateToc = useCallback(() => {
+    const el = editorRef.current as HTMLElement | null;
+    if (!el) return;
+    setTocItems(collectEditorHeadings(el));
+  }, [editorRef]);
+
+  useEffect(() => {
+    const el = editorRef.current as HTMLElement | null;
+    if (!el) return;
+
+    let frameId = window.requestAnimationFrame(updateToc);
+    const scheduleTocUpdate = () => {
+      window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(updateToc);
+    };
+    const observer = new MutationObserver(scheduleTocUpdate);
+
+    observer.observe(el, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    window.addEventListener("resize", scheduleTocUpdate);
+    window.addEventListener("load", scheduleTocUpdate);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      observer.disconnect();
+      window.removeEventListener("resize", scheduleTocUpdate);
+      window.removeEventListener("load", scheduleTocUpdate);
+    };
+  }, [activeTabId, initialContent, editorRef, updateToc]);
+
+  const scrollToTocHeading = useCallback((index: number) => {
+    const el = editorRef.current as HTMLElement | null;
+    if (!el) return;
+    const heading = Array.from(el.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6"))[index];
+    if (!heading) return;
+
+    const editorTop = el.getBoundingClientRect().top + window.scrollY;
+    const headingTop = heading.getBoundingClientRect().top + window.scrollY;
+    const topPadding = Math.max(16, headingTop - editorTop < 40 ? 8 : 88);
+    window.scrollTo({
+      top: Math.max(0, headingTop - topPadding),
+      behavior: "smooth",
+    });
+  }, [editorRef]);
 
   // ── toolbar position updater ──────────────────────────────────────
 
@@ -881,6 +955,24 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         }}
 
       />
+
+      {tocItems.length > 0 && (
+        <nav className="editor-toc" aria-label="Document headings">
+          {tocItems.map((item) => (
+            <button
+              key={`${item.index}-${item.title}`}
+              type="button"
+              className={`editor-toc-item editor-toc-level-${Math.min(item.level, 6)}`}
+              style={{ "--toc-bar-width": `${item.barWidthRem}rem` } as React.CSSProperties}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => scrollToTocHeading(item.index)}
+            >
+              <span className="editor-toc-title">{item.title}</span>
+              <span className="editor-toc-bar" />
+            </button>
+          ))}
+        </nav>
+      )}
 
       {/* Floating toolbar */}
       <div

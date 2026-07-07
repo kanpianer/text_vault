@@ -202,7 +202,7 @@ function detectInlinePattern(textBefore: string): InlineMatch | null {
 
 // ── component ───────────────────────────────────────────────────────
 
-export function Editor({ activeTabId, initialContent, onChange, editorRef, readOnly, onActiveChange, scrollProgress = 0 }: any) {
+export function Editor({ activeTabId, initialContent, onChange, editorRef, readOnly, onActiveChange }: any) {
   const previousTabId = useRef(activeTabId);
   const isFirstRender = useRef(true);
   const [isActive, setIsActive] = useState(false);
@@ -239,6 +239,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const hideToolbarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tocItems, setTocItems] = useState<TocItem[]>([]);
   const [activeHeadingIndex, setActiveHeadingIndex] = useState<number>(-1);
+  const tocButtonRef = useRef<HTMLButtonElement>(null);
 
   // ── tab switching / content init ──────────────────────────────────
 
@@ -326,6 +327,18 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         }
       }
       
+      if (tocButtonRef.current) {
+        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+        const progress = docHeight > 0 ? Math.min(window.scrollY / docHeight, 1) : 0;
+        if (progress > 0.02) {
+          tocButtonRef.current.classList.add('opacity-100', 'pointer-events-auto');
+          tocButtonRef.current.classList.remove('opacity-0', 'pointer-events-none');
+        } else {
+          tocButtonRef.current.classList.remove('opacity-100', 'pointer-events-auto');
+          tocButtonRef.current.classList.add('opacity-0', 'pointer-events-none');
+        }
+      }
+
       if (window.scrollY < 50) {
         newActiveIndex = -1;
       }
@@ -1003,28 +1016,25 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
             className="absolute right-0 w-[1px] rounded-full z-[-1]" 
             style={{ 
               top: 'calc(0.25rem + 1px)',
-              height: `calc((100% - 0.5rem - 2px) * ${scrollProgress})`,
+              height: `calc((100% - 0.5rem - 2px) * var(--scroll-progress, 0))`,
               background: 'rgba(255, 255, 255, 0.38)',
-              boxShadow: '0 0 8px rgba(255, 255, 255, 0.08)',
-              transition: 'height 100ms ease-out'
+              boxShadow: '0 0 8px rgba(255, 255, 255, 0.08)'
             }} 
           />
           <button
+            ref={tocButtonRef}
             type="button"
             onClick={(e) => {
               e.preventDefault();
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className="absolute flex items-center justify-center text-white/30 hover:text-white/90 transition-colors cursor-pointer bg-[#0c0c0e] rounded-full group"
+            className="absolute flex items-center justify-center text-white/30 hover:text-white/90 transition-colors cursor-pointer rounded-full group opacity-0 pointer-events-none duration-150 ease-out"
             style={{
               right: '0.5px',
-              top: `calc(0.25rem + 1px + ((100% - 0.5rem - 2px) * ${scrollProgress}))`,
+              top: `calc(0.25rem + 1px + ((100% - 0.5rem - 2px) * var(--scroll-progress, 0)))`,
               transform: 'translateX(50%)',
               width: '20px',
-              height: '20px',
-              transition: 'top 100ms ease-out, opacity 150ms ease-out, color 150ms ease-out',
-              opacity: scrollProgress > 0.02 ? 1 : 0,
-              pointerEvents: scrollProgress > 0.02 ? 'auto' : 'none'
+              height: '20px'
             }}
             aria-label="Back to top"
           >

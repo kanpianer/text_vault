@@ -418,7 +418,8 @@ html, body {
 }
 
 .editor-toc-item:hover .editor-toc-bar,
-.editor-toc-item:focus-visible .editor-toc-bar {
+.editor-toc-item:focus-visible .editor-toc-bar,
+.editor-toc-item.is-previewing .editor-toc-bar {
   width: calc(var(--toc-bar-width, 0.75rem) + 0.25rem);
   background: rgba(255, 255, 255, 0.88);
   opacity: 1;
@@ -426,18 +427,21 @@ html, body {
 }
 
 .editor-toc-item:hover .editor-toc-title,
-.editor-toc-item:focus-visible .editor-toc-title {
+.editor-toc-item:focus-visible .editor-toc-title,
+.editor-toc-item.is-previewing .editor-toc-title {
   opacity: 1;
   transform: translateX(0);
 }
 
 .editor-toc-item:hover .editor-toc-title::before,
-.editor-toc-item:focus-visible .editor-toc-title::before {
+.editor-toc-item:focus-visible .editor-toc-title::before,
+.editor-toc-item.is-previewing .editor-toc-title::before {
   animation: toc-smoke-rise 3.8s ease-out infinite;
 }
 
 .editor-toc-item:hover .editor-toc-title::after,
-.editor-toc-item:focus-visible .editor-toc-title::after {
+.editor-toc-item:focus-visible .editor-toc-title::after,
+.editor-toc-item.is-previewing .editor-toc-title::after {
   animation: toc-smoke-rise 4.6s ease-out infinite;
 }
 

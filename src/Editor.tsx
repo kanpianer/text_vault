@@ -239,12 +239,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const hideToolbarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tocItems, setTocItems] = useState<TocItem[]>([]);
   const [activeHeadingIndex, setActiveHeadingIndex] = useState<number>(-1);
-  const [tocPreviewIndex, setTocPreviewIndex] = useState<number>(-1);
-  const [isTocTouchSelecting, setIsTocTouchSelecting] = useState(false);
+  const [previewTocIndex, setPreviewTocIndex] = useState<number | null>(null);
   const tocButtonRef = useRef<HTMLButtonElement>(null);
-  const tocLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const tocTouchStartRef = useRef({ x: 0, y: 0, index: -1, activated: false, movedAfterActivation: false });
-  const tocSuppressClickRef = useRef(false);
 
   // ── tab switching / content init ──────────────────────────────────
 
@@ -274,7 +270,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   }, [isActive, editorRef]);
 
   useEffect(() => { if (readOnly) setIsActive(false); }, [readOnly]);
-  useEffect(() => { setIsActive(false); setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" }); }, [activeTabId]);
+  useEffect(() => { setIsActive(false); setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" }); setPreviewTocIndex(null); }, [activeTabId]);
   useEffect(() => { onActiveChange?.(isActive && !readOnly); }, [isActive, readOnly, onActiveChange]);
   isActiveRef.current = isActive;
 
@@ -368,6 +364,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     
     if (index === 0 && headingTop - editorTop < 100) {
       window.scrollTo({ top: 0, behavior: "smooth" });
+      setPreviewTocIndex(null);
       return;
     }
 
@@ -376,98 +373,17 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       top: Math.max(0, headingTop - topPadding),
       behavior: "smooth",
     });
+    setPreviewTocIndex(null);
   }, [editorRef]);
 
-  const getTocIndexFromTouch = useCallback((touch: Touch) => {
-    const elements = Array.from(document.querySelectorAll<HTMLElement>(".editor-toc-item[data-toc-index]"));
-    if (elements.length === 0) return -1;
-
-    let closestIndex = -1;
-    let closestDistance = Number.POSITIVE_INFINITY;
-    for (const itemEl of elements) {
-      const rect = itemEl.getBoundingClientRect();
-      const centerY = rect.top + rect.height / 2;
-      const distance = Math.abs(touch.clientY - centerY);
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestIndex = Number(itemEl.dataset.tocIndex ?? -1);
-      }
-    }
-    return closestIndex;
-  }, []);
-
-  const clearTocTouchState = useCallback(() => {
-    if (tocLongPressTimerRef.current) {
-      clearTimeout(tocLongPressTimerRef.current);
-      tocLongPressTimerRef.current = null;
-    }
-    tocTouchStartRef.current.activated = false;
-    tocTouchStartRef.current.movedAfterActivation = false;
-    setIsTocTouchSelecting(false);
-    setTocPreviewIndex(-1);
-  }, []);
-
-  const handleTocTouchStart = useCallback((e: React.TouchEvent, index: number) => {
-    const touch = e.touches[0];
-    if (!touch) return;
-
-    tocSuppressClickRef.current = true;
-    tocTouchStartRef.current = { x: touch.clientX, y: touch.clientY, index, activated: false, movedAfterActivation: false };
-    if (tocLongPressTimerRef.current) clearTimeout(tocLongPressTimerRef.current);
-
-    tocLongPressTimerRef.current = setTimeout(() => {
-      tocTouchStartRef.current.activated = true;
-      setIsTocTouchSelecting(true);
-      setTocPreviewIndex(index);
-    }, 260);
-  }, []);
-
-  const handleTocTouchMove = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    if (!touch) return;
-
-    const start = tocTouchStartRef.current;
-    const moved = Math.abs(touch.clientX - start.x) > 10 || Math.abs(touch.clientY - start.y) > 10;
-
-    if (!start.activated && moved && tocLongPressTimerRef.current) {
-      clearTimeout(tocLongPressTimerRef.current);
-      tocLongPressTimerRef.current = null;
+  const handleTocItemClick = useCallback((index: number) => {
+    const isMobile = window.matchMedia("(max-width: 767px)").matches;
+    if (isMobile) {
+      setPreviewTocIndex((current) => (current === index ? current : index));
       return;
     }
-
-    if (!start.activated) return;
-
-    e.preventDefault();
-    if (moved) tocTouchStartRef.current.movedAfterActivation = true;
-    const nextIndex = getTocIndexFromTouch(touch);
-    if (nextIndex >= 0) setTocPreviewIndex(nextIndex);
-  }, [getTocIndexFromTouch]);
-
-  const handleTocTouchEnd = useCallback((e: React.TouchEvent) => {
-    if (tocLongPressTimerRef.current) {
-      clearTimeout(tocLongPressTimerRef.current);
-      tocLongPressTimerRef.current = null;
-    }
-
-    if (tocTouchStartRef.current.activated) {
-      e.preventDefault();
-      const shouldSelect = tocTouchStartRef.current.movedAfterActivation;
-      const finalIndex = tocPreviewIndex >= 0 ? tocPreviewIndex : tocTouchStartRef.current.index;
-      clearTocTouchState();
-      if (shouldSelect && finalIndex >= 0) scrollToTocHeading(finalIndex);
-      window.setTimeout(() => { tocSuppressClickRef.current = false; }, 0);
-      return;
-    }
-
-    clearTocTouchState();
-    window.setTimeout(() => { tocSuppressClickRef.current = false; }, 0);
-  }, [clearTocTouchState, scrollToTocHeading, tocPreviewIndex]);
-
-  useEffect(() => {
-    return () => {
-      if (tocLongPressTimerRef.current) clearTimeout(tocLongPressTimerRef.current);
-    };
-  }, []);
+    scrollToTocHeading(index);
+  }, [scrollToTocHeading]);
 
   // ── toolbar position updater ──────────────────────────────────────
 
@@ -1107,7 +1023,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       />
 
       {!hideToc && tocItems.length > 0 && (
-        <nav className={`editor-toc relative ${isTocTouchSelecting ? 'is-touch-selecting' : ''}`} aria-label="Document headings">
+        <nav className="editor-toc relative" aria-label="Document headings">
           <div 
             className="absolute right-0 w-[1px] rounded-full z-[-1]" 
             style={{ 
@@ -1140,30 +1056,25 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               <line x1="7" y1="2" x2="17" y2="2"></line>
             </svg>
           </button>
-          {tocItems.map((item) => {
-            const isPreviewing = tocPreviewIndex === item.index;
-            return (
+          {tocItems.map((item) => (
             <button
               key={`${item.index}-${item.title}`}
               type="button"
-              data-toc-index={item.index}
-              className={`editor-toc-item editor-toc-level-${Math.min(item.level, 6)} ${activeHeadingIndex === item.index ? 'is-active' : ''} ${isPreviewing ? 'is-previewing' : ''}`}
+              className={`editor-toc-item editor-toc-level-${Math.min(item.level, 6)} ${activeHeadingIndex === item.index ? 'is-active' : ''}`}
               style={{ "--toc-bar-width": `${item.barWidthRem}rem` } as React.CSSProperties}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={(e) => {
-                if (tocSuppressClickRef.current || window.matchMedia("(pointer: coarse)").matches) {
+              onClick={() => handleTocItemClick(item.index)}
+            >
+              <span
+                className={`editor-toc-title ${previewTocIndex === item.index ? 'is-previewing' : ''}`}
+                onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  return;
-                }
-                scrollToTocHeading(item.index);
-              }}
-              onTouchStart={(e) => handleTocTouchStart(e, item.index)}
-              onTouchMove={handleTocTouchMove}
-              onTouchEnd={handleTocTouchEnd}
-              onTouchCancel={clearTocTouchState}
-            >
-              <span className="editor-toc-title">{item.title}</span>
+                  scrollToTocHeading(item.index);
+                }}
+              >
+                {item.title}
+              </span>
               <span 
                 className="editor-toc-bar" 
                 style={activeHeadingIndex === item.index ? { 
@@ -1173,8 +1084,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                 } : undefined} 
               />
             </button>
-            );
-          })}
+          ))}
         </nav>
       )}
 

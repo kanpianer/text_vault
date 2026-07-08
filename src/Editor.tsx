@@ -243,7 +243,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const [isTocTouchSelecting, setIsTocTouchSelecting] = useState(false);
   const tocButtonRef = useRef<HTMLButtonElement>(null);
   const tocLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const tocTouchStartRef = useRef({ x: 0, y: 0, index: -1, activated: false });
+  const tocTouchStartRef = useRef({ x: 0, y: 0, index: -1, activated: false, movedAfterActivation: false });
+  const tocSuppressClickRef = useRef(false);
 
   // ── tab switching / content init ──────────────────────────────────
 
@@ -400,8 +401,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       clearTimeout(tocLongPressTimerRef.current);
       tocLongPressTimerRef.current = null;
     }
-    document.body.style.removeProperty("overflow");
     tocTouchStartRef.current.activated = false;
+    tocTouchStartRef.current.movedAfterActivation = false;
     setIsTocTouchSelecting(false);
     setTocPreviewIndex(-1);
   }, []);
@@ -410,12 +411,12 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     const touch = e.touches[0];
     if (!touch) return;
 
-    tocTouchStartRef.current = { x: touch.clientX, y: touch.clientY, index, activated: false };
+    tocSuppressClickRef.current = true;
+    tocTouchStartRef.current = { x: touch.clientX, y: touch.clientY, index, activated: false, movedAfterActivation: false };
     if (tocLongPressTimerRef.current) clearTimeout(tocLongPressTimerRef.current);
 
     tocLongPressTimerRef.current = setTimeout(() => {
       tocTouchStartRef.current.activated = true;
-      document.body.style.overflow = "hidden";
       setIsTocTouchSelecting(true);
       setTocPreviewIndex(index);
     }, 260);
@@ -437,6 +438,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     if (!start.activated) return;
 
     e.preventDefault();
+    if (moved) tocTouchStartRef.current.movedAfterActivation = true;
     const nextIndex = getTocIndexFromTouch(touch);
     if (nextIndex >= 0) setTocPreviewIndex(nextIndex);
   }, [getTocIndexFromTouch]);
@@ -449,19 +451,21 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
     if (tocTouchStartRef.current.activated) {
       e.preventDefault();
+      const shouldSelect = tocTouchStartRef.current.movedAfterActivation;
       const finalIndex = tocPreviewIndex >= 0 ? tocPreviewIndex : tocTouchStartRef.current.index;
       clearTocTouchState();
-      if (finalIndex >= 0) scrollToTocHeading(finalIndex);
+      if (shouldSelect && finalIndex >= 0) scrollToTocHeading(finalIndex);
+      window.setTimeout(() => { tocSuppressClickRef.current = false; }, 0);
       return;
     }
 
     clearTocTouchState();
+    window.setTimeout(() => { tocSuppressClickRef.current = false; }, 0);
   }, [clearTocTouchState, scrollToTocHeading, tocPreviewIndex]);
 
   useEffect(() => {
     return () => {
       if (tocLongPressTimerRef.current) clearTimeout(tocLongPressTimerRef.current);
-      document.body.style.removeProperty("overflow");
     };
   }, []);
 
@@ -1146,7 +1150,14 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               className={`editor-toc-item editor-toc-level-${Math.min(item.level, 6)} ${activeHeadingIndex === item.index ? 'is-active' : ''} ${isPreviewing ? 'is-previewing' : ''}`}
               style={{ "--toc-bar-width": `${item.barWidthRem}rem` } as React.CSSProperties}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => scrollToTocHeading(item.index)}
+              onClick={(e) => {
+                if (tocSuppressClickRef.current || window.matchMedia("(pointer: coarse)").matches) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return;
+                }
+                scrollToTocHeading(item.index);
+              }}
               onTouchStart={(e) => handleTocTouchStart(e, item.index)}
               onTouchMove={handleTocTouchMove}
               onTouchEnd={handleTocTouchEnd}

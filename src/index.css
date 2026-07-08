@@ -340,6 +340,16 @@ html, body {
   pointer-events: auto;
 }
 
+@media (pointer: coarse) {
+  .editor-toc-item {
+    touch-action: manipulation;
+  }
+
+  .editor-toc.is-touch-selecting .editor-toc-item {
+    touch-action: none;
+  }
+}
+
 .editor-toc-bar {
   display: block;
   width: var(--toc-bar-width, 0.75rem);

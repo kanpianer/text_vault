@@ -8,7 +8,7 @@ import {
 // ── style definitions ──────────────────────────────────────────────
 
 const EDITOR_CLASS =
-  "editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-relaxed pt-2";
+  "editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-normal pt-2";
 
 const EMPTY_LINE_TOOLS = ["Text", "H1", "H2", "H3", "Task", "List", "Quote", "Image", "Code", "Line", "Center", "Table"] as const;
 const SELECTION_TOOLS = ["Text", "Bold", "Italic", "Strike", "Under", "Quote", "Link", "Center", "Code"] as const;
@@ -202,7 +202,7 @@ function detectInlinePattern(textBefore: string): InlineMatch | null {
 
 // ── component ───────────────────────────────────────────────────────
 
-export function Editor({ activeTabId, initialContent, onChange, editorRef, readOnly, onActiveChange }: any) {
+export function Editor({ activeTabId, initialContent, onChange, editorRef, readOnly, onActiveChange, hideToc = false }: any) {
   const previousTabId = useRef(activeTabId);
   const isFirstRender = useRef(true);
   const [isActive, setIsActive] = useState(false);
@@ -1010,7 +1010,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
       />
 
-      {tocItems.length > 0 && (
+      {!hideToc && tocItems.length > 0 && (
         <nav className="editor-toc relative" aria-label="Document headings">
           <div 
             className="absolute right-0 w-[1px] rounded-full z-[-1]" 

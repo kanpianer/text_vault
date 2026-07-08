@@ -124,6 +124,12 @@ export default function App() {
 
   const [tabToClose, setTabToClose] = useState<string | null>(null);
 
+
+
+  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || Boolean(tabToClose);
+
+
+
   // Inactivity tracking
   const lastActivityRef = useRef<number>(Date.now());
   const passwordInputRef = useRef<HTMLInputElement>(null);
@@ -626,10 +632,14 @@ export default function App() {
 
   // Active document characters count
   const activeTabContent = tabs.find((t) => t.id === activeTabId)?.text || "";
-  const remainingChars = TAB_MAX_CHARS - activeTabContent.length;
-  const vaultTotalChars = tabs.reduce((sum, t) => sum + (t.text?.length || 0), 0);
-  const vaultRemainingChars = VAULT_MAX_CHARS - vaultTotalChars;
-
+  const remainingChars = TAB_MAX_CHARS - activeTabContent.length;
+
+  const vaultTotalChars = tabs.reduce((sum, t) => sum + (t.text?.length || 0), 0);
+
+  const vaultRemainingChars = VAULT_MAX_CHARS - vaultTotalChars;
+
+
+
   const handleTextAreaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     // Left as stub for backward-compatibility / fallback if needed, but we handle line editing directly
   };
@@ -1446,8 +1456,11 @@ export default function App() {
 
             onChange={handleEditorInput}
 
-            onActiveChange={setIsEditorFocused}
-            readOnly={saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed"}
+            onActiveChange={setIsEditorFocused}
+
+            hideToc={shouldHideEditorToc}
+
+            readOnly={saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed"}
           />
         </div>
       </main>

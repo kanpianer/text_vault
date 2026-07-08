@@ -200,7 +200,85 @@ function detectInlinePattern(textBefore: string): InlineMatch | null {
   return null;
 }
 
+function getCaretRangeFromPoint(x: number, y: number, root: HTMLElement): Range | null {
+
+  const doc = root.ownerDocument;
+
+  const caretPositionFromPoint = (doc as Document & {
+
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+
+  }).caretPositionFromPoint;
+
+
+
+  if (caretPositionFromPoint) {
+
+    const pos = caretPositionFromPoint.call(doc, x, y);
+
+    if (pos && root.contains(pos.offsetNode)) {
+
+      const range = doc.createRange();
+
+      range.setStart(pos.offsetNode, pos.offset);
+
+      range.collapse(true);
+
+      return range;
+
+    }
+
+  }
+
+
+
+  const caretRangeFromPoint = (doc as Document & {
+
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+
+  }).caretRangeFromPoint;
+
+
+
+  const range = caretRangeFromPoint?.call(doc, x, y) ?? null;
+
+  if (range && root.contains(range.startContainer)) {
+
+    range.collapse(true);
+
+    return range;
+
+  }
+
+
+
+  return null;
+
+}
+
+
+
+function placeCaretAtRange(range: Range | null) {
+
+  if (!range) return false;
+
+  const sel = window.getSelection();
+
+  if (!sel) return false;
+
+  sel.removeAllRanges();
+
+  sel.addRange(range);
+
+  return true;
+
+}
+
+
+
 // ── component ───────────────────────────────────────────────────────
+
+
 
 export function Editor({ activeTabId, initialContent, onChange, editorRef, readOnly, onActiveChange, hideToc = false }: any) {
   const previousTabId = useRef(activeTabId);
@@ -925,28 +1003,47 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
   // ── click: activate editor ────────────────────────────────────────
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    const t = e.target as HTMLElement;
-    if (t.tagName === "IMG") {
-      e.preventDefault();
-      return;
-    }
-    if (!isActive && !readOnly) {
-      editorRef.current.contentEditable = "true";
-      editorRef.current.focus({ preventScroll: true });
-      setIsActive(true);
-    }
+  const handleMouseDown = (e: React.MouseEvent) => {
+    const t = e.target as HTMLElement;
+    if (t.tagName === "IMG") {
+      e.preventDefault();
+      return;
+    }
+    if (!isActive && !readOnly) {
+      editorRef.current.contentEditable = "true";
+      if (!window.matchMedia("(pointer: coarse)").matches) {
+        editorRef.current.focus({ preventScroll: true });
+      }
+      setIsActive(true);
+    }
   };
 
   // ── touch: detect tap to activate ─────────────────────────────────
 
   const touchRef = useRef({ startX: 0, startY: 0, startTime: 0, hasMoved: false });
 
+  const pendingTouchCaretRef = useRef<Range | null>(null);
+
+
+
   const handleTouchStart = (e: React.TouchEvent) => {
+
     const t = e.target as HTMLElement;
+
     if (t.tagName === "IMG") { e.preventDefault(); return; }
+
     const tc = e.touches[0];
+
+    pendingTouchCaretRef.current = null;
+
+    if (!isActive && !readOnly && editorRef.current) {
+
+      pendingTouchCaretRef.current = getCaretRangeFromPoint(tc.clientX, tc.clientY, editorRef.current);
+
+    }
+
     touchRef.current = { startX: tc.clientX, startY: tc.clientY, startTime: Date.now(), hasMoved: false };
+
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
@@ -956,20 +1053,54 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     }
   };
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = (e: React.TouchEvent) => {
+
     const { startTime, hasMoved } = touchRef.current;
+
     if (!hasMoved && Date.now() - startTime < 300 && !isActive && !readOnly) {
-      editorRef.current.contentEditable = "true";
-      editorRef.current.focus({ preventScroll: true });
+
+      e.preventDefault();
+
+      const el = editorRef.current as HTMLElement | null;
+
+      if (!el) return;
+
+      const changedEditable = el.contentEditable !== "true";
+
+      el.contentEditable = "true";
+
       setIsActive(true);
-      setTimeout(updateToolbar, 100);
+
+
+
+      requestAnimationFrame(() => {
+
+        if (changedEditable) {
+
+          el.focus({ preventScroll: true });
+
+        }
+
+        placeCaretAtRange(pendingTouchCaretRef.current);
+
+        pendingTouchCaretRef.current = null;
+
+        updateToolbar();
+
+      });
+
     }
+
   };
 
-  // ── blur: deactivate ──────────────────────────────────────────────
-
-  const handleBlur = () => {
-    if (!readOnly) setIsActive(false);
+  // ── blur: deactivate ──────────────────────────────────────────────
+
+
+
+  const handleBlur = () => {
+
+    if (!readOnly) setIsActive(false);
+
   };
 
   // ── toolbar scroll ────────────────────────────────────────────────

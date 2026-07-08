@@ -239,7 +239,11 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const hideToolbarTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tocItems, setTocItems] = useState<TocItem[]>([]);
   const [activeHeadingIndex, setActiveHeadingIndex] = useState<number>(-1);
+  const [tocPreviewIndex, setTocPreviewIndex] = useState<number>(-1);
+  const [isTocTouchSelecting, setIsTocTouchSelecting] = useState(false);
   const tocButtonRef = useRef<HTMLButtonElement>(null);
+  const tocLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tocTouchStartRef = useRef({ x: 0, y: 0, index: -1, activated: false });
 
   // ── tab switching / content init ──────────────────────────────────
 
@@ -372,6 +376,94 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       behavior: "smooth",
     });
   }, [editorRef]);
+
+  const getTocIndexFromTouch = useCallback((touch: Touch) => {
+    const elements = Array.from(document.querySelectorAll<HTMLElement>(".editor-toc-item[data-toc-index]"));
+    if (elements.length === 0) return -1;
+
+    let closestIndex = -1;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    for (const itemEl of elements) {
+      const rect = itemEl.getBoundingClientRect();
+      const centerY = rect.top + rect.height / 2;
+      const distance = Math.abs(touch.clientY - centerY);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestIndex = Number(itemEl.dataset.tocIndex ?? -1);
+      }
+    }
+    return closestIndex;
+  }, []);
+
+  const clearTocTouchState = useCallback(() => {
+    if (tocLongPressTimerRef.current) {
+      clearTimeout(tocLongPressTimerRef.current);
+      tocLongPressTimerRef.current = null;
+    }
+    document.body.style.removeProperty("overflow");
+    tocTouchStartRef.current.activated = false;
+    setIsTocTouchSelecting(false);
+    setTocPreviewIndex(-1);
+  }, []);
+
+  const handleTocTouchStart = useCallback((e: React.TouchEvent, index: number) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+
+    tocTouchStartRef.current = { x: touch.clientX, y: touch.clientY, index, activated: false };
+    if (tocLongPressTimerRef.current) clearTimeout(tocLongPressTimerRef.current);
+
+    tocLongPressTimerRef.current = setTimeout(() => {
+      tocTouchStartRef.current.activated = true;
+      document.body.style.overflow = "hidden";
+      setIsTocTouchSelecting(true);
+      setTocPreviewIndex(index);
+    }, 260);
+  }, []);
+
+  const handleTocTouchMove = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+
+    const start = tocTouchStartRef.current;
+    const moved = Math.abs(touch.clientX - start.x) > 10 || Math.abs(touch.clientY - start.y) > 10;
+
+    if (!start.activated && moved && tocLongPressTimerRef.current) {
+      clearTimeout(tocLongPressTimerRef.current);
+      tocLongPressTimerRef.current = null;
+      return;
+    }
+
+    if (!start.activated) return;
+
+    e.preventDefault();
+    const nextIndex = getTocIndexFromTouch(touch);
+    if (nextIndex >= 0) setTocPreviewIndex(nextIndex);
+  }, [getTocIndexFromTouch]);
+
+  const handleTocTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (tocLongPressTimerRef.current) {
+      clearTimeout(tocLongPressTimerRef.current);
+      tocLongPressTimerRef.current = null;
+    }
+
+    if (tocTouchStartRef.current.activated) {
+      e.preventDefault();
+      const finalIndex = tocPreviewIndex >= 0 ? tocPreviewIndex : tocTouchStartRef.current.index;
+      clearTocTouchState();
+      if (finalIndex >= 0) scrollToTocHeading(finalIndex);
+      return;
+    }
+
+    clearTocTouchState();
+  }, [clearTocTouchState, scrollToTocHeading, tocPreviewIndex]);
+
+  useEffect(() => {
+    return () => {
+      if (tocLongPressTimerRef.current) clearTimeout(tocLongPressTimerRef.current);
+      document.body.style.removeProperty("overflow");
+    };
+  }, []);
 
   // ── toolbar position updater ──────────────────────────────────────
 
@@ -1011,7 +1103,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       />
 
       {!hideToc && tocItems.length > 0 && (
-        <nav className="editor-toc relative" aria-label="Document headings">
+        <nav className={`editor-toc relative ${isTocTouchSelecting ? 'is-touch-selecting' : ''}`} aria-label="Document headings">
           <div 
             className="absolute right-0 w-[1px] rounded-full z-[-1]" 
             style={{ 
@@ -1044,14 +1136,21 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               <line x1="7" y1="2" x2="17" y2="2"></line>
             </svg>
           </button>
-          {tocItems.map((item) => (
+          {tocItems.map((item) => {
+            const isPreviewing = tocPreviewIndex === item.index;
+            return (
             <button
               key={`${item.index}-${item.title}`}
               type="button"
-              className={`editor-toc-item editor-toc-level-${Math.min(item.level, 6)} ${activeHeadingIndex === item.index ? 'is-active' : ''}`}
+              data-toc-index={item.index}
+              className={`editor-toc-item editor-toc-level-${Math.min(item.level, 6)} ${activeHeadingIndex === item.index ? 'is-active' : ''} ${isPreviewing ? 'is-previewing' : ''}`}
               style={{ "--toc-bar-width": `${item.barWidthRem}rem` } as React.CSSProperties}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => scrollToTocHeading(item.index)}
+              onTouchStart={(e) => handleTocTouchStart(e, item.index)}
+              onTouchMove={handleTocTouchMove}
+              onTouchEnd={handleTocTouchEnd}
+              onTouchCancel={clearTocTouchState}
             >
               <span className="editor-toc-title">{item.title}</span>
               <span 
@@ -1063,7 +1162,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                 } : undefined} 
               />
             </button>
-          ))}
+            );
+          })}
         </nav>
       )}
 

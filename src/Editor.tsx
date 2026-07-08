@@ -361,6 +361,10 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
     const editorTop = el.getBoundingClientRect().top + window.scrollY;
     const headingTop = heading.getBoundingClientRect().top + window.scrollY;
+    const isMobile = window.matchMedia("(max-width: 767px)").matches;
+    const stickyHeader = document.querySelector<HTMLElement>(".sticky.top-0");
+    const stickyBottom = stickyHeader?.getBoundingClientRect().bottom ?? 0;
+    const viewportTopPadding = isMobile ? Math.max(88, Math.ceil(stickyBottom + 12)) : 88;
     
     if (index === 0 && headingTop - editorTop < 100) {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -368,7 +372,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       return;
     }
 
-    const topPadding = Math.max(16, headingTop - editorTop < 40 ? 8 : 88);
+    const topPadding = Math.max(16, headingTop - editorTop < 40 ? 8 : viewportTopPadding);
     window.scrollTo({
       top: Math.max(0, headingTop - topPadding),
       behavior: "smooth",
@@ -1070,6 +1074,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  setPreviewTocIndex(null);
                   scrollToTocHeading(item.index);
                 }}
               >

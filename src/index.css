@@ -168,7 +168,7 @@ input {
 }
 .editor-body h1 {
   font-size: 2.25rem;
-  line-height: 1.7rem;
+  line-height: 1.875rem;
   font-weight: 600;
   color: #ffffff;
   letter-spacing: -0.025em;
@@ -180,7 +180,7 @@ input {
 }
 .editor-body h2 {
   font-size: 1.875rem;
-  line-height: 1.5rem;
+  line-height: 1.7rem;
   font-weight: 600;
   color: #f4f4f5;
   padding-top: 0.375rem;
@@ -190,7 +190,7 @@ input {
 }
 .editor-body h3 {
   font-size: 1.5rem;
-  line-height: 1.35rem;
+  line-height: 1.5rem;
   font-weight: 500;
   color: #e4e4e7;
   padding-top: 0.25rem;
@@ -326,28 +326,50 @@ html, body {
 }
 
 .editor-toc-item {
+
   position: relative;
+
   width: 6.25rem;
-  height: 0.5rem;
+
+  height: 0.75rem;
+
   flex: 0 0 auto;
+
   display: flex;
+
   align-items: center;
+
   justify-content: flex-end;
+
   border: 0;
+
   padding: 0;
+
   background: transparent;
+
   cursor: pointer;
+
   pointer-events: auto;
+
 }
 
 .editor-toc-bar {
+
   display: block;
+
+  min-width: 0.35rem;
   width: var(--toc-bar-width, 0.75rem);
-  height: 0.125rem;
+
+  height: 3px;
+
   background: rgba(255, 255, 255, 0.38);
+
   border-radius: 999px;
+
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.08);
-  transition: width 160ms ease, background-color 160ms ease, opacity 160ms ease, transform 160ms ease;
+
+  transition: width 160ms ease, height 160ms ease, background-color 160ms ease, opacity 160ms ease, transform 160ms ease;
+
 }
 
 .editor-toc-level-1 .editor-toc-bar {

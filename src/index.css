@@ -360,7 +360,7 @@ html, body {
   min-width: 0.55rem;
   width: var(--toc-bar-width, 0.75rem);
 
-  height: 1.5px;
+  height: 2px;
 
   background: rgb(104, 104, 106);
 

@@ -372,19 +372,13 @@ html, body {
 
 }
 
-.editor-toc-level-1 .editor-toc-bar {
-  opacity: 0.88;
-}
-
-.editor-toc-level-2 .editor-toc-bar {
-  opacity: 0.72;
-}
-
+.editor-toc-level-1 .editor-toc-bar,
+.editor-toc-level-2 .editor-toc-bar,
 .editor-toc-level-3 .editor-toc-bar,
 .editor-toc-level-4 .editor-toc-bar,
 .editor-toc-level-5 .editor-toc-bar,
 .editor-toc-level-6 .editor-toc-bar {
-  opacity: 0.58;
+  opacity: 0.72;
 }
 
 .editor-toc-title {

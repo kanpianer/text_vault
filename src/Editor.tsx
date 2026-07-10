@@ -1003,19 +1003,32 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
   // ── click: activate editor ────────────────────────────────────────
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    const t = e.target as HTMLElement;
-    if (t.tagName === "IMG") {
-      e.preventDefault();
-      return;
-    }
-    if (!isActive && !readOnly) {
-      editorRef.current.contentEditable = "true";
-      if (!window.matchMedia("(pointer: coarse)").matches) {
-        editorRef.current.focus({ preventScroll: true });
-      }
-      setIsActive(true);
-    }
+  const handleMouseDown = (e: React.MouseEvent) => {
+
+    const t = e.target as HTMLElement;
+
+    if (t.tagName === "IMG") {
+
+      e.preventDefault();
+
+      return;
+
+    }
+
+    if (!isActive && !readOnly) {
+
+      editorRef.current.contentEditable = "true";
+
+      if (!window.matchMedia("(pointer: coarse)").matches) {
+
+        editorRef.current.focus({ preventScroll: true });
+
+      }
+
+      setIsActive(true);
+
+    }
+
   };
 
   // ── touch: detect tap to activate ─────────────────────────────────
@@ -1159,14 +1172,14 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
       {!hideToc && tocItems.length > 0 && (
         <nav className="editor-toc relative" aria-label="Document headings">
-          <div 
-            className="absolute right-0 w-[1px] rounded-full z-[-1]" 
-            style={{ 
-              top: 'calc(0.25rem + 1px)',
-              height: `calc((100% - 0.5rem - 2px) * var(--scroll-progress, 0))`,
-              background: 'rgba(255, 255, 255, 0.38)',
-              boxShadow: '0 0 8px rgba(255, 255, 255, 0.08)'
-            }} 
+          <div 
+            className="absolute right-0 w-[1px] rounded-full z-[-1]" 
+            style={{ 
+              top: 'calc(0.25rem + 0.375rem)',
+              height: `calc((100% - 0.5rem - 0.75rem) * var(--scroll-progress, 0))`,
+              background: 'rgba(255, 255, 255, 0.38)',
+              boxShadow: '0 0 8px rgba(255, 255, 255, 0.08)'
+            }} 
           />
           <button
             ref={tocButtonRef}
@@ -1178,7 +1191,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
             className="absolute flex items-center justify-center text-white/30 hover:text-white/90 transition-colors cursor-pointer rounded-full group opacity-0 pointer-events-none duration-150 ease-out"
             style={{
               right: '0.5px',
-              top: `calc(0.25rem + 1px + ((100% - 0.5rem - 2px) * var(--scroll-progress, 0)))`,
+              top: `calc(0.25rem + 0.375rem + ((100% - 0.5rem - 0.75rem) * var(--scroll-progress, 0)))`,
               transform: 'translateX(50%)',
               width: '20px',
               height: '20px'

@@ -357,7 +357,7 @@ html, body {
 
   display: block;
 
-  min-width: 0.35rem;
+  min-width: 0.55rem;
   width: var(--toc-bar-width, 0.75rem);
 
   height: 3px;

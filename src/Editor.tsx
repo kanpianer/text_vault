@@ -48,7 +48,7 @@ function getCurrentBlock(root: HTMLElement, node: Node): HTMLElement | null {
 }
 
 function getTocBarWidthRem(title: string, level: number) {
-  const baseWidth = level === 1 ? 0.21 : level === 2 ? 0.18 : 0.144;
+  const baseWidth = level === 1 ? 0.32 : level === 2 ? 0.28 : 0.22;
   return Math.min(1.05, baseWidth + title.length * 0.013);
 }
 

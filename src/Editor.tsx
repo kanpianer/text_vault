@@ -1177,7 +1177,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
             style={{ 
               top: 'calc(0.25rem + 0.375rem)',
               height: `calc((100% - 0.5rem - 0.75rem) * var(--scroll-progress, 0))`,
-              background: 'rgba(255, 255, 255, 0.38)',
+              background: 'rgb(104, 104, 106)',
               boxShadow: '0 0 8px rgba(255, 255, 255, 0.08)'
             }} 
           />
@@ -1228,7 +1228,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                 className="editor-toc-bar" 
                 style={activeHeadingIndex === item.index ? { 
                   opacity: 1, 
-                  background: 'rgba(255, 255, 255, 0.82)', 
+                  background: 'rgb(211, 211, 212)', 
                   boxShadow: '0 0 8px rgba(255, 255, 255, 0.22)' 
                 } : undefined} 
               />

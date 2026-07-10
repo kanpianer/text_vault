@@ -362,7 +362,7 @@ html, body {
 
   height: 3px;
 
-  background: rgba(255, 255, 255, 0.38);
+  background: rgb(104, 104, 106);
 
   border-radius: 999px;
 
@@ -378,7 +378,7 @@ html, body {
 .editor-toc-level-4 .editor-toc-bar,
 .editor-toc-level-5 .editor-toc-bar,
 .editor-toc-level-6 .editor-toc-bar {
-  opacity: 0.72;
+  opacity: 1;
 }
 
 .editor-toc-title {

@@ -439,16 +439,23 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
     const editorTop = el.getBoundingClientRect().top + window.scrollY;
     const headingTop = heading.getBoundingClientRect().top + window.scrollY;
-    const isMobile = window.matchMedia("(max-width: 767px)").matches;
     const stickyHeader = document.querySelector<HTMLElement>(".sticky.top-0");
     const stickyBottom = stickyHeader?.getBoundingClientRect().bottom ?? 0;
-    const viewportTopPadding = isMobile ? Math.max(88, Math.ceil(stickyBottom + 12)) : 88;
+    const viewportTopPadding = Math.max(88, Math.ceil(stickyBottom + 12));
+
     
+
     if (index === 0 && headingTop - editorTop < 100) {
+
       window.scrollTo({ top: 0, behavior: "smooth" });
+
       setPreviewTocIndex(null);
+
       return;
+
     }
+
+
 
     const topPadding = Math.max(16, headingTop - editorTop < 40 ? 8 : viewportTopPadding);
     window.scrollTo({
@@ -1172,14 +1179,22 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
       {!hideToc && tocItems.length > 0 && (
         <nav className="editor-toc relative" aria-label="Document headings">
-          <div 
-            className="absolute right-0 w-[1px] rounded-full z-[-1]" 
-            style={{ 
-              top: 'calc(0.25rem + 0.375rem)',
-              height: `calc((100% - 0.5rem - 0.75rem) * var(--scroll-progress, 0))`,
-              background: 'rgb(104, 104, 106)',
-              boxShadow: '0 0 8px rgba(255, 255, 255, 0.08)'
-            }} 
+          <div 
+
+            className="absolute right-0 w-[1px] rounded-full z-[-1]" 
+
+            style={{ 
+
+              top: 'calc(0.25rem + 0.375rem)',
+
+              height: `calc((100% - 0.5rem - 0.75rem) * var(--scroll-progress, 0))`,
+
+              background: 'rgb(104, 104, 106)',
+
+              boxShadow: '0 0 8px rgba(255, 255, 255, 0.08)'
+
+            }} 
+
           />
           <button
             ref={tocButtonRef}

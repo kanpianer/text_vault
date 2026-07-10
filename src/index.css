@@ -239,6 +239,9 @@ input {
   border-radius: 0.25rem;
   border: 1px solid rgba(39, 39, 42, 0.5);
   overflow-x: auto;
+  white-space: pre;
+  word-wrap: normal;
+  overflow-wrap: normal;
 }
 .editor-body b, .editor-body strong {
   font-weight: 900;

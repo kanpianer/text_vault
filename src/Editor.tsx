@@ -623,7 +623,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     const handleTocScroll = () => {
       setTocLineVisible(true);
       if (tocLineTimerRef.current) clearTimeout(tocLineTimerRef.current);
-      tocLineTimerRef.current = setTimeout(() => setTocLineVisible(false), 1500);
+      tocLineTimerRef.current = setTimeout(() => setTocLineVisible(false), 1000);
     };
     window.addEventListener('scroll', handleTocScroll, { passive: true });
     return () => {

@@ -319,6 +319,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const [activeHeadingIndex, setActiveHeadingIndex] = useState<number>(-1);
   const [previewTocIndex, setPreviewTocIndex] = useState<number | null>(null);
   const tocButtonRef = useRef<HTMLButtonElement>(null);
+  const [tocLineVisible, setTocLineVisible] = useState(true);
+  const tocLineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── tab switching / content init ──────────────────────────────────
 
@@ -614,6 +616,21 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
     savedRangeRef.current = null;
   };
+
+  // ── scroll idle: hide progress line when paused ──────────────────
+
+  useEffect(() => {
+    const handleTocScroll = () => {
+      setTocLineVisible(true);
+      if (tocLineTimerRef.current) clearTimeout(tocLineTimerRef.current);
+      tocLineTimerRef.current = setTimeout(() => setTocLineVisible(false), 1500);
+    };
+    window.addEventListener('scroll', handleTocScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleTocScroll);
+      if (tocLineTimerRef.current) clearTimeout(tocLineTimerRef.current);
+    };
+  }, []);
 
   // ── selectionchange: show toolbar on mobile text selection ────────
 
@@ -1177,13 +1194,20 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
       />
 
-      {!hideToc && tocItems.length > 0 && (
+      {!hideToc && (
+
         <nav className="editor-toc relative" aria-label="Document headings">
           <div 
 
-            className="absolute right-0 w-[1px] rounded-full z-[-1]" 
+            className="absolute right-0 w-[1px] rounded-full z-[-1] transition-opacity duration-300"
 
-            style={{ 
+
+
+            style={{
+
+              opacity: tocLineVisible ? 1 : 0,
+
+
 
               top: 'calc(0.25rem + 0.375rem)',
 
@@ -1203,13 +1227,15 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               e.preventDefault();
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className="absolute flex items-center justify-center text-white/30 hover:text-white/90 transition-colors cursor-pointer rounded-full group opacity-0 pointer-events-none duration-150 ease-out"
-            style={{
-              right: '0.5px',
-              top: `calc(0.25rem + 0.375rem + ((100% - 0.5rem - 0.75rem) * var(--scroll-progress, 0)))`,
-              transform: 'translateX(50%)',
-              width: '20px',
-              height: '20px'
+            className="absolute flex items-center justify-center text-white/30 hover:text-white/90 transition-colors cursor-pointer rounded-full group transition-opacity duration-300"
+            style={{
+              right: '0.5px',
+              top: `calc(0.25rem + 0.375rem + ((100% - 0.5rem - 0.75rem) * var(--scroll-progress, 0)))`,
+              transform: 'translateX(50%)',
+              width: '20px',
+              height: '20px',
+              opacity: tocLineVisible ? 1 : 0,
+              pointerEvents: tocLineVisible ? 'auto' : 'none'
             }}
             aria-label="Back to top"
           >
@@ -1219,35 +1245,64 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               <line x1="7" y1="2" x2="17" y2="2"></line>
             </svg>
           </button>
-          {tocItems.map((item) => (
+          {tocItems.length > 0 && tocItems.map((item) => (
+
             <button
+
               key={`${item.index}-${item.title}`}
+
               type="button"
+
               className={`editor-toc-item editor-toc-level-${Math.min(item.level, 6)} ${activeHeadingIndex === item.index ? 'is-active' : ''}`}
+
               style={{ "--toc-bar-width": `${item.barWidthRem}rem` } as React.CSSProperties}
+
               onMouseDown={(e) => e.preventDefault()}
+
               onClick={() => handleTocItemClick(item.index)}
+
             >
+
               <span
+
                 className={`editor-toc-title ${previewTocIndex === item.index ? 'is-previewing' : ''}`}
+
                 onClick={(e) => {
+
                   e.preventDefault();
+
                   e.stopPropagation();
+
                   setPreviewTocIndex(null);
+
                   scrollToTocHeading(item.index);
+
                 }}
+
               >
+
                 {item.title}
+
               </span>
+
               <span 
+
                 className="editor-toc-bar" 
+
                 style={activeHeadingIndex === item.index ? { 
+
                   opacity: 1, 
+
                   background: 'rgb(211, 211, 212)', 
+
                   boxShadow: '0 0 8px rgba(255, 255, 255, 0.22)' 
+
                 } : undefined} 
+
               />
+
             </button>
+
           ))}
         </nav>
       )}

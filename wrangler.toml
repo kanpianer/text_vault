@@ -9,5 +9,4 @@ id = "placeholder_kv_id"
 preview_id = "placeholder_preview_kv_id"
 
 # Static assets (the built frontend)
-[site]
-bucket = "./dist"
+pages_build_output_dir = "./dist"

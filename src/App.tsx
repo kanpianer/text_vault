@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import "katex/dist/katex.min.css";
 import { motion, AnimatePresence } from "motion/react";
 import { X } from "lucide-react";
+import JSZip from "jszip";
 import { TabContent, SaveStatus } from "./types";
 import { Editor } from "./Editor";
 import {
@@ -104,6 +105,9 @@ export default function App() {
   const [confirmNewPassword, setConfirmNewPassword] = useState<string>("");
   const [pwdModalError, setPwdModalError] = useState<string>("");
 
+  // Export Modal state
+  const [showExportModal, setShowExportModal] = useState<boolean>(false);
+
   // Delete Vault 3-Phase Modal state
   const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
   const [deleteStep, setDeleteStep] = useState<number>(1);
@@ -126,7 +130,7 @@ export default function App() {
 
 
 
-  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || Boolean(tabToClose);
+  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || showExportModal || Boolean(tabToClose);
 
 
 
@@ -863,6 +867,48 @@ export default function App() {
     }
   };
 
+  const handleExportMd = async () => {
+    setIsLoading(true);
+    try {
+      const ZipClass = typeof JSZip === 'function' ? JSZip : (JSZip as any).default || JSZip;
+      const zip = new ZipClass();
+      
+      let count = 0;
+      tabs.forEach((tab) => {
+        let rawTitle = getTabRawTitle(tab) || `untitled_${tab.id}`;
+        // Sanitize filename to prevent slashes from creating directories or other invalid characters
+        let filename = rawTitle.replace(/[\\/:*?"<>|]/g, '_').trim();
+        if (!filename) filename = `untitled_${tab.id}`;
+        
+        if (!filename.toLowerCase().endsWith('.md')) {
+          filename += '.md';
+        }
+        zip.file(filename, tab.text || "");
+        count++;
+      });
+      
+      if (count === 0) {
+        zip.file("empty_vault.md", "The vault is empty.");
+      }
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${vaultName || "vault"}_export.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error("Export failed:", err);
+      alert("Export failed: " + (err.message || String(err)));
+    } finally {
+      setIsLoading(false);
+      setShowExportModal(false);
+    }
+  };
+
   // Secure Delete Vault logic
   const handleDeleteVault = async () => {
     if (deleteConfirmName.toLowerCase() !== vaultName.toLowerCase()) {
@@ -1345,6 +1391,15 @@ export default function App() {
                   >
                     Delete Vault
                   </span>
+                  <span
+                    onClick={() => {
+                      setShowExportModal(true);
+                      setShowMenu(false);
+                    }}
+                    className="text-xs md:text-sm font-mono text-zinc-500 hover:text-blue-400 cursor-pointer uppercase tracking-wider transition-colors py-2"
+                  >
+                    EXPORT TO .MD
+                  </span>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1602,6 +1657,43 @@ export default function App() {
       </AnimatePresence>
 
       {/* 3-PHASE DESTRUCTION POPUP CONFIRM */}
+      <AnimatePresence>
+        {showExportModal && (
+          <div className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-50">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-4xl flex flex-col gap-6 relative"
+            >
+              <h3 className="font-mono tracking-wide text-lg text-yellow-500 uppercase text-center font-bold">
+                Security Warning
+              </h3>
+
+              <div className="flex flex-col gap-6">
+                <p className="font-mono text-xs text-zinc-300 leading-relaxed text-center px-4">
+                  Exported text is unencrypted. Anyone with the zip file will be able to read its contents.
+                </p>
+                <div className="flex justify-center gap-12 items-center mt-2">
+                  <span
+                    onClick={() => setShowExportModal(false)}
+                    className="font-mono text-xs md:text-sm text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                  >
+                    Cancel
+                  </span>
+                  <span
+                    onClick={handleExportMd}
+                    className="font-mono text-xs md:text-sm font-semibold text-yellow-500 hover:text-yellow-400 hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
+                  >
+                    Confirm Export
+                  </span>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>
         {showDeleteModal && (
           <div className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-50">

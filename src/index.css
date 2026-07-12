@@ -447,7 +447,29 @@ html, body {
   animation-delay: 1.8s;
 }
 
-.editor-toc-item:hover .editor-toc-bar,
+@media (hover: hover) {
+  .editor-toc-item:hover .editor-toc-bar {
+    width: calc(var(--toc-bar-width, 0.75rem) + 0.25rem);
+    background: rgba(255, 255, 255, 0.88);
+    opacity: 1;
+    transform: scaleY(1.2);
+  }
+
+  .editor-toc-item:hover .editor-toc-title {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+
+  .editor-toc-item:hover .editor-toc-title::before {
+    animation: toc-smoke-rise 3.8s ease-out infinite;
+  }
+
+  .editor-toc-item:hover .editor-toc-title::after {
+    animation: toc-smoke-rise 4.6s ease-out infinite;
+  }
+}
+
 .editor-toc-item:focus-visible .editor-toc-bar {
   width: calc(var(--toc-bar-width, 0.75rem) + 0.25rem);
   background: rgba(255, 255, 255, 0.88);
@@ -455,7 +477,6 @@ html, body {
   transform: scaleY(1.2);
 }
 
-.editor-toc-item:hover .editor-toc-title,
 .editor-toc-item:focus-visible .editor-toc-title,
 .editor-toc-title.is-previewing {
   opacity: 1;
@@ -463,13 +484,11 @@ html, body {
   pointer-events: auto;
 }
 
-.editor-toc-item:hover .editor-toc-title::before,
 .editor-toc-item:focus-visible .editor-toc-title::before,
 .editor-toc-title.is-previewing::before {
   animation: toc-smoke-rise 3.8s ease-out infinite;
 }
 
-.editor-toc-item:hover .editor-toc-title::after,
 .editor-toc-item:focus-visible .editor-toc-title::after,
 .editor-toc-title.is-previewing::after {
   animation: toc-smoke-rise 4.6s ease-out infinite;

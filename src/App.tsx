@@ -1462,7 +1462,7 @@ export default function App() {
                       />
                     ) : (
                       <span 
-                        className="tracking-wide text-zinc-100 block whitespace-nowrap" 
+                        className="tracking-wide text-zinc-100 block whitespace-nowrap select-text" 
                         title={getTabRawTitle(tab)}
                       >
                         <span className={`pb-px border-b ${active ? "border-zinc-300" : "border-transparent"}`}>{getTabDisplayTitle(tab.text, tab.title)}</span>

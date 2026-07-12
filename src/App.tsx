@@ -876,6 +876,9 @@ export default function App() {
       let count = 0;
       tabs.forEach((tab) => {
         let rawTitle = getTabRawTitle(tab) || `untitled_${tab.id}`;
+        if (rawTitle.length > 50) {
+          rawTitle = rawTitle.substring(0, 50).trim();
+        }
         // Sanitize filename to prevent slashes from creating directories or other invalid characters
         let filename = rawTitle.replace(/[\\/:*?"<>|]/g, '_').trim();
         if (!filename) filename = `untitled_${tab.id}`;

@@ -1503,6 +1503,39 @@ export default function App() {
       <main className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 pt-0 pb-0 max-w-4xl mx-auto w-full">
         {/* Content Box (Unified Line-by-Line Edit & Preview Area) */}
         <div className="flex-1 flex flex-col relative pt-1 md:pt-2 pb-24 min-h-[550px]"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && editorRef.current) {
+              const el = editorRef.current;
+              const lastChild = el.lastElementChild;
+              const isLastEmptyP = lastChild && lastChild.tagName === "P" && (!lastChild.textContent || lastChild.textContent.trim() === "");
+              
+              if (!isLastEmptyP && el.contentEditable === "true") {
+                const p = document.createElement("p");
+                p.appendChild(document.createElement("br"));
+                el.appendChild(p);
+                
+                requestAnimationFrame(() => {
+                  const r = document.createRange();
+                  r.selectNodeContents(p);
+                  r.collapse(false);
+                  const sel = window.getSelection();
+                  sel?.removeAllRanges();
+                  sel?.addRange(r);
+                  el.focus();
+                });
+              } else if (el.contentEditable === "true") {
+                el.focus();
+                if (lastChild) {
+                  const r = document.createRange();
+                  r.selectNodeContents(lastChild);
+                  r.collapse(false);
+                  const sel = window.getSelection();
+                  sel?.removeAllRanges();
+                  sel?.addRange(r);
+                }
+              }
+            }
+          }}
         >
           <Editor
 

@@ -1320,23 +1320,37 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         onBlur={handleBlur}
 
         onClick={(e) => {
-
           const target = e.target as HTMLElement;
-
           const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
-
           if (anchor) {
-
             e.preventDefault();
-
             e.stopPropagation();
-
             window.open(anchor.href, "_blank", "noopener,noreferrer");
-
+            return;
           }
 
+          if (target === editorRef.current) {
+            const el = editorRef.current;
+            const lastChild = el.lastElementChild;
+            const isLastEmptyP = lastChild && lastChild.tagName === "P" && (!lastChild.textContent || lastChild.textContent.trim() === "");
+            
+            if (!isLastEmptyP && !readOnly) {
+              const p = document.createElement("p");
+              p.appendChild(document.createElement("br"));
+              el.appendChild(p);
+              
+              requestAnimationFrame(() => {
+                const r = document.createRange();
+                r.selectNodeContents(p);
+                r.collapse(false);
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+                sel?.addRange(r);
+                el.focus();
+              });
+            }
+          }
         }}
-
       />
 
       {!hideToc && (

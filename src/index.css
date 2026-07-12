@@ -230,18 +230,20 @@ input {
 .editor-body pre {
   font-family: var(--font-mono);
   font-size: 0.9375rem;
-  line-height: 1rem;
+  line-height: 1.6;
   color: #d4d4d8;
-  padding: 0.75rem 1rem;
+  padding: 1rem 1rem 1rem 3.5rem;
   background-color: rgba(24, 24, 27, 0.6);
-  margin-top: 1rem;
-  margin-bottom: 1rem;
-  border-radius: 0.25rem;
+  margin-top: 1.25rem;
+  margin-bottom: 1.25rem;
+  border-radius: 0.5rem;
   border: 1px solid rgba(39, 39, 42, 0.5);
   overflow-x: auto;
   white-space: pre;
   word-wrap: normal;
   overflow-wrap: normal;
+  position: relative;
+  min-height: 3.5rem;
 }
 .editor-body b, .editor-body strong {
   font-weight: 900;
@@ -502,5 +504,19 @@ html, body {
     width: 6.25rem;
   }
 }
-.editor-body pre { position: relative; padding-left: 3rem; }
-.editor-body pre::before { content: attr(data-line-numbers); position: absolute; top: 0.75rem; left: 0; width: 2.5rem; text-align: right; color: #71717a; border-right: 1px solid rgba(255,255,255,0.1); padding-right: 0.5rem; white-space: pre; pointer-events: none; user-select: none; }
+.editor-body pre::before {
+  content: attr(data-line-numbers);
+  position: absolute;
+  top: 1rem;
+  left: 0;
+  width: 2.5rem;
+  text-align: right;
+  color: #52525b;
+  padding-right: 0.75rem;
+  white-space: pre;
+  pointer-events: none;
+  user-select: none;
+}
+.editor-body pre[data-line-numbers]::before {
+  border-right: 1px solid rgba(255,255,255,0.05);
+}

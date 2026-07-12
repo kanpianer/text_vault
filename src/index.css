@@ -229,7 +229,7 @@ input {
 }
 .editor-body pre {
   font-family: var(--font-mono);
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
   line-height: 1.6;
   color: #d4d4d8;
   padding: 1rem 1rem 1rem 3.5rem;

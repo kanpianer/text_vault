@@ -12,6 +12,8 @@ body {
   background-color: #0c0c0e;
   color: #e4e4e7;
   font-family: var(--font-sans);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Custom minimal scrollbar */
@@ -32,6 +34,8 @@ input {
 /* Markdown Preview Styling */
 .markdown-body {
   font-family: var(--font-sans);
+  user-select: text;
+  -webkit-user-select: text;
 }
 .markdown-body h1 {
   font-size: 1.5rem;
@@ -165,6 +169,8 @@ input {
 .editor-body {
   font-family: var(--font-sans);
   word-wrap: break-word;
+  user-select: text;
+  -webkit-user-select: text;
 }
 .editor-body h1 {
   font-size: 2.25rem;

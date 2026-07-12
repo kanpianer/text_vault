@@ -1396,7 +1396,7 @@ export default function App() {
                       setShowExportModal(true);
                       setShowMenu(false);
                     }}
-                    className="text-xs md:text-sm font-mono text-zinc-500 hover:text-blue-400 cursor-pointer uppercase tracking-wider transition-colors py-2"
+                    className="text-xs md:text-sm font-mono text-zinc-500 hover:text-yellow-500 cursor-pointer uppercase tracking-wider transition-colors py-2"
                   >
                     EXPORT TO .MD
                   </span>

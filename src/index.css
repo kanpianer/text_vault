@@ -314,7 +314,7 @@ html, body {
 
 .editor-toc {
   position: fixed;
-  top: calc(5.5rem + 0.25 * (100vh - 5.5rem - 4.75rem));
+  top: 5.5rem;
   bottom: 4.75rem;
   right: 0.75rem;
   width: 4.5rem;

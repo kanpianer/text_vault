@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { marked } from "marked";
+import hljs from "highlight.js";
 import {
   calculateSelectionPosition,
   calculateEmptyLinePositionLeft,
@@ -804,29 +805,115 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     return () => el.removeEventListener("beforeinput", onBeforeInput);
   }, [onChange, editorRef]);
 
-  // ── dynamic code block line numbers ───────────────────────────────
+  // ── dynamic code block formatting (line numbers & syntax highlighting) ───────────────────────────────
 
   useEffect(() => {
     const el = editorRef.current as HTMLElement | null;
     if (!el) return;
 
-    const updateLineNumbers = () => {
+    const updateBlocks = () => {
       const pres = el.querySelectorAll("pre");
       pres.forEach(pre => {
-        const text = pre.innerText || "";
-        const linesCount = (text.match(/\n/g) || []).length + 1;
-        let numbers = "";
-        for (let i = 1; i <= linesCount; i++) {
-          numbers += i + "\n";
+        // Extract text and calculate offset
+        let rawContent = "";
+        let savedOffset = -1;
+        const sel = window.getSelection();
+        const isFocused = sel && sel.rangeCount > 0 && pre.contains(sel.anchorNode);
+        const targetNode = isFocused ? sel.anchorNode : null;
+        const targetOffset = isFocused ? sel.anchorOffset : 0;
+
+        function walk(node: Node) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            if (node === targetNode) savedOffset = rawContent.length + targetOffset;
+            rawContent += node.nodeValue || "";
+          } else if (node.nodeType === Node.ELEMENT_NODE) {
+            const tag = (node as HTMLElement).tagName;
+            if (tag === "BR") rawContent += "\n";
+            else if (tag === "DIV" || tag === "P") {
+              if (rawContent.length > 0 && !rawContent.endsWith("\n")) rawContent += "\n";
+            }
+            
+            for (let i = 0; i < node.childNodes.length; i++) {
+              if (node === targetNode && targetOffset === i) savedOffset = rawContent.length;
+              walk(node.childNodes[i]);
+            }
+            if (node === targetNode && targetOffset === node.childNodes.length) {
+              savedOffset = rawContent.length;
+            }
+            
+            if (tag === "DIV" || tag === "P") {
+              if (rawContent.length > 0 && !rawContent.endsWith("\n")) rawContent += "\n";
+            }
+          }
         }
-        if (pre.getAttribute("data-line-numbers") !== numbers) {
-          pre.setAttribute("data-line-numbers", numbers);
+        walk(pre);
+
+        // Strip the trailing newline we add for rendering, if it exists
+        if (rawContent.endsWith("\n")) {
+          rawContent = rawContent.slice(0, -1);
+        }
+
+        // Line numbers
+        let linesCount = (rawContent.match(/\n/g) || []).length + 1;
+        if (rawContent === "\n" || rawContent === "") linesCount = 1;
+        
+        const hasContent = (rawContent.replace(/[\s\u200B\u200C\u200D\uFEFF]/g, "") !== "") || (linesCount > 1);
+
+        if (hasContent) {
+          let numbers = "";
+          for (let i = 1; i <= linesCount; i++) {
+            numbers += i + "\n";
+          }
+          if (pre.getAttribute("data-line-numbers") !== numbers) {
+            pre.setAttribute("data-line-numbers", numbers);
+          }
+        } else {
+          if (pre.hasAttribute("data-line-numbers")) {
+            pre.removeAttribute("data-line-numbers");
+          }
+        }
+
+        // Syntax Highlighting
+        if (pre.dataset.rawText !== rawContent) {
+          let highlighted = hljs.highlightAuto(rawContent).value;
+          // Append a trailing newline to ensure the last line is editable in contenteditable
+          highlighted += "\n";
+          pre.innerHTML = highlighted;
+          pre.dataset.rawText = rawContent;
+
+          if (isFocused && savedOffset >= 0 && sel) {
+            let currentOffset = 0;
+            const treeWalker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT, null);
+            let node = treeWalker.nextNode();
+            let found = false;
+            while (node) {
+              const len = node.nodeValue?.length || 0;
+              if (currentOffset + len >= savedOffset) {
+                const newRange = document.createRange();
+                newRange.setStart(node, savedOffset - currentOffset);
+                newRange.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(newRange);
+                found = true;
+                break;
+              }
+              currentOffset += len;
+              node = treeWalker.nextNode();
+            }
+            if (!found) {
+              const newRange = document.createRange();
+              newRange.selectNodeContents(pre);
+              newRange.collapse(false);
+              sel.removeAllRanges();
+              sel.addRange(newRange);
+            }
+          }
         }
       });
     };
 
-    updateLineNumbers();
-    const observer = new MutationObserver(updateLineNumbers);
+    updateBlocks();
+    const observer = new MutationObserver(updateBlocks);
     observer.observe(el, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
   }, [editorRef, activeTabId]);

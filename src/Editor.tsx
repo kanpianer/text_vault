@@ -508,11 +508,28 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     } else {
       // cursor on empty line → show left-aligned
       const node = range.startContainer;
-      const block = getCurrentBlock(el, node);
+      let block = getCurrentBlock(el, node);
+      let isFallback = false;
+
+      if (!block && el.contains(node)) {
+        const text = (el.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
+        if (text === "") {
+          block = el;
+          isFallback = true;
+        }
+      }
+
       if (block) {
         const text = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
         if (text === "") {
-          const blockRect = block.getBoundingClientRect();
+          let blockRect = block.getBoundingClientRect();
+          if (isFallback) {
+             blockRect = {
+               ...blockRect,
+               bottom: blockRect.top + 28,
+               left: blockRect.left,
+             } as DOMRect;
+          }
           const pos = calculateEmptyLinePositionLeft(blockRect, container, tw);
           toolbarPosRef.current = { top: pos.top, left: pos.left };
           setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, opacity: 1, pointerEvents: "auto" });

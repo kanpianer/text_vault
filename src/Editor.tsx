@@ -804,6 +804,33 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     return () => el.removeEventListener("beforeinput", onBeforeInput);
   }, [onChange, editorRef]);
 
+  // ── dynamic code block line numbers ───────────────────────────────
+
+  useEffect(() => {
+    const el = editorRef.current as HTMLElement | null;
+    if (!el) return;
+
+    const updateLineNumbers = () => {
+      const pres = el.querySelectorAll("pre");
+      pres.forEach(pre => {
+        const text = pre.innerText || "";
+        const linesCount = (text.match(/\n/g) || []).length + 1;
+        let numbers = "";
+        for (let i = 1; i <= linesCount; i++) {
+          numbers += i + "\n";
+        }
+        if (pre.getAttribute("data-line-numbers") !== numbers) {
+          pre.setAttribute("data-line-numbers", numbers);
+        }
+      });
+    };
+
+    updateLineNumbers();
+    const observer = new MutationObserver(updateLineNumbers);
+    observer.observe(el, { childList: true, subtree: true, characterData: true });
+    return () => observer.disconnect();
+  }, [editorRef, activeTabId]);
+
   // ── paste: parse markdown to styled HTML ──────────────────────────
 
   const handlePaste = async (e: React.ClipboardEvent) => {

@@ -482,7 +482,10 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
     const el = editorRef.current as HTMLElement | null;
 
-    if (!el || readOnly) return;
+    if (!el || readOnly || hideToc) {
+      setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
+      return;
+    }
 
     if (!isActiveRef.current) return;
 
@@ -518,7 +521,18 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       }
       setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
     }
-  }, [editorRef, readOnly]);
+  }, [editorRef, readOnly, hideToc]);
+
+  useEffect(() => {
+    if (hideToc) {
+      setToolbarStyle(prev => ({ ...prev, opacity: 0, pointerEvents: "none" }));
+      setShowLinkInput(false);
+      setShowImageInput(false);
+      setShowTableInput(false);
+    } else {
+      updateToolbar();
+    }
+  }, [hideToc, updateToolbar]);
 
   // ── schedule toolbar hide ─────────────────────────────────────────
 

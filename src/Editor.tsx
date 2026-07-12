@@ -319,7 +319,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const [activeHeadingIndex, setActiveHeadingIndex] = useState<number>(-1);
   const [previewTocIndex, setPreviewTocIndex] = useState<number | null>(null);
   const tocButtonRef = useRef<HTMLButtonElement>(null);
-  const [tocLineVisible, setTocLineVisible] = useState(true);
+  const [tocLineVisible, setTocLineVisible] = useState(false);
   const tocLineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── tab switching / content init ──────────────────────────────────

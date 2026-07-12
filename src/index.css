@@ -502,3 +502,5 @@ html, body {
     width: 6.25rem;
   }
 }
+.editor-body pre { position: relative; padding-left: 3rem; }
+.editor-body pre::before { content: attr(data-line-numbers); position: absolute; top: 0.75rem; left: 0; width: 2.5rem; text-align: right; color: #71717a; border-right: 1px solid rgba(255,255,255,0.1); padding-right: 0.5rem; white-space: pre; pointer-events: none; user-select: none; }

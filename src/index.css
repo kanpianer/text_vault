@@ -169,7 +169,7 @@ input {
 .editor-body h1 {
   font-size: 2.25rem;
   line-height: 1.875rem;
-  font-weight: 600;
+  font-weight: 800;
   color: #ffffff;
   letter-spacing: -0.025em;
   padding-top: 0.5rem;
@@ -191,7 +191,7 @@ input {
 .editor-body h3 {
   font-size: 1.5rem;
   line-height: 1.5rem;
-  font-weight: 500;
+  font-weight: 400;
   color: #e4e4e7;
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
@@ -375,13 +375,22 @@ html, body {
 
 }
 
-.editor-toc-level-1 .editor-toc-bar,
-.editor-toc-level-2 .editor-toc-bar,
+.editor-toc-level-1 .editor-toc-bar {
+  opacity: 1;
+  height: 2.5px;
+}
+
+.editor-toc-level-2 .editor-toc-bar {
+  opacity: 1;
+  height: 2px;
+}
+
 .editor-toc-level-3 .editor-toc-bar,
 .editor-toc-level-4 .editor-toc-bar,
 .editor-toc-level-5 .editor-toc-bar,
 .editor-toc-level-6 .editor-toc-bar {
   opacity: 1;
+  height: 1.5px;
 }
 
 .editor-toc-title {

@@ -128,9 +128,14 @@ export default function App() {
 
   const [tabToClose, setTabToClose] = useState<string | null>(null);
 
+  const [autoLockTimeoutMs, setAutoLockTimeoutMs] = useState<number>(300000);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [showTimerDropdown, setShowTimerDropdown] = useState<boolean>(false);
+  const [showCountdown, setShowCountdown] = useState<boolean>(false);
 
 
-  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || showExportModal || Boolean(tabToClose);
+
+  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || showExportModal || Boolean(tabToClose) || showTimerDropdown;
 
 
 
@@ -577,11 +582,12 @@ export default function App() {
     };
   }, [isVerified, hasUnsavedChanges, saveStatus]);
 
-  // Inactivity tracking for auto-lock (5 minutes)
+  // Inactivity tracking for auto-lock
   useEffect(() => {
     if (!isVerified) return;
 
     lastActivityRef.current = Date.now();
+    setTimeLeft(autoLockTimeoutMs);
 
     const resetTimer = () => {
       lastActivityRef.current = Date.now();
@@ -599,10 +605,13 @@ export default function App() {
 
     const checkInterval = setInterval(() => {
       const elapsed = Date.now() - lastActivityRef.current;
+      const remaining = autoLockTimeoutMs - elapsed;
 
-      if (elapsed >= 300000) {
+      if (remaining <= 0) {
         clearInterval(checkInterval);
         handleAutoSaveAndLock();
+      } else {
+        setTimeLeft(remaining);
       }
     }, 1000);
 
@@ -610,7 +619,14 @@ export default function App() {
       events.forEach((event) => document.removeEventListener(event, resetTimer, { capture: true }));
       clearInterval(checkInterval);
     };
-  }, [isVerified]);
+  }, [isVerified, autoLockTimeoutMs]);
+
+  const formatTimeLeft = (ms: number) => {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
 
   // Hotkey hook for Ctrl+S and prevent Backspace browser navigation
   useEffect(() => {
@@ -1325,6 +1341,47 @@ export default function App() {
 
         {/* Global actions: Save word and Settings overlay */}
         <div className="flex items-center gap-6">
+          {/* Timer Dropdown */}
+          <div className="relative flex items-center">
+            {showTimerDropdown && (
+              <div 
+                className="fixed inset-0 z-40 bg-transparent" 
+                onClick={() => setShowTimerDropdown(false)} 
+              />
+            )}
+            <span
+              onClick={() => setShowTimerDropdown(!showTimerDropdown)}
+              className="font-mono text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block relative z-50 min-w-[50px] text-right"
+            >
+              {showCountdown && timeLeft !== null ? formatTimeLeft(timeLeft) : "TIMER"}
+            </span>
+
+            <AnimatePresence>
+              {showTimerDropdown && (
+                <motion.div
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 5 }}
+                  className="absolute right-0 top-full mt-4 flex flex-col items-end gap-3 z-50 whitespace-nowrap bg-[#0c0c0e] border border-zinc-800 rounded shadow-xl py-2 px-4"
+                >
+                  {[5, 10, 15, 30].map(mins => (
+                    <span
+                      key={mins}
+                      onClick={() => {
+                        setAutoLockTimeoutMs(mins * 60000);
+                        setShowCountdown(true);
+                        setShowTimerDropdown(false);
+                      }}
+                      className="text-xs md:text-sm font-mono text-zinc-500 hover:text-zinc-200 cursor-pointer uppercase tracking-wider transition-colors py-1"
+                    >
+                      {mins} MIN
+                    </span>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
           <span
             onClick={() => {
               if (hasUnsavedChanges && saveStatus !== "saving") {

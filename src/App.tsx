@@ -1350,7 +1350,10 @@ export default function App() {
               />
             )}
             <span
-              onClick={() => setShowTimerDropdown(!showTimerDropdown)}
+              onClick={() => {
+                setShowTimerDropdown(!showTimerDropdown);
+                setShowMenu(false);
+              }}
               className="font-mono text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block relative z-50 min-w-[50px] text-right"
             >
               {showCountdown && timeLeft !== null ? formatTimeLeft(timeLeft) : "TIMER"}
@@ -1406,7 +1409,10 @@ export default function App() {
               />
             )}
             <span
-              onClick={() => setShowMenu(!showMenu)}
+              onClick={() => {
+                setShowMenu(!showMenu);
+                setShowTimerDropdown(false);
+              }}
               className="font-mono text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block relative z-50"
             >
               Menu

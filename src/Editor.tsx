@@ -1329,6 +1329,18 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
             return;
           }
 
+          if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
+            const cb = target as HTMLInputElement;
+            if (cb.checked) {
+              cb.setAttribute("checked", "true");
+            } else {
+              cb.removeAttribute("checked");
+            }
+            if (!readOnly && editorRef.current) {
+              onChange(editorRef.current.innerHTML, editorRef.current);
+            }
+          }
+
           if (target === editorRef.current) {
             const el = editorRef.current;
             const lastChild = el.lastElementChild;

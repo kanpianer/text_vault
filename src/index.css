@@ -31,6 +31,13 @@ input {
   border-radius: 0;
 }
 
+hr {
+  border: 0;
+  border-top: 1px solid #27272a;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
 /* Markdown Preview Styling */
 .markdown-body {
   font-family: var(--font-sans);
@@ -172,6 +179,12 @@ input {
   text-decoration: line-through;
   color: #a1a1aa;
 }
+.markdown-body hr {
+  border: 0;
+  border-top: 1px solid #27272a;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
 .editor-body {
   font-family: var(--font-sans);
   word-wrap: break-word;
@@ -294,6 +307,12 @@ input {
 .editor-body div, .editor-body p {
   min-height: 1.5rem;
   margin-bottom: 0.75rem;
+}
+.editor-body hr {
+  border: 0;
+  border-top: 1px solid #27272a;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
 }
 
 @keyframes cursor-blink {

@@ -12,7 +12,7 @@ const EDITOR_CLASS =
   "editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-normal pt-2";
 
 const EMPTY_LINE_TOOLS = ["Text", "H1", "H2", "H3", "Task", "List", "Quote", "Image", "Code", "Line", "Center", "Table"] as const;
-const SELECTION_TOOLS = ["Text", "Bold", "Italic", "Strike", "Under", "Quote", "Link", "Center"] as const;
+const SELECTION_TOOLS = ["Text", "Bold", "Italic", "Strike", "Under", "Task", "List", "Quote", "Link", "Center"] as const;
 
 type Tool = (typeof EMPTY_LINE_TOOLS)[number] | (typeof SELECTION_TOOLS)[number];
 
@@ -79,28 +79,65 @@ function applyAlign(align: string) {
 
 function insertTaskBlock(el: HTMLElement) {
   const sel = window.getSelection();
-  const block = getCurrentBlock(el, sel?.anchorNode || el);
-  const tag = block ? block.tagName.toLowerCase() : "p";
-  const cb = block?.querySelector('input[type="checkbox"]');
-  if (cb) { document.execCommand("insertUnorderedList", false); return; }
-  const p = document.createElement(tag);
+  if (!sel) return;
+  const block = getCurrentBlock(el, sel.anchorNode || el);
+  if (!block) return;
+
+  const cb = block.querySelector('input[type="checkbox"]');
+  if (cb) {
+    cb.remove();
+    if (block.firstChild && block.firstChild.nodeType === Node.TEXT_NODE) {
+      const txt = block.firstChild.textContent || "";
+      if (txt.startsWith("\u200B")) {
+        block.firstChild.textContent = txt.substring(1);
+      }
+    }
+    return;
+  }
+
   const inp = document.createElement("input");
   inp.type = "checkbox";
   inp.style.marginRight = "8px";
   inp.setAttribute("contenteditable", "false");
-  p.appendChild(inp);
-  const zw = document.createTextNode("\u200B");
-  p.appendChild(zw);
-  if (block?.parentNode) {
-    block.parentNode.insertBefore(p, block.nextSibling);
-  } else {
-    el.appendChild(p);
+
+  const ranges: Range[] = [];
+  for (let i = 0; i < sel.rangeCount; i++) {
+    ranges.push(sel.getRangeAt(i).cloneRange());
   }
-  const r = document.createRange();
-  r.setStartAfter(zw);
-  r.collapse(true);
-  sel?.removeAllRanges();
-  sel?.addRange(r);
+
+  if (block.firstChild) {
+    block.insertBefore(inp, block.firstChild);
+  } else {
+    block.appendChild(inp);
+    const zw = document.createTextNode("\u200B");
+    block.appendChild(zw);
+  }
+
+  sel.removeAllRanges();
+  for (const r of ranges) {
+    try {
+      sel.addRange(r);
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  const blockText = block.textContent || "";
+  const cleanedText = blockText.replace(/\u200B/g, "").trim();
+  if (sel.isCollapsed && cleanedText.length === 0) {
+    const nextNode = inp.nextSibling;
+    if (nextNode) {
+      const r = document.createRange();
+      if (nextNode.nodeType === Node.TEXT_NODE) {
+        r.setStart(nextNode, 0);
+      } else {
+        r.setStartAfter(nextNode);
+      }
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+  }
 }
 
 function insertTableBlock(rows: number, cols: number) {

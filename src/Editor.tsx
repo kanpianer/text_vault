@@ -754,6 +754,79 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
           return;
         }
         e.preventDefault();
+
+        let isTaskLine = false;
+        let walk: Node | null = range.startContainer;
+        if (walk === block && range.startOffset > 0) {
+          walk = block.childNodes[range.startOffset - 1];
+        }
+        let taskCheckbox: HTMLInputElement | null = null;
+        while (walk && walk !== block) {
+          if (walk.nodeName === "BR") break;
+          if (walk.nodeName === "INPUT" && (walk as HTMLInputElement).type === "checkbox") {
+            isTaskLine = true;
+            taskCheckbox = walk as HTMLInputElement;
+            break;
+          }
+          walk = walk.previousSibling || walk.parentNode;
+          if (walk === block) break;
+        }
+
+        if (isTaskLine && taskCheckbox) {
+          let isEmpty = true;
+          let forward = taskCheckbox.nextSibling;
+          while (forward && forward.nodeName !== "BR") {
+            if (forward.nodeType === Node.TEXT_NODE) {
+              const txt = (forward.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
+              if (txt.length > 0) {
+                isEmpty = false;
+                break;
+              }
+            }
+            forward = forward.nextSibling;
+          }
+
+          if (isEmpty) {
+            const parent = taskCheckbox.parentNode;
+            if (parent) {
+              const txt = document.createTextNode("");
+              parent.insertBefore(txt, taskCheckbox);
+              parent.removeChild(taskCheckbox);
+              if (forward && forward.nodeType === Node.TEXT_NODE && (forward.textContent === "\u200B" || forward.textContent === "")) {
+                parent.removeChild(forward);
+              }
+              const newRange = document.createRange();
+              newRange.setStart(txt, 0);
+              newRange.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(newRange);
+              onChange(el.innerHTML, el);
+            }
+            return;
+          } else {
+            const br = document.createElement("br");
+            range.insertNode(br);
+            range.setStartAfter(br);
+
+            const newCb = document.createElement("input");
+            newCb.type = "checkbox";
+            newCb.style.marginRight = "8px";
+            newCb.setAttribute("contenteditable", "false");
+            range.insertNode(newCb);
+            range.setStartAfter(newCb);
+
+            const zw = document.createTextNode("\u200B");
+            range.insertNode(zw);
+            range.setStartAfter(zw);
+
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            onChange(el.innerHTML, el);
+            return;
+          }
+        }
+
         const br = document.createElement("br");
         range.insertNode(br);
         range.setStartAfter(br);

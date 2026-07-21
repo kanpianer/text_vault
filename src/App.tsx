@@ -675,7 +675,7 @@ export default function App() {
 
   // Add new tab node
   const handleAddTab = () => {
-    if (tabs.length >= 10) return;
+    if (tabs.length >= 20) return;
     const newId = `tab-${Date.now()}`;
     const newTab: TabContent = {
       id: newId,
@@ -1545,7 +1545,7 @@ export default function App() {
               );
             })}
 
-            {tabs.length < 10 && (
+            {tabs.length < 20 && (
               <div
                 onClick={handleAddTab}
                 className="relative flex items-center px-1.5 pt-1.5 pb-1 text-sm font-mono select-none cursor-pointer text-zinc-500 hover:text-white transition-colors"

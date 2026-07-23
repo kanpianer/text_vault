@@ -37,11 +37,28 @@ export function normalizeEditorNodes(root: HTMLElement | null) {
     a.setAttribute("target", "_blank");
     a.setAttribute("rel", "noopener noreferrer");
   });
+  root.querySelectorAll("summary.toggle-summary").forEach((summary) => {
+    if (summary.childNodes.length === 0) {
+      summary.appendChild(document.createElement("br"));
+    }
+  });
 }
 
 function getCurrentBlock(root: HTMLElement, node: Node): HTMLElement | null {
   let el: HTMLElement | null =
     node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+    
+  if (el === root) {
+    const sel = window.getSelection();
+    if (sel && sel.anchorNode === root) {
+      let child = root.childNodes[sel.anchorOffset];
+      if (!child && root.lastChild) child = root.lastChild;
+      if (child) {
+        el = child.nodeType === Node.TEXT_NODE ? child.parentElement : (child as HTMLElement);
+      }
+    }
+  }
+
   while (el && el !== root && !["P","DIV","H1","H2","H3","H4","H5","H6","BLOCKQUOTE","PRE","LI","UL","OL","SUMMARY"].includes(el.tagName)) {
     el = el.parentElement;
   }
@@ -156,7 +173,11 @@ function insertToggleBlock(el: HTMLElement) {
   summary.setAttribute("contenteditable", "true");
   // Preserve any existing text in the block
   const existingText = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
-  summary.textContent = existingText || "";
+  if (existingText) {
+    summary.textContent = existingText;
+  } else {
+    summary.appendChild(document.createElement("br"));
+  }
   details.appendChild(summary);
 
   const body = document.createElement("p");
@@ -166,10 +187,10 @@ function insertToggleBlock(el: HTMLElement) {
 
   block.replaceWith(details);
 
-  // Place caret at end of summary
+  // Place caret at start of summary
   const r = document.createRange();
   r.selectNodeContents(summary);
-  r.collapse(false);
+  r.collapse(true);
   sel.removeAllRanges();
   sel.addRange(r);
 }
@@ -1218,11 +1239,63 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
           setTimeout(updateToolbar, 0);
 
           return;
+        }
 
+        // unwrap toggle block on backspace at start of summary
+        if (e.key === "Backspace") {
+          let currNode: Node | null = node;
+          let summaryEl: HTMLElement | null = null;
+          while (currNode && currNode !== el) {
+            if (currNode.nodeName === "SUMMARY") {
+              summaryEl = currNode as HTMLElement;
+              break;
+            }
+            currNode = currNode.parentNode;
+          }
+
+          if (summaryEl) {
+            const testRange = document.createRange();
+            testRange.selectNodeContents(summaryEl);
+            testRange.setEnd(range.startContainer, range.startOffset);
+            const textBefore = testRange.toString().replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+            
+            if (textBefore.length === 0) {
+              e.preventDefault();
+              const details = summaryEl.parentElement;
+              if (details) {
+                const newP = document.createElement("p");
+                const content = summaryEl.innerHTML;
+                newP.innerHTML = content || "<br>";
+                details.parentNode?.insertBefore(newP, details);
+                
+                const children = Array.from(details.children);
+                for (const child of children) {
+                  if (child !== summaryEl) {
+                     if (child.tagName === "P" || child.tagName === "DIV") {
+                       child.className = "";
+                       details.parentNode?.insertBefore(child, details);
+                     } else {
+                       details.parentNode?.insertBefore(child, details);
+                     }
+                  }
+                }
+                details.remove();
+                
+                const r = document.createRange();
+                r.selectNodeContents(newP);
+                r.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(r);
+                normalizeEditorNodes(el);
+                onChange(el.innerHTML, el);
+                setTimeout(updateToolbar, 0);
+              }
+              return;
+            }
+          }
         }
 
       }
-
     }
 
 

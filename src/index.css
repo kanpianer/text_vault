@@ -326,10 +326,9 @@ hr {
 }
 
 .editor-body details.toggle-block > summary.toggle-summary {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.75rem;
+  position: relative;
+  display: block;
+  padding: 0.5rem 0.75rem 0.5rem 2.2rem;
   cursor: pointer;
   color: #e4e4e7;
   font-weight: 500;
@@ -337,7 +336,7 @@ hr {
   user-select: text;
   -webkit-user-select: text;
   outline: none;
-  min-height: 1.75rem;
+  min-height: 1.5rem;
   margin-bottom: 0;
 }
 
@@ -347,13 +346,18 @@ hr {
 
 .editor-body details.toggle-block > summary.toggle-summary::before {
   content: "▶";
-  font-size: 0.6rem;
+  font-size: 0.75rem;
   color: #71717a;
-  display: inline-flex;
-  flex-shrink: 0;
-  transition: transform 180ms ease;
+  position: absolute;
+  left: 0.85rem;
+  top: 0.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 180ms ease, color 180ms ease;
   transform: rotate(0deg);
-  margin-top: 1px;
+  user-select: none;
 }
 
 .editor-body details.toggle-block[open] > summary.toggle-summary::before {
@@ -366,7 +370,7 @@ hr {
 
 .editor-body details.toggle-block > p.toggle-body,
 .editor-body details.toggle-block > div.toggle-body {
-  padding: 0.25rem 0.75rem 0.5rem 2rem;
+  padding: 0.25rem 0.75rem 0.5rem 2.2rem;
   color: #d4d4d8;
   margin-bottom: 0;
   border-top: 1px solid #27272a;

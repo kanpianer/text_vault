@@ -377,6 +377,11 @@ hr {
   min-height: 1.5rem;
 }
 
+.editor-body details.toggle-block > ul,
+.editor-body details.toggle-block > ol {
+  margin-left: 2.2rem;
+}
+
 
 
 @keyframes cursor-blink {

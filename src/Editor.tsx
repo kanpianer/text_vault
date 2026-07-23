@@ -11,7 +11,7 @@ import {
 const EDITOR_CLASS =
   "editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-normal pt-2";
 
-const EMPTY_LINE_TOOLS = ["Text", "H1", "H2", "H3", "Task", "List", "Quote", "Image", "Code", "Line", "Center", "Table"] as const;
+const EMPTY_LINE_TOOLS = ["Text", "H1", "H2", "H3", "Task", "List", "Toggle", "Quote", "Image", "Code", "Line", "Center", "Table"] as const;
 const SELECTION_TOOLS = ["Text", "Bold", "Italic", "Strike", "Under", "Task", "List", "Quote", "Link", "Center"] as const;
 
 type Tool = (typeof EMPTY_LINE_TOOLS)[number] | (typeof SELECTION_TOOLS)[number];
@@ -42,7 +42,7 @@ export function normalizeEditorNodes(root: HTMLElement | null) {
 function getCurrentBlock(root: HTMLElement, node: Node): HTMLElement | null {
   let el: HTMLElement | null =
     node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
-  while (el && el !== root && !["P","DIV","H1","H2","H3","H4","H5","H6","BLOCKQUOTE","PRE","LI","UL","OL"].includes(el.tagName)) {
+  while (el && el !== root && !["P","DIV","H1","H2","H3","H4","H5","H6","BLOCKQUOTE","PRE","LI","UL","OL","SUMMARY"].includes(el.tagName)) {
     el = el.parentElement;
   }
   return el && el !== root ? el : null;
@@ -140,6 +140,40 @@ function insertTaskBlock(el: HTMLElement) {
   }
 }
 
+function insertToggleBlock(el: HTMLElement) {
+  const sel = window.getSelection();
+  if (!sel) return;
+  const block = getCurrentBlock(el, sel.anchorNode || el);
+  if (!block) return;
+
+  // Build <details><summary>…</summary><p><br></p></details><p><br></p>
+  const details = document.createElement("details");
+  details.className = "toggle-block";
+  details.setAttribute("open", "");
+
+  const summary = document.createElement("summary");
+  summary.className = "toggle-summary";
+  summary.setAttribute("contenteditable", "true");
+  // Preserve any existing text in the block
+  const existingText = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
+  summary.textContent = existingText || "";
+  details.appendChild(summary);
+
+  const body = document.createElement("p");
+  body.className = "toggle-body";
+  body.innerHTML = "<br>";
+  details.appendChild(body);
+
+  block.replaceWith(details);
+
+  // Place caret at end of summary
+  const r = document.createRange();
+  r.selectNodeContents(summary);
+  r.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+
 function insertTableBlock(rows: number, cols: number) {
   let html =
     '<div style="overflow-x:auto;max-width:100%;margin:1rem 0"><table style="border-collapse:collapse;width:100%;text-align:left">';
@@ -167,6 +201,7 @@ function handleToolClick(tool: Tool, editorEl: HTMLElement) {
     case "H3":     applyBlock(editorEl, "H3"); break;
     case "Task":   insertTaskBlock(editorEl); break;
     case "List":   document.execCommand("insertUnorderedList", false); break;
+    case "Toggle": insertToggleBlock(editorEl); break;
     case "Quote":  applyBlock(editorEl, "blockquote"); break;
 
     case "Code":
@@ -729,6 +764,38 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       if (!sel || sel.rangeCount === 0) return;
       const range = sel.getRangeAt(0);
       let node: Node | null = range.startContainer;
+
+      // summary (toggle): Enter moves caret into the toggle body
+      {
+        let summaryEl: HTMLElement | null =
+          node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+        while (summaryEl && summaryEl !== el) {
+          if (summaryEl.tagName === "SUMMARY") {
+            e.preventDefault();
+            const details = summaryEl.parentElement;
+            if (details) {
+              // Find or create the first body paragraph inside details (not the summary)
+              let bodyP = Array.from(details.children).find(
+                (c) => c !== summaryEl && (c.tagName === "P" || c.tagName === "DIV")
+              ) as HTMLElement | undefined;
+              if (!bodyP) {
+                bodyP = document.createElement("p");
+                bodyP.className = "toggle-body";
+                bodyP.innerHTML = "<br>";
+                details.appendChild(bodyP);
+              }
+              const r = document.createRange();
+              r.selectNodeContents(bodyP);
+              r.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(r);
+              onChange(el.innerHTML, el);
+            }
+            return;
+          }
+          summaryEl = summaryEl.parentElement;
+        }
+      }
 
       // pre block: insert literal newline
       let curr: HTMLElement | null =

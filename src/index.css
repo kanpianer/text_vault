@@ -315,6 +315,66 @@ hr {
   margin-bottom: 1.5rem;
 }
 
+/* ── Toggle list (details/summary) ─────────────────────────────────── */
+.editor-body details.toggle-block {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-radius: 0.375rem;
+  border: 1px solid #27272a;
+  background: rgba(24, 24, 27, 0.35);
+  overflow: hidden;
+}
+
+.editor-body details.toggle-block > summary.toggle-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  color: #e4e4e7;
+  font-weight: 500;
+  list-style: none;
+  user-select: text;
+  -webkit-user-select: text;
+  outline: none;
+  min-height: 1.75rem;
+  margin-bottom: 0;
+}
+
+.editor-body details.toggle-block > summary.toggle-summary::-webkit-details-marker {
+  display: none;
+}
+
+.editor-body details.toggle-block > summary.toggle-summary::before {
+  content: "▶";
+  font-size: 0.6rem;
+  color: #71717a;
+  display: inline-flex;
+  flex-shrink: 0;
+  transition: transform 180ms ease;
+  transform: rotate(0deg);
+  margin-top: 1px;
+}
+
+.editor-body details.toggle-block[open] > summary.toggle-summary::before {
+  transform: rotate(90deg);
+}
+
+.editor-body details.toggle-block > summary.toggle-summary:hover::before {
+  color: #a1a1aa;
+}
+
+.editor-body details.toggle-block > p.toggle-body,
+.editor-body details.toggle-block > div.toggle-body {
+  padding: 0.25rem 0.75rem 0.5rem 2rem;
+  color: #d4d4d8;
+  margin-bottom: 0;
+  border-top: 1px solid #27272a;
+  min-height: 1.5rem;
+}
+
+
+
 @keyframes cursor-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }

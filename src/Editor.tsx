@@ -944,6 +944,9 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         // auto-create next task
         e.preventDefault();
         const newBlock = document.createElement(block.tagName.toLowerCase());
+        if (block.className) {
+          newBlock.className = block.className;
+        }
         const newCb = document.createElement("input");
         newCb.type = "checkbox";
         newCb.style.marginRight = "8px";

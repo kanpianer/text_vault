@@ -117,42 +117,39 @@ function insertTaskBlock(el: HTMLElement) {
   inp.style.marginRight = "8px";
   inp.setAttribute("contenteditable", "false");
 
-  const ranges: Range[] = [];
-  for (let i = 0; i < sel.rangeCount; i++) {
-    ranges.push(sel.getRangeAt(i).cloneRange());
-  }
+  const blockText = block.textContent || "";
+  const cleanedText = blockText.replace(/\u200B/g, "").trim();
+  const isLineEmpty = cleanedText.length === 0;
 
-  if (block.firstChild) {
-    block.insertBefore(inp, block.firstChild);
-  } else {
+  if (sel.isCollapsed && isLineEmpty) {
+    block.innerHTML = "";
     block.appendChild(inp);
     const zw = document.createTextNode("\u200B");
     block.appendChild(zw);
-  }
-
-  sel.removeAllRanges();
-  for (const r of ranges) {
-    try {
-      sel.addRange(r);
-    } catch (err) {
-      // ignore
+    const r = document.createRange();
+    r.setStartAfter(zw);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  } else {
+    const ranges: Range[] = [];
+    for (let i = 0; i < sel.rangeCount; i++) {
+      ranges.push(sel.getRangeAt(i).cloneRange());
     }
-  }
 
-  const blockText = block.textContent || "";
-  const cleanedText = blockText.replace(/\u200B/g, "").trim();
-  if (sel.isCollapsed && cleanedText.length === 0) {
-    const nextNode = inp.nextSibling;
-    if (nextNode) {
-      const r = document.createRange();
-      if (nextNode.nodeType === Node.TEXT_NODE) {
-        r.setStart(nextNode, 0);
-      } else {
-        r.setStartAfter(nextNode);
+    if (block.firstChild) {
+      block.insertBefore(inp, block.firstChild);
+    } else {
+      block.appendChild(inp);
+    }
+
+    sel.removeAllRanges();
+    for (const r of ranges) {
+      try {
+        sel.addRange(r);
+      } catch (err) {
+        // ignore
       }
-      r.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(r);
     }
   }
 }

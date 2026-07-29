@@ -591,11 +591,23 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     const selecting = !sel.isCollapsed;
     setHasSelection(selecting);
 
+    const isMobile = window.matchMedia("(max-width: 767px)").matches;
+
     if (selecting) {
       // text selected → show below last line of selection
-      const pos = calculateSelectionPosition(range, container, tw);
-      toolbarPosRef.current = { top: pos.top, left: pos.left };
-      setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, opacity: 1, pointerEvents: "auto" });
+      if (isMobile) {
+        let topStr = "auto";
+        let bottomStr = "16px";
+        if (window.visualViewport) {
+          topStr = `${window.visualViewport.offsetTop + window.visualViewport.height - 46}px`;
+          bottomStr = "auto";
+        }
+        setToolbarStyle({ position: "fixed", top: topStr, bottom: bottomStr, left: "50%", transform: "translateX(-50%)", opacity: 1, pointerEvents: "auto", zIndex: 50 });
+      } else {
+        const pos = calculateSelectionPosition(range, container, tw);
+        toolbarPosRef.current = { top: pos.top, left: pos.left };
+        setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, transform: "none", opacity: 1, pointerEvents: "auto" });
+      }
     } else {
       // cursor on empty line → show left-aligned
       const node = range.startContainer;
@@ -613,30 +625,27 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       if (block) {
         const text = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
         if (text === "") {
-          let blockRect = block.getBoundingClientRect();
-          if (isFallback) {
-             blockRect = {
-               ...blockRect,
-               bottom: blockRect.top + 28,
-               left: blockRect.left,
-             } as DOMRect;
-          }
-          let pos = calculateEmptyLinePositionLeft(blockRect, container, tw);
-          let style: React.CSSProperties = { position: "absolute", top: pos.top, left: pos.left, opacity: 1, pointerEvents: "auto" };
-          
-          if (window.matchMedia("(max-width: 767px)").matches) {
-            const vv = window.visualViewport;
-            if (vv) {
-              const toolbarHeight = 35;
-              const vvAbsoluteBottom = window.scrollY + vv.offsetTop + vv.height;
-              const containerAbsoluteTop = window.scrollY + container.getBoundingClientRect().top;
-              pos.top = vvAbsoluteBottom - containerAbsoluteTop - toolbarHeight - 10;
-              pos.left = 0;
-              style = { position: "absolute", top: pos.top, left: "0px", width: "100%", opacity: 1, pointerEvents: "auto" };
+          if (isMobile) {
+            let topStr = "auto";
+            let bottomStr = "16px";
+            if (window.visualViewport) {
+              topStr = `${window.visualViewport.offsetTop + window.visualViewport.height - 46}px`;
+              bottomStr = "auto";
             }
+            setToolbarStyle({ position: "fixed", top: topStr, bottom: bottomStr, left: "50%", transform: "translateX(-50%)", opacity: 1, pointerEvents: "auto", zIndex: 50 });
+          } else {
+            let blockRect = block.getBoundingClientRect();
+            if (isFallback) {
+               blockRect = {
+                 ...blockRect,
+                 bottom: blockRect.top + 28,
+                 left: blockRect.left,
+               } as DOMRect;
+            }
+            const pos = calculateEmptyLinePositionLeft(blockRect, container, tw);
+            toolbarPosRef.current = { top: pos.top, left: pos.left };
+            setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, transform: "none", opacity: 1, pointerEvents: "auto" });
           }
-          toolbarPosRef.current = { top: pos.top, left: pos.left };
-          setToolbarStyle(style);
           return;
         }
       }
@@ -654,6 +663,20 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       updateToolbar();
     }
   }, [hideToc, updateToolbar]);
+
+  useEffect(() => {
+    const handleVV = () => {
+      if (window.matchMedia("(max-width: 767px)").matches) {
+        updateToolbar();
+      }
+    };
+    window.visualViewport?.addEventListener("resize", handleVV);
+    window.visualViewport?.addEventListener("scroll", handleVV);
+    return () => {
+      window.visualViewport?.removeEventListener("resize", handleVV);
+      window.visualViewport?.removeEventListener("scroll", handleVV);
+    };
+  }, [updateToolbar]);
 
   // ── schedule toolbar hide ─────────────────────────────────────────
 
@@ -1583,29 +1606,6 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         onBlur={handleBlur}
 
         onClick={(e) => {
-          if (window.matchMedia("(max-width: 767px)").matches) {
-            const target = e.target as HTMLElement;
-            setTimeout(() => {
-              let block: HTMLElement | null = target;
-              while (block && block !== editorRef.current && !["P","DIV","H1","H2","H3","H4","H5","H6","BLOCKQUOTE","PRE","LI"].includes(block.tagName)) {
-                block = block.parentElement;
-              }
-              if (block && block !== editorRef.current) {
-                const rect = block.getBoundingClientRect();
-                const vv = window.visualViewport;
-                const vh = vv ? vv.height : window.innerHeight;
-                const absoluteBottom = window.scrollY + rect.bottom;
-                const isBlockEmpty = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim() === "";
-                const extraOffset = isBlockEmpty && !readOnly ? 50 : 20; 
-                const targetScrollY = absoluteBottom - vh + extraOffset;
-                window.scrollTo({
-                  top: Math.max(0, targetScrollY),
-                  behavior: 'smooth'
-                });
-              }
-            }, 350);
-          }
-
           const target = e.target as HTMLElement;
           const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
           if (anchor) {

@@ -1648,38 +1648,42 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               });
             }
           }
-
+          
           if (window.matchMedia("(max-width: 767px)").matches) {
-            requestAnimationFrame(() => {
+            setTimeout(() => {
               const sel = window.getSelection();
-              if (!sel || sel.rangeCount === 0) return;
-              const range = sel.getRangeAt(0);
-              let node = range.startContainer;
-              
-              const el = editorRef.current as HTMLElement | null;
-              if (!el) return;
-
-              let targetRect = range.getBoundingClientRect();
-              if (!targetRect || targetRect.height === 0) {
-                let block = getCurrentBlock(el, node);
-                if (!block && node.nodeType === Node.ELEMENT_NODE) block = node as HTMLElement;
-                if (!block && node.parentElement) block = node.parentElement;
-                if (!block) return;
-                targetRect = block.getBoundingClientRect();
-              }
-              
-              const absoluteBottom = window.scrollY + targetRect.bottom;
-              const vvHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-              const toolbarHeight = 46;
-              const padding = 8;
-              let targetScrollY = absoluteBottom + toolbarHeight + padding - vvHeight;
-
-              if (targetScrollY < 0) {
-                targetScrollY = 0;
+              let rect: DOMRect | null = null;
+              if (sel && sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+                rect = range.getBoundingClientRect();
+                if (rect.width === 0 && rect.height === 0) {
+                  let node = range.startContainer;
+                  const block = getCurrentBlock(editorRef.current, node);
+                  if (block) {
+                    rect = block.getBoundingClientRect();
+                  } else {
+                    rect = target.getBoundingClientRect();
+                  }
+                }
+              } else {
+                rect = target.getBoundingClientRect();
               }
 
-              window.scrollTo({ top: targetScrollY, behavior: 'smooth' });
-            });
+              if (rect) {
+                const vv = window.visualViewport;
+                const vHeight = vv ? vv.height : window.innerHeight;
+                // We use 60px as the reserved height for the toolbar from the bottom
+                const toolbarTop = vHeight - 60;
+                const blockBottomAbsolute = window.scrollY + rect.bottom;
+                const targetScrollY = blockBottomAbsolute - toolbarTop;
+                
+                if (targetScrollY <= 0) {
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                } else {
+                  window.scrollTo({ top: targetScrollY, behavior: 'smooth' });
+                }
+              }
+            }, 300);
           }
         }}
       />

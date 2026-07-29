@@ -621,9 +621,22 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                left: blockRect.left,
              } as DOMRect;
           }
-          const pos = calculateEmptyLinePositionLeft(blockRect, container, tw);
+          let pos = calculateEmptyLinePositionLeft(blockRect, container, tw);
+          let style: React.CSSProperties = { position: "absolute", top: pos.top, left: pos.left, opacity: 1, pointerEvents: "auto" };
+          
+          if (window.matchMedia("(max-width: 767px)").matches) {
+            const vv = window.visualViewport;
+            if (vv) {
+              const toolbarHeight = 35;
+              const vvAbsoluteBottom = window.scrollY + vv.offsetTop + vv.height;
+              const containerAbsoluteTop = window.scrollY + container.getBoundingClientRect().top;
+              pos.top = vvAbsoluteBottom - containerAbsoluteTop - toolbarHeight - 10;
+              pos.left = 0;
+              style = { position: "absolute", top: pos.top, left: "0px", width: "100%", opacity: 1, pointerEvents: "auto" };
+            }
+          }
           toolbarPosRef.current = { top: pos.top, left: pos.left };
-          setToolbarStyle({ position: "absolute", top: pos.top, left: pos.left, opacity: 1, pointerEvents: "auto" });
+          setToolbarStyle(style);
           return;
         }
       }
@@ -1570,6 +1583,29 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         onBlur={handleBlur}
 
         onClick={(e) => {
+          if (window.matchMedia("(max-width: 767px)").matches) {
+            const target = e.target as HTMLElement;
+            setTimeout(() => {
+              let block: HTMLElement | null = target;
+              while (block && block !== editorRef.current && !["P","DIV","H1","H2","H3","H4","H5","H6","BLOCKQUOTE","PRE","LI"].includes(block.tagName)) {
+                block = block.parentElement;
+              }
+              if (block && block !== editorRef.current) {
+                const rect = block.getBoundingClientRect();
+                const vv = window.visualViewport;
+                const vh = vv ? vv.height : window.innerHeight;
+                const absoluteBottom = window.scrollY + rect.bottom;
+                const isBlockEmpty = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim() === "";
+                const extraOffset = isBlockEmpty && !readOnly ? 50 : 20; 
+                const targetScrollY = absoluteBottom - vh + extraOffset;
+                window.scrollTo({
+                  top: Math.max(0, targetScrollY),
+                  behavior: 'smooth'
+                });
+              }
+            }, 350);
+          }
+
           const target = e.target as HTMLElement;
           const anchor = target.closest("a[href]") as HTMLAnchorElement | null;
           if (anchor) {

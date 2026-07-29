@@ -1185,8 +1185,10 @@ export default function App() {
                           className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-base md:text-lg tracking-[0.2em] text-center"
                           placeholder="••••••••"
                           onClick={(e) => {
-                            const len = e.currentTarget.value.length;
-                            e.currentTarget.setSelectionRange(len, len);
+                            if (window.matchMedia("(max-width: 767px)").matches) {
+                              const len = e.currentTarget.value.length;
+                              e.currentTarget.setSelectionRange(len, len);
+                            }
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {

@@ -1648,6 +1648,39 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               });
             }
           }
+
+          if (window.matchMedia("(max-width: 767px)").matches) {
+            requestAnimationFrame(() => {
+              const sel = window.getSelection();
+              if (!sel || sel.rangeCount === 0) return;
+              const range = sel.getRangeAt(0);
+              let node = range.startContainer;
+              
+              const el = editorRef.current as HTMLElement | null;
+              if (!el) return;
+
+              let targetRect = range.getBoundingClientRect();
+              if (!targetRect || targetRect.height === 0) {
+                let block = getCurrentBlock(el, node);
+                if (!block && node.nodeType === Node.ELEMENT_NODE) block = node as HTMLElement;
+                if (!block && node.parentElement) block = node.parentElement;
+                if (!block) return;
+                targetRect = block.getBoundingClientRect();
+              }
+              
+              const absoluteBottom = window.scrollY + targetRect.bottom;
+              const vvHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+              const toolbarHeight = 46;
+              const padding = 8;
+              let targetScrollY = absoluteBottom + toolbarHeight + padding - vvHeight;
+
+              if (targetScrollY < 0) {
+                targetScrollY = 0;
+              }
+
+              window.scrollTo({ top: targetScrollY, behavior: 'smooth' });
+            });
+          }
         }}
       />
 

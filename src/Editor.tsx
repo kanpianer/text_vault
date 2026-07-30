@@ -1528,6 +1528,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     if (!hasMoved && Date.now() - startTime < 300 && !isActive && !readOnly) {
 
       e.preventDefault();
+      
+      const target = e.target as HTMLElement;
 
       const el = editorRef.current as HTMLElement | null;
 
@@ -1554,11 +1556,52 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         pendingTouchCaretRef.current = null;
 
         updateToolbar();
+        ensureCaretVisibleMobile(target);
 
       });
 
     }
 
+  };
+
+  // ── mobile scroll ─────────────────────────────────────────────────
+
+  const ensureCaretVisibleMobile = (target?: HTMLElement) => {
+    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    setTimeout(() => {
+      const sel = window.getSelection();
+      let rect: DOMRect | null = null;
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        rect = range.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) {
+          let node = range.startContainer;
+          const block = editorRef.current ? getCurrentBlock(editorRef.current, node) : null;
+          if (block) {
+            rect = block.getBoundingClientRect();
+          } else if (target) {
+            rect = target.getBoundingClientRect();
+          }
+        }
+      } else if (target) {
+        rect = target.getBoundingClientRect();
+      }
+
+      if (rect) {
+        const vv = window.visualViewport;
+        const vHeight = vv ? vv.height : window.innerHeight;
+        // We use 60px as the reserved height for the toolbar from the bottom
+        const toolbarTop = vHeight - 60;
+        const blockBottomAbsolute = window.scrollY + rect.bottom;
+        const targetScrollY = blockBottomAbsolute - toolbarTop;
+        
+        if (targetScrollY > window.scrollY) {
+          window.scrollTo({ top: targetScrollY, behavior: 'smooth' });
+        } else if (rect.top < 88) {
+          window.scrollTo({ top: Math.max(0, window.scrollY + rect.top - 100), behavior: 'smooth' });
+        }
+      }
+    }, 300);
   };
 
   // ── blur: deactivate ──────────────────────────────────────────────
@@ -1650,40 +1693,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
           }
           
           if (window.matchMedia("(max-width: 767px)").matches) {
-            setTimeout(() => {
-              const sel = window.getSelection();
-              let rect: DOMRect | null = null;
-              if (sel && sel.rangeCount > 0) {
-                const range = sel.getRangeAt(0);
-                rect = range.getBoundingClientRect();
-                if (rect.width === 0 && rect.height === 0) {
-                  let node = range.startContainer;
-                  const block = getCurrentBlock(editorRef.current, node);
-                  if (block) {
-                    rect = block.getBoundingClientRect();
-                  } else {
-                    rect = target.getBoundingClientRect();
-                  }
-                }
-              } else {
-                rect = target.getBoundingClientRect();
-              }
-
-              if (rect) {
-                const vv = window.visualViewport;
-                const vHeight = vv ? vv.height : window.innerHeight;
-                // We use 60px as the reserved height for the toolbar from the bottom
-                const toolbarTop = vHeight - 60;
-                const blockBottomAbsolute = window.scrollY + rect.bottom;
-                const targetScrollY = blockBottomAbsolute - toolbarTop;
-                
-                if (targetScrollY <= 0) {
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                } else {
-                  window.scrollTo({ top: targetScrollY, behavior: 'smooth' });
-                }
-              }
-            }, 300);
+            ensureCaretVisibleMobile(target);
           }
         }}
       />

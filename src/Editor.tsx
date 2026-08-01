@@ -1731,7 +1731,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               e.preventDefault();
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className="absolute flex items-center justify-center text-white/30 hover:text-white/90 transition-colors cursor-pointer rounded-full group transition-opacity duration-300"
+            className="absolute flex items-center justify-center text-white cursor-pointer rounded-full group transition-opacity duration-300"
             style={{
               right: '0.5px',
               top: `calc(0.25rem + 0.375rem + ((100% - 0.5rem - 0.75rem) * var(--scroll-progress, 0)))`,
@@ -1743,7 +1743,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
             }}
             aria-label="Back to top"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-[14px] h-[14px] transition-transform duration-200 ease-out group-hover:scale-[1.2]">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-[14px] h-[14px] opacity-30 group-hover:opacity-90 transition-all duration-200 ease-out group-hover:scale-[1.2]">
               <line x1="12" y1="21" x2="12" y2="6"></line>
               <polyline points="7 11 12 6 17 11"></polyline>
               <line x1="7" y1="2" x2="17" y2="2"></line>

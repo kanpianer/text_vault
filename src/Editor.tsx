@@ -1703,7 +1703,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         <nav className="editor-toc relative" aria-label="Document headings">
           <div 
 
-            className="absolute right-0 w-[1px] rounded-full z-[-1] transition-opacity duration-300"
+            className="absolute right-0 w-[0.5px] rounded-full z-[-1] transition-opacity duration-300"
 
 
 

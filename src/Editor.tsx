@@ -1732,14 +1732,14 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
             className="absolute flex items-center justify-center text-white cursor-pointer rounded-full group transition-opacity duration-300"
-            style={{
-              right: '0.5px',
-              top: `calc(0.25rem + 0.375rem + ((100% - 0.5rem - 0.75rem) * var(--scroll-progress, 0)))`,
-              transform: 'translateX(50%)',
-              width: '20px',
-              height: '20px',
-              opacity: tocLineVisible ? 1 : 0,
-              pointerEvents: tocLineVisible ? 'auto' : 'none'
+            style={{
+              right: '0.25px',
+              top: `calc(0.25rem + 0.375rem + ((100% - 0.5rem - 0.75rem) * var(--scroll-progress, 0)))`,
+              transform: 'translateX(50%)',
+              width: '20px',
+              height: '20px',
+              opacity: tocLineVisible ? 1 : 0,
+              pointerEvents: tocLineVisible ? 'auto' : 'none'
             }}
             aria-label="Back to top"
           >

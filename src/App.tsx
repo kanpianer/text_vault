@@ -1531,10 +1531,10 @@ export default function App() {
                       />
                     ) : (
                       <span 
-                        className="tracking-wide text-zinc-100 block whitespace-nowrap select-text" 
+                        className={`tracking-wide text-zinc-100 block whitespace-nowrap select-text pb-px border-b-[1.5px] ${active ? "border-zinc-300" : "border-transparent"}`} 
                         title={getTabRawTitle(tab)}
                       >
-                        <span className={`pb-px border-b ${active ? "border-zinc-300" : "border-transparent"}`}>{getTabDisplayTitle(tab.text, tab.title)}</span>
+                        {getTabDisplayTitle(tab.text, tab.title)}
                       </span>
                     )}
 

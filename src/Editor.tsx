@@ -411,6 +411,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const [previewTocIndex, setPreviewTocIndex] = useState<number | null>(null);
   const tocButtonRef = useRef<HTMLButtonElement>(null);
   const [tocLineVisible, setTocLineVisible] = useState(false);
+  const [tocLineHovered, setTocLineHovered] = useState(false);
   const tocLineTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── tab switching / content init ──────────────────────────────────
@@ -781,7 +782,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     const handleTocScroll = () => {
       setTocLineVisible(true);
       if (tocLineTimerRef.current) clearTimeout(tocLineTimerRef.current);
-      tocLineTimerRef.current = setTimeout(() => setTocLineVisible(false), 1000);
+      tocLineTimerRef.current = setTimeout(() => setTocLineVisible(false), 2000);
     };
     window.addEventListener('scroll', handleTocScroll, { passive: true });
     return () => {
@@ -1702,17 +1703,9 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
         <nav className="editor-toc relative" aria-label="Document headings">
           <div 
-
             className="absolute right-0 w-[0.5px] rounded-full z-[-1] transition-opacity duration-300"
-
-
-
             style={{
-
-              opacity: tocLineVisible ? 1 : 0,
-
-
-
+              opacity: (tocLineVisible || tocLineHovered) ? 1 : 0,
               top: 'calc(0.25rem + 0.375rem)',
 
               height: `calc((100% - 0.5rem - 0.75rem) * var(--scroll-progress, 0))`,
@@ -1731,6 +1724,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               e.preventDefault();
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
+            onMouseEnter={() => setTocLineHovered(true)}
+            onMouseLeave={() => setTocLineHovered(false)}
             className="absolute flex items-center justify-center text-white cursor-pointer rounded-full group transition-opacity duration-300"
             style={{
               right: '0.25px',
@@ -1738,8 +1733,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               transform: 'translateX(50%)',
               width: '20px',
               height: '20px',
-              opacity: tocLineVisible ? 1 : 0,
-              pointerEvents: tocLineVisible ? 'auto' : 'none'
+              opacity: (tocLineVisible || tocLineHovered) ? 1 : 0,
+              pointerEvents: (tocLineVisible || tocLineHovered) ? 'auto' : 'none'
             }}
             aria-label="Back to top"
           >

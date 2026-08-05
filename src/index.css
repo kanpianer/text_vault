@@ -165,9 +165,14 @@ hr {
   padding: 0.5rem 1rem;
   color: #d4d4d8;
 }
-.markdown-body input[type="checkbox"] {
+.markdown-body input[type="checkbox"],
+.editor-body input[type="checkbox"] {
   margin-right: 0.5rem;
-  vertical-align: middle;
+  width: 0.85em;
+  height: 0.85em;
+  vertical-align: -0.075em;
+  margin-top: 0;
+  margin-bottom: 0;
 }
 .markdown-body del {
   color: #a1a1aa;

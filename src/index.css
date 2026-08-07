@@ -212,6 +212,11 @@ hr {
   color: #a1a1aa;
   text-decoration: line-through;
 }
+.markdown-body p:has(input[type="checkbox"]),
+.markdown-body div:has(input[type="checkbox"]),
+.markdown-body li:has(input[type="checkbox"]) {
+  font-size: 1.125em;
+}
 .markdown-body p:has(input[type="checkbox"]:checked),
 .markdown-body div:has(input[type="checkbox"]:checked),
 .markdown-body li:has(input[type="checkbox"]:checked) {
@@ -324,6 +329,11 @@ hr {
 .editor-body del {
   text-decoration-line: line-through;
   color: #71717a;
+}
+.editor-body p:has(input[type="checkbox"]),
+.editor-body div:has(input[type="checkbox"]),
+.editor-body li:has(input[type="checkbox"]) {
+  font-size: 1.125em;
 }
 .editor-body p:has(input[type="checkbox"]:checked),
 .editor-body div:has(input[type="checkbox"]:checked),

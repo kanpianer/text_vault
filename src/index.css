@@ -173,10 +173,14 @@ hr {
   box-sizing: content-box;
   width: 1em;
   height: 1em;
-  padding: 0.6em;
+  padding-top: 0;
+  padding-bottom: 0;
   padding-right: 0.2em;
-  margin: -0.6em;
+  padding-left: 4rem;
+  margin-top: 0;
+  margin-bottom: 0;
   margin-right: 0.3em;
+  margin-left: -4rem;
   vertical-align: -0.15em;
   cursor: pointer;
   position: relative;

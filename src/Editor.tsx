@@ -1724,7 +1724,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
               e.preventDefault();
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            onMouseEnter={() => setTocLineHovered(true)}
+            onMouseEnter={() => { if (window.matchMedia('(hover: hover)').matches) setTocLineHovered(true) }}
             onMouseLeave={() => setTocLineHovered(false)}
             className="absolute flex items-center justify-center text-white cursor-pointer rounded-full group transition-opacity duration-300"
             style={{

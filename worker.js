@@ -27,6 +27,14 @@ async function sha256(data) {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Constant-time comparison helper to prevent timing attacks
+function safeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  const encoder = new TextEncoder();
+  return crypto.subtle.timingSafeEqual(encoder.encode(a), encoder.encode(b));
+}
+
 // Helper to get vault from KV storage
 async function getVault(env, name) {
   const vaultData = await env.VAULTS.get(name);
@@ -152,7 +160,7 @@ async function handleRequest(request, env) {
     }
 
     const proof = await sha256(auth_hash);
-    if (proof !== vault.auth_hash_double) {
+    if (!safeCompare(proof, vault.auth_hash_double)) {
       return jsonResponse(
         { error: 'Password verification failed. Access denied.' },
         401
@@ -187,7 +195,7 @@ async function handleRequest(request, env) {
     }
 
     const proof = await sha256(auth_hash);
-    if (proof !== vault.auth_hash_double) {
+    if (!safeCompare(proof, vault.auth_hash_double)) {
       return jsonResponse(
         { error: 'Verification failed. Access denied.' },
         401
@@ -227,7 +235,7 @@ async function handleRequest(request, env) {
     }
 
     const proof = await sha256(auth_hash);
-    if (proof !== vault.auth_hash_double) {
+    if (!safeCompare(proof, vault.auth_hash_double)) {
       return jsonResponse(
         { error: 'Authorization failed. Incorrect password. Vault deletion blocked.' },
         401

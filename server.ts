@@ -59,6 +59,19 @@ function sha256(data: string): string {
   return crypto.createHash("sha256").update(data).digest("hex");
 }
 
+// Constant-time comparison helper to prevent timing attacks
+function safeCompareHex(a: string, b: string): boolean {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  if (a.length !== b.length) return false;
+  try {
+    const bufA = Buffer.from(a, "hex");
+    const bufB = Buffer.from(b, "hex");
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
+
 app.use(express.json());
 
 // API: Check if vault exists and return salts
@@ -145,7 +158,7 @@ app.post("/api/vault/:name/get", (req, res) => {
 
   // Double hash client's hash to compare against saved record
   const proof = sha256(auth_hash);
-  if (proof !== vault.auth_hash_double) {
+  if (!safeCompareHex(proof, vault.auth_hash_double)) {
     return res.status(401).json({ error: "Password verification failed. Access denied." });
   }
 
@@ -174,7 +187,7 @@ app.post("/api/vault/:name/update", (req, res) => {
   }
 
   const proof = sha256(auth_hash);
-  if (proof !== vault.auth_hash_double) {
+  if (!safeCompareHex(proof, vault.auth_hash_double)) {
     return res.status(401).json({ error: "Verification failed. Access denied." });
   }
 
@@ -212,7 +225,7 @@ app.post("/api/vault/:name/delete", (req, res) => {
 
   // Critical security audit: Match owner verification proof
   const proof = sha256(auth_hash);
-  if (proof !== vault.auth_hash_double) {
+  if (!safeCompareHex(proof, vault.auth_hash_double)) {
     return res.status(401).json({ error: "Authorization failed. Incorrect password. Vault deletion blocked." });
   }
 

@@ -31,8 +31,11 @@ async function sha256(data) {
 function safeCompare(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   if (a.length !== b.length) return false;
-  const encoder = new TextEncoder();
-  return crypto.subtle.timingSafeEqual(encoder.encode(a), encoder.encode(b));
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
 }
 
 // Helper to get vault from KV storage
@@ -51,11 +54,22 @@ function isValidVaultName(name) {
   return /^[a-zA-Z0-9]{1,10}$/.test(name);
 }
 
-// Helper to create JSON response
-function jsonResponse(data, status = 200) {
+// Standard security headers
+const SECURITY_HEADERS = {
+  'Content-Type': 'application/json',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+};
+
+// Helper to create JSON response with security headers
+function jsonResponse(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      ...SECURITY_HEADERS,
+      ...extraHeaders,
+    },
   });
 }
 

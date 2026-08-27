@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { marked } from "marked";
 import hljs from "highlight.js";
+import DOMPurify from "dompurify";
 import {
   calculateSelectionPosition,
   calculateEmptyLinePositionLeft,
@@ -25,6 +26,15 @@ interface TocItem {
 
 // ── helpers ─────────────────────────────────────────────────────────
 
+export function sanitizeUrl(url: string): string {
+  if (!url) return "";
+  const trimmed = url.trim();
+  if (/^(javascript|vbscript|data):/i.test(trimmed)) {
+    return "#";
+  }
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 export function normalizeEditorNodes(root: HTMLElement | null) {
   if (!root) return;
   root.querySelectorAll("img").forEach((img) => {
@@ -34,6 +44,10 @@ export function normalizeEditorNodes(root: HTMLElement | null) {
     (img as HTMLElement).style.webkitUserSelect = "none";
   });
   root.querySelectorAll("a[href]").forEach((a) => {
+    const href = a.getAttribute("href") || "";
+    if (/^(javascript|vbscript|data):/i.test(href.trim())) {
+      a.setAttribute("href", "#");
+    }
     a.setAttribute("target", "_blank");
     a.setAttribute("rel", "noopener noreferrer");
   });
@@ -693,7 +707,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const handleLinkSubmit = (url: string) => {
     const el = editorRef.current as HTMLElement | null;
     if (!el || !url) return;
-    const finalUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+    const finalUrl = sanitizeUrl(url);
 
     // restore saved selection before creating link
     const sel = window.getSelection();
@@ -722,6 +736,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const handleImageSubmit = (url: string) => {
     const el = editorRef.current as HTMLElement | null;
     if (!el || !url) return;
+    const safeUrl = sanitizeUrl(url);
 
     // reactivate editor if focus was lost to the image input
     if (!isActive && !readOnly) {
@@ -736,7 +751,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       sel.addRange(savedRangeRef.current);
     }
 
-    const html = `<img src="${url}" class="max-w-full rounded border border-zinc-800 my-2 block" contenteditable="false" draggable="false" style="user-select:none;-webkit-user-select:none">`;
+    const html = `<img src="${safeUrl}" class="max-w-full rounded border border-zinc-800 my-2 block" contenteditable="false" draggable="false" style="user-select:none;-webkit-user-select:none">`;
     el.focus();
     document.execCommand("insertHTML", false, html);
     normalizeEditorNodes(el);
@@ -1168,7 +1183,22 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       /<input checked="" disabled="" type="checkbox">/gi,
       '<input type="checkbox" checked style="margin-right:8px" contenteditable="false">'
     );
-    document.execCommand("insertHTML", false, html);
+
+    const cleanHtml = DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: [
+        "p", "b", "i", "em", "strong", "a", "h1", "h2", "h3", "h4", "h5", "h6",
+        "ul", "ol", "li", "blockquote", "pre", "code", "table", "tr", "td", "th",
+        "tbody", "thead", "img", "input", "strike", "s", "del", "u", "details",
+        "summary", "br", "span", "div", "hr"
+      ],
+      ALLOWED_ATTR: [
+        "href", "target", "rel", "src", "alt", "class", "style", "type",
+        "checked", "open", "contenteditable", "draggable", "data-line-numbers", "data-raw-text"
+      ],
+      ALLOW_DATA_ATTR: true,
+    });
+
+    document.execCommand("insertHTML", false, cleanHtml);
     normalizeEditorNodes(editorRef.current);
     onChange(editorRef.current.innerHTML, editorRef.current);
   };
@@ -1373,8 +1403,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
           case "strike": html = `<strike>${inline.content}</strike>`; break;
           case "underline": html = `<u>${inline.content}</u>`; break;
           case "code": html = `<code class="bg-zinc-800 text-red-400 px-1 py-0.5 rounded font-mono text-xs">${inline.content}</code>`; break;
-          case "image": html = `<img src="${inline.url}" alt="${inline.content}" class="max-w-full rounded border border-zinc-800 my-2 block" contenteditable="false" draggable="false" style="user-select:none;-webkit-user-select:none">`; break;
-          case "link": html = `<a href="${inline.url}" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline cursor-pointer">${inline.content}</a>`; break;
+          case "image": html = `<img src="${sanitizeUrl(inline.url || "")}" alt="${inline.content}" class="max-w-full rounded border border-zinc-800 my-2 block" contenteditable="false" draggable="false" style="user-select:none;-webkit-user-select:none">`; break;
+          case "link": html = `<a href="${sanitizeUrl(inline.url || "")}" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline cursor-pointer">${inline.content}</a>`; break;
         }
 
         const tail = document.createTextNode("\u200B" + after);

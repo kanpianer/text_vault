@@ -2,10 +2,52 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { createServer as createViteServer } from "vite";
 
 const app = express();
 const PORT = 3000;
+
+// Security: Helmet HTTP security headers
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        fontSrc: ["'self'", "data:"],
+        imgSrc: ["'self'", "data:", "https:", "http:"],
+        connectSrc: ["'self'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
+// Security: Body parser size limit
+app.use(express.json({ limit: "10mb" }));
+
+// Security: General API Rate Limiter
+const generalApiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120, // max 120 requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please try again later." },
+});
+app.use("/api/", generalApiLimiter);
+
+// Security: Strict Authentication Rate Limiter
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 60, // max 60 attempts per 15 mins per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication attempts. Please try again later." },
+});
 
 // Path to vaults data store
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -72,7 +114,11 @@ function safeCompareHex(a: string, b: string): boolean {
   }
 }
 
-app.use(express.json());
+// Rate-limit protected endpoints
+app.use("/api/vault/:name/create", authLimiter);
+app.use("/api/vault/:name/get", authLimiter);
+app.use("/api/vault/:name/update", authLimiter);
+app.use("/api/vault/:name/delete", authLimiter);
 
 // API: Check if vault exists and return salts
 app.get("/api/vault/:name/salts", (req, res) => {

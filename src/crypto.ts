@@ -66,6 +66,27 @@ export async function deriveKeyAndHash(
   return { aesKey, authHash };
 }
 
+export function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const len = bytes.byteLength;
+  const chunkSize = 0x8000; // 32KB chunks to prevent RangeError: Maximum call stack size exceeded
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, len));
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
+}
+
+export function base64ToUint8Array(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export async function encryptData(plaintext: string, aesKey: CryptoKey): Promise<string> {
   const encoder = new TextEncoder();
   const plaintextBytes = encoder.encode(plaintext);
@@ -85,16 +106,12 @@ export async function encryptData(plaintext: string, aesKey: CryptoKey): Promise
   combined.set(iv, 0);
   combined.set(ciphertextBytes, iv.length);
 
-  // Convert to Base64 safely
-  return btoa(String.fromCharCode(...combined));
+  // Convert to Base64 safely without call stack limit errors
+  return uint8ArrayToBase64(combined);
 }
 
 export async function decryptData(encryptedStr: string, aesKey: CryptoKey): Promise<string> {
-  const binaryString = atob(encryptedStr);
-  const combined = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    combined[i] = binaryString.charCodeAt(i);
-  }
+  const combined = base64ToUint8Array(encryptedStr);
 
   const iv = combined.slice(0, 12);
   const ciphertextBytes = combined.slice(12);
@@ -117,10 +134,11 @@ export function generateSaltHex(): string {
 }
 
 export function validatePassword(password: string): boolean {
-  if (password.length < 8 || password.length > 18) return false;
+  if (password.length < 8 || password.length > 64) return false;
   const hasUpper = /[A-Z]/.test(password);
   const hasLower = /[a-z]/.test(password);
   const hasDigit = /[0-9]/.test(password);
   const hasSpecial = /[^A-Za-z0-9]/.test(password);
   return hasUpper && hasLower && hasDigit && hasSpecial;
 }
+

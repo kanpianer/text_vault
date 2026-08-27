@@ -364,7 +364,7 @@ export default function App() {
       return;
     }
     if (!validatePassword(password)) {
-      setErrorText("Password must contain upper, lower, symbols, and digits (8-18 characters).");
+      setErrorText("Password must contain upper, lower, symbols, and digits (8-64 characters).");
       return;
     }
 
@@ -824,7 +824,7 @@ export default function App() {
       return;
     }
     if (!validatePassword(newPassword)) {
-      setPwdModalError("Must carry upper, lower, symbols, and digits (8-18 characters).");
+      setPwdModalError("Must carry upper, lower, symbols, and digits (8-64 characters).");
       return;
     }
 
@@ -1181,7 +1181,7 @@ export default function App() {
                           type="password"
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
-                          maxLength={18}
+                          maxLength={64}
                           className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-base md:text-lg tracking-[0.2em] text-center"
                           placeholder="••••••••"
                           onClick={(e) => {
@@ -1218,7 +1218,7 @@ export default function App() {
                             type="password"
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
-                            maxLength={18}
+                            maxLength={64}
                             className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-base md:text-sm tracking-[0.2em] text-center"
                             placeholder="••••••••"
                             onKeyDown={(e) => {
@@ -1239,7 +1239,7 @@ export default function App() {
                   {isNewVault && (
                     <div className="text-zinc-500 font-mono text-[10px] text-center uppercase leading-relaxed tracking-widest select-none mb-6">
                       <span className="text-zinc-400 block mb-1 font-semibold">Strict requirements:</span>
-                      Between 8 to 18 characters limit<br />
+                      Between 8 to 64 characters limit<br />
                       Uppercase and lowercase letters<br />
                       Special characters and numbers
                     </div>
@@ -1693,7 +1693,7 @@ export default function App() {
                           type="password"
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
-                          maxLength={18}
+                          maxLength={64}
                           className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
                           placeholder="••••••••"
                         />
@@ -1717,7 +1717,7 @@ export default function App() {
                           type="password"
                           value={confirmNewPassword}
                           onChange={(e) => setConfirmNewPassword(e.target.value)}
-                          maxLength={18}
+                          maxLength={64}
                           className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
                           placeholder="••••••••"
                         />

@@ -8,3 +8,9 @@ coverage/
 !.env.example
 .alma-snapshots
 data/vaults.json
+data/*.json
+!data/.gitkeep
+decrypted_*.json
+*.decrypted.*
+*.tmp
+*.bak

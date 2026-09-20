@@ -52,6 +52,7 @@ const authLimiter = rateLimit({
 // Path to vaults data store
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "vaults.json");
+const SHARES_FILE = path.join(DATA_DIR, "shares.json");
 
 // Structure of a vault in vaults.json
 interface VaultRecord {
@@ -63,6 +64,19 @@ interface VaultRecord {
   createdAt: string;
   updatedAt: string;
 }
+
+// Structure of a shared document in shares.json
+interface ShareRecord {
+  id: string;
+  hasPassword: boolean;
+  salt_enc?: string;
+  salt_auth?: string;
+  auth_hash_double?: string; // sha256(auth_hash)
+  encrypted_data: string;
+  key_unprotected?: string;
+  createdAt: string;
+}
+
 
 // Helpers for loading and saving vaults JSON securely
 function readDb(): Record<string, VaultRecord> {
@@ -96,6 +110,37 @@ function writeDb(data: Record<string, VaultRecord>) {
   }
 }
 
+function readSharesDb(): Record<string, ShareRecord> {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(SHARES_FILE)) {
+      fs.writeFileSync(SHARES_FILE, JSON.stringify({}), "utf8");
+      return {};
+    }
+    const raw = fs.readFileSync(SHARES_FILE, "utf8");
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error("Error reading shares database file", e);
+    return {};
+  }
+}
+
+function writeSharesDb(data: Record<string, ShareRecord>) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    const tmpFile = `${SHARES_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), "utf8");
+    fs.renameSync(tmpFile, SHARES_FILE);
+  } catch (e) {
+    console.error("Error writing shares database file", e);
+  }
+}
+
+
 // Helper to double-hash the client's auth_hash
 function sha256(data: string): string {
   return crypto.createHash("sha256").update(data).digest("hex");
@@ -119,6 +164,9 @@ app.use("/api/vault/:name/create", authLimiter);
 app.use("/api/vault/:name/get", authLimiter);
 app.use("/api/vault/:name/update", authLimiter);
 app.use("/api/vault/:name/delete", authLimiter);
+app.use("/api/share/create", authLimiter);
+app.use("/api/share/:id/access", authLimiter);
+
 
 // API: Check if vault exists and return salts
 app.get("/api/vault/:name/salts", (req, res) => {
@@ -280,6 +328,111 @@ app.post("/api/vault/:name/delete", (req, res) => {
 
   return res.json({ success: true });
 });
+
+// API: Create new shared document
+app.post("/api/share/create", (req, res) => {
+  const { id, hasPassword, salt_enc, salt_auth, auth_hash_double, encrypted_data, key_unprotected } = req.body;
+
+  if (!id || typeof id !== "string" || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
+    return res.status(400).json({ error: "Invalid share ID. Must be 8-64 alphanumeric characters." });
+  }
+
+  if (typeof hasPassword !== "boolean" || !encrypted_data) {
+    return res.status(400).json({ error: "Missing required properties." });
+  }
+
+  if (hasPassword && (!salt_enc || !salt_auth || !auth_hash_double)) {
+    return res.status(400).json({ error: "Password-protected shares require salt_enc, salt_auth, and auth_hash_double." });
+  }
+
+  const db = readSharesDb();
+  if (db[id]) {
+    return res.status(400).json({ error: "Share ID already exists." });
+  }
+
+  db[id] = {
+    id,
+    hasPassword,
+    salt_enc: salt_enc || undefined,
+    salt_auth: salt_auth || undefined,
+    auth_hash_double: auth_hash_double || undefined,
+    encrypted_data,
+    key_unprotected: key_unprotected || undefined,
+    createdAt: new Date().toISOString(),
+  };
+
+  writeSharesDb(db);
+  return res.json({ success: true, id });
+});
+
+// API: Get shared document metadata or unprotected content
+app.get("/api/share/:id", (req, res) => {
+  const id = req.params.id;
+  if (!id || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
+    return res.status(400).json({ error: "Invalid share ID." });
+  }
+
+  const db = readSharesDb();
+  const share = db[id];
+  if (!share) {
+    return res.status(404).json({ exists: false, error: "Shared document not found." });
+  }
+
+  if (share.hasPassword) {
+    return res.json({
+      exists: true,
+      hasPassword: true,
+      salt_enc: share.salt_enc,
+      salt_auth: share.salt_auth,
+    });
+  } else {
+    return res.json({
+      exists: true,
+      hasPassword: false,
+      encrypted_data: share.encrypted_data,
+      key_unprotected: share.key_unprotected,
+    });
+  }
+});
+
+// API: Access password-protected shared document
+app.post("/api/share/:id/access", (req, res) => {
+  const id = req.params.id;
+  const { auth_hash } = req.body;
+
+  if (!id || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
+    return res.status(400).json({ error: "Invalid share ID." });
+  }
+
+  const db = readSharesDb();
+  const share = db[id];
+  if (!share) {
+    return res.status(404).json({ error: "Shared document not found." });
+  }
+
+  if (!share.hasPassword) {
+    return res.json({
+      success: true,
+      encrypted_data: share.encrypted_data,
+      key_unprotected: share.key_unprotected,
+    });
+  }
+
+  if (!auth_hash) {
+    return res.status(401).json({ error: "Password verification hash is required to access shared document." });
+  }
+
+  const proof = sha256(auth_hash);
+  if (!share.auth_hash_double || !safeCompareHex(proof, share.auth_hash_double)) {
+    return res.status(401).json({ error: "Password verification failed. Access denied." });
+  }
+
+  return res.json({
+    success: true,
+    encrypted_data: share.encrypted_data,
+  });
+});
+
 
 // Start routing and asset rendering for Express + Vite
 async function startServer() {

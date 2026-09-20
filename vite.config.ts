@@ -14,7 +14,12 @@ export default defineConfig(() => {
     },
     build: {
       rollupOptions: {
-        external: [],
+        output: {
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom'],
+            'vendor-motion': ['motion/react'],
+          },
+        },
       },
     },
     server: {

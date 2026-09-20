@@ -166,6 +166,7 @@ app.use("/api/vault/:name/update", authLimiter);
 app.use("/api/vault/:name/delete", authLimiter);
 app.use("/api/share/create", authLimiter);
 app.use("/api/share/:id/access", authLimiter);
+app.use("/api/share/:id/delete", authLimiter);
 
 
 // API: Check if vault exists and return salts
@@ -431,6 +432,21 @@ app.post("/api/share/:id/access", (req, res) => {
     success: true,
     encrypted_data: share.encrypted_data,
   });
+});
+
+// API: Delete shared document
+app.post("/api/share/:id/delete", (req, res) => {
+  const id = req.params.id;
+  if (!id || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
+    return res.status(400).json({ error: "Invalid share ID." });
+  }
+
+  const db = readSharesDb();
+  if (db[id]) {
+    delete db[id];
+    writeSharesDb(db);
+  }
+  return res.json({ success: true });
 });
 
 

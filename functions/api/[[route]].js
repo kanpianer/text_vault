@@ -372,6 +372,15 @@ async function handleApiRequest(request, env) {
     });
   }
 
+  // API: Delete shared document
+  if (method === 'POST' && path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})\/delete$/)) {
+    const id = path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})\/delete$/)[1];
+    if (env && env.VAULTS) {
+      await env.VAULTS.delete('share:' + id);
+    }
+    return jsonResponse({ success: true });
+  }
+
   return jsonResponse({ error: `API route not found: ${path}` }, 404);
 }
 

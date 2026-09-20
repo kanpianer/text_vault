@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useLayoutEffect, useMemo, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X } from "lucide-react";
+import { X, Link2Off } from "lucide-react";
 import { TabContent, SaveStatus } from "./types";
 import {
   deriveKeyAndHash,
@@ -139,6 +139,8 @@ export default function App() {
 
   // Share Modal State
   const [showShareModal, setShowShareModal] = useState<boolean>(false);
+  const [showUnshareConfirm, setShowUnshareConfirm] = useState<boolean>(false);
+  const [isUnsharing, setIsUnsharing] = useState<boolean>(false);
   const [shareRequirePassword, setShareRequirePassword] = useState<boolean>(false);
   const [sharePassword, setSharePassword] = useState<string>("");
   const [shareConfirmPassword, setShareConfirmPassword] = useState<string>("");
@@ -161,7 +163,7 @@ export default function App() {
   const sharedEditorRef = useRef<HTMLDivElement>(null);
   const sharedPasswordInputRef = useRef<HTMLInputElement>(null);
 
-  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || showExportModal || showShareModal || Boolean(tabToClose) || showTimerDropdown;
+  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || showExportModal || showShareModal || showUnshareConfirm || Boolean(tabToClose) || showTimerDropdown;
 
 
 
@@ -1344,6 +1346,42 @@ export default function App() {
     }
   };
 
+  const handleConfirmUnshare = async () => {
+    const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+    const shareIdToDelete = activeTab?.shareId;
+
+    setIsUnsharing(true);
+    try {
+      if (shareIdToDelete) {
+        try {
+          await fetch(`/api/share/${shareIdToDelete}/delete`, {
+            method: "POST",
+          });
+        } catch (e) {
+          console.error("Failed to delete share on server:", e);
+        }
+      }
+
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTab.id
+            ? { ...t, isShared: false, shareId: undefined, shareHasPassword: undefined }
+            : t
+        )
+      );
+      setHasUnsavedChanges(true);
+      setGeneratedShareUrl("");
+      setShowUnshareConfirm(false);
+      setShowShareModal(false);
+
+      await performSaveAction({ silent: true });
+    } catch (e) {
+      console.error("Unshare failed", e);
+    } finally {
+      setIsUnsharing(false);
+    }
+  };
+
   // --- Views Router ---
 
   // Loading indicator for async setups
@@ -2506,12 +2544,11 @@ export default function App() {
 
                   <div className="flex justify-center items-center gap-8 mt-2">
                     <span
-                      onClick={() => {
-                        setGeneratedShareUrl("");
-                      }}
-                      className="font-sans text-xs text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer select-none uppercase tracking-wider px-2 py-1"
+                      onClick={() => setShowUnshareConfirm(true)}
+                      className="font-sans text-xs text-red-500/80 hover:text-red-400 transition-colors cursor-pointer select-none uppercase tracking-wider px-2 py-1 flex items-center gap-1.5"
                     >
-                      Re-share
+                      <Link2Off className="w-3.5 h-3.5" />
+                      Unshare
                     </span>
                     <span
                       onClick={() => {
@@ -2524,6 +2561,45 @@ export default function App() {
                   </div>
                 </div>
               )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CONFIRM UNSHARE POPUP */}
+      <AnimatePresence>
+        {showUnshareConfirm && (
+          <div className="fixed inset-0 bg-[#0c0c0e]/90 backdrop-blur-sm flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-[60]">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-sm flex flex-col gap-6 relative"
+            >
+              <h3 className="text-zinc-100 font-sans tracking-wide text-lg text-center uppercase font-semibold">
+                UNSHARE DOCUMENT
+              </h3>
+
+              <p className="font-sans text-xs text-zinc-400 text-center leading-relaxed">
+                Are you sure you want to stop sharing this document? The link will become inaccessible immediately.
+              </p>
+
+              <div className="flex justify-center gap-12 items-center mt-2">
+                <span
+                  onClick={() => setShowUnshareConfirm(false)}
+                  className="font-sans text-xs md:text-sm text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                >
+                  Cancel
+                </span>
+                <span
+                  onClick={handleConfirmUnshare}
+                  className={`font-sans text-xs md:text-sm font-semibold text-red-500 hover:text-red-400 transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block ${
+                    isUnsharing ? "opacity-50 pointer-events-none" : ""
+                  }`}
+                >
+                  {isUnsharing ? "Unsharing..." : "Confirm"}
+                </span>
+              </div>
             </motion.div>
           </div>
         )}

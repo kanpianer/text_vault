@@ -376,6 +376,15 @@ async function handleRequest(request, env) {
     });
   }
 
+  // API: Delete shared document
+  if (method === 'POST' && path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})\/delete$/)) {
+    const id = path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})\/delete$/)[1];
+    if (env && env.VAULTS) {
+      await env.VAULTS.delete('share:' + id);
+    }
+    return jsonResponse({ success: true });
+  }
+
   // Return null if no API route matched (will serve static assets)
   return null;
 }

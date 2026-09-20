@@ -5,6 +5,7 @@ export interface TabContent {
   scrollTop?: number;
   isShared?: boolean;
   shareId?: string;
+  shareHasPassword?: boolean;
 }
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error" | "pwd_changed";

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { marked } from "marked";
-import hljs from "highlight.js";
+import hljs from "highlight.js/lib/common";
 import DOMPurify from "dompurify";
 import {
   calculateSelectionPosition,
@@ -463,17 +463,34 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   const updateToc = useCallback(() => {
     const el = editorRef.current as HTMLElement | null;
     if (!el) return;
-    setTocItems(collectEditorHeadings(el));
+    const newItems = collectEditorHeadings(el);
+    setTocItems((prev) => {
+      if (
+        prev.length === newItems.length &&
+        prev.every(
+          (item, i) =>
+            item.title === newItems[i].title &&
+            item.level === newItems[i].level &&
+            item.barWidthRem === newItems[i].barWidthRem
+        )
+      ) {
+        return prev;
+      }
+      return newItems;
+    });
   }, [editorRef]);
 
   useEffect(() => {
     const el = editorRef.current as HTMLElement | null;
     if (!el) return;
 
-    let frameId = window.requestAnimationFrame(updateToc);
+    let frameId: number | null = null;
     const scheduleTocUpdate = () => {
-      window.cancelAnimationFrame(frameId);
-      frameId = window.requestAnimationFrame(updateToc);
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(() => {
+        updateToc();
+        frameId = null;
+      });
     };
     const observer = new MutationObserver(scheduleTocUpdate);
 
@@ -486,7 +503,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     window.addEventListener("load", scheduleTocUpdate);
 
     return () => {
-      window.cancelAnimationFrame(frameId);
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
       observer.disconnect();
       window.removeEventListener("resize", scheduleTocUpdate);
       window.removeEventListener("load", scheduleTocUpdate);
@@ -494,43 +511,62 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   }, [activeTabId, initialContent, editorRef, updateToc]);
 
   useEffect(() => {
+    let ticking = false;
     const handleScroll = () => {
-      const el = editorRef.current as HTMLElement | null;
-      if (!el || tocItems.length === 0) return;
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(() => {
+        ticking = false;
+        const el = editorRef.current as HTMLElement | null;
+        if (!el || tocItems.length === 0) {
+          if (tocButtonRef.current) {
+            const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const progress = docHeight > 0 ? Math.min(window.scrollY / docHeight, 1) : 0;
+            if (progress > 0.02) {
+              tocButtonRef.current.classList.add('opacity-100', 'pointer-events-auto');
+              tocButtonRef.current.classList.remove('opacity-0', 'pointer-events-none');
+            } else {
+              tocButtonRef.current.classList.remove('opacity-100', 'pointer-events-auto');
+              tocButtonRef.current.classList.add('opacity-0', 'pointer-events-none');
+            }
+          }
+          return;
+        }
 
-      const headings = Array.from(el.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6"));
-      let newActiveIndex = -1;
+        const headings = Array.from(el.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6"));
+        let newActiveIndex = -1;
 
-      for (let i = 0; i < tocItems.length; i++) {
-        const item = tocItems[i];
-        const headingEl = headings[item.index];
-        if (headingEl) {
-          const rect = headingEl.getBoundingClientRect();
-          if (rect.top <= window.innerHeight * 0.3) {
-            newActiveIndex = item.index;
-          } else {
-            break;
+        for (let i = 0; i < tocItems.length; i++) {
+          const item = tocItems[i];
+          const headingEl = headings[item.index];
+          if (headingEl) {
+            const rect = headingEl.getBoundingClientRect();
+            if (rect.top <= window.innerHeight * 0.3) {
+              newActiveIndex = item.index;
+            } else {
+              break;
+            }
           }
         }
-      }
-      
-      if (tocButtonRef.current) {
-        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-        const progress = docHeight > 0 ? Math.min(window.scrollY / docHeight, 1) : 0;
-        if (progress > 0.02) {
-          tocButtonRef.current.classList.add('opacity-100', 'pointer-events-auto');
-          tocButtonRef.current.classList.remove('opacity-0', 'pointer-events-none');
-        } else {
-          tocButtonRef.current.classList.remove('opacity-100', 'pointer-events-auto');
-          tocButtonRef.current.classList.add('opacity-0', 'pointer-events-none');
+        
+        if (tocButtonRef.current) {
+          const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+          const progress = docHeight > 0 ? Math.min(window.scrollY / docHeight, 1) : 0;
+          if (progress > 0.02) {
+            tocButtonRef.current.classList.add('opacity-100', 'pointer-events-auto');
+            tocButtonRef.current.classList.remove('opacity-0', 'pointer-events-none');
+          } else {
+            tocButtonRef.current.classList.remove('opacity-100', 'pointer-events-auto');
+            tocButtonRef.current.classList.add('opacity-0', 'pointer-events-none');
+          }
         }
-      }
 
-      if (window.scrollY < 50) {
-        newActiveIndex = -1;
-      }
-      
-      setActiveHeadingIndex(newActiveIndex);
+        if (window.scrollY < 50) {
+          newActiveIndex = -1;
+        }
+        
+        setActiveHeadingIndex((prev) => (prev === newActiveIndex ? prev : newActiveIndex));
+      });
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
@@ -1061,8 +1097,12 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     const el = editorRef.current as HTMLElement | null;
     if (!el) return;
 
-    const updateBlocks = () => {
-      const pres = el.querySelectorAll("pre");
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const updateBlocks = (targetPre?: HTMLPreElement) => {
+      const pres = targetPre ? [targetPre] : Array.from(el.querySelectorAll<HTMLPreElement>("pre"));
+      if (pres.length === 0) return;
+
       pres.forEach(pre => {
         // Extract text and calculate offset
         let rawContent = "";
@@ -1163,9 +1203,50 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     };
 
     updateBlocks();
-    const observer = new MutationObserver(updateBlocks);
+
+    const onMutation: MutationCallback = (mutations) => {
+      let hasPreChange = false;
+      let targetPre: HTMLPreElement | null = null;
+
+      for (const m of mutations) {
+        const targetEl = (m.target?.nodeType === Node.ELEMENT_NODE ? m.target : m.target?.parentElement) as HTMLElement | null;
+        const pre = targetEl?.closest?.("pre") as HTMLPreElement | null;
+        if (pre && el.contains(pre)) {
+          hasPreChange = true;
+          targetPre = pre;
+          break;
+        }
+        for (let i = 0; i < m.addedNodes.length; i++) {
+          const n = m.addedNodes[i] as HTMLElement;
+          if (n.nodeName === "PRE" || n.querySelector?.("pre")) {
+            hasPreChange = true;
+            break;
+          }
+        }
+        for (let i = 0; i < m.removedNodes.length; i++) {
+          const n = m.removedNodes[i] as HTMLElement;
+          if (n.nodeName === "PRE" || n.querySelector?.("pre")) {
+            hasPreChange = true;
+            break;
+          }
+        }
+        if (hasPreChange) break;
+      }
+
+      if (!hasPreChange) return;
+
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        updateBlocks(targetPre || undefined);
+      }, 150);
+    };
+
+    const observer = new MutationObserver(onMutation);
     observer.observe(el, { childList: true, subtree: true, characterData: true });
-    return () => observer.disconnect();
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      observer.disconnect();
+    };
   }, [editorRef, activeTabId]);
 
   // ── paste: parse markdown to styled HTML ──────────────────────────
@@ -1672,7 +1753,6 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         onTouchEnd={handleTouchEnd}
         onPaste={handlePaste}
         onInput={(e) => {
-          normalizeEditorNodes(e.currentTarget);
           onChange(e.currentTarget.innerHTML, editorRef.current);
         }}
         onKeyDown={handleKeyDown}
@@ -1839,7 +1919,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       {/* Floating toolbar */}
       <div
         ref={toolbarRef}
-        className="flex items-center select-none font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[calc(100vw-2rem)]"
+        className="flex items-center select-none font-sans text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[calc(100vw-2rem)]"
         style={toolbarStyle}
         onMouseDown={(e) => e.preventDefault()}
         onMouseEnter={() => {
@@ -1933,7 +2013,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       {/* Link input */}
       {showLinkInput && (
         <div
-          className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px]"
+          className="flex items-center font-sans text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px]"
           style={{
             position: "absolute",
             top: toolbarPosRef.current.top,
@@ -1968,7 +2048,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
             onBlur={() => { if (Date.now() - inputOpenTimeRef.current > 200) { setShowLinkInput(false); setLinkValue(""); } }}
 
-            className="bg-transparent outline-none border-none text-zinc-200 w-full placeholder-zinc-600 font-mono text-xs"
+            className="bg-transparent outline-none border-none text-zinc-200 w-full placeholder-zinc-600 font-sans text-xs"
 
           />
 
@@ -1991,7 +2071,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       {/* Image input */}
       {showImageInput && (
         <div
-          className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px]"
+          className="flex items-center font-sans text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px]"
           style={{
             position: "absolute",
             top: toolbarPosRef.current.top,
@@ -2026,7 +2106,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
             onBlur={() => { if (Date.now() - inputOpenTimeRef.current > 200) { setShowImageInput(false); setImageValue(""); } }}
 
-            className="bg-transparent outline-none border-none text-zinc-200 w-full placeholder-zinc-600 font-mono text-xs"
+            className="bg-transparent outline-none border-none text-zinc-200 w-full placeholder-zinc-600 font-sans text-xs"
           />
           <span className="px-2">]</span>
           <span
@@ -2041,7 +2121,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       {/* Table input */}
       {showTableInput && (
         <div
-          className="flex items-center font-mono text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[500px]"
+          className="flex items-center font-sans text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[500px]"
           style={{
             position: "absolute",
             top: toolbarPosRef.current.top,
@@ -2069,7 +2149,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                 if (isNaN(v) || v < 3) setTableRowValue("3");
                 else if (v > 30) setTableRowValue("30");
               }}
-              className="bg-transparent outline-none border-none text-zinc-200 w-10 font-mono text-xs text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              className="bg-transparent outline-none border-none text-zinc-200 w-10 font-sans text-xs text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
           </label>
           <label className="flex items-center gap-1 ml-2">
@@ -2090,7 +2170,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
                 if (isNaN(v) || v < 3) setTableColValue("3");
                 else if (v > 15) setTableColValue("15");
               }}
-              className="bg-transparent outline-none border-none text-zinc-200 w-10 font-mono text-xs text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              className="bg-transparent outline-none border-none text-zinc-200 w-10 font-sans text-xs text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
           </label>
           <span className="px-2">]</span>

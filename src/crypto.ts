@@ -37,29 +37,30 @@ export async function deriveKeyAndHash(
     ["deriveBits", "deriveKey"]
   );
 
-  const aesKey = await window.crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: saltEncBytes,
-      iterations: 600000,
-      hash: "SHA-256",
-    },
-    baseKey,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-
-  const authBits = await window.crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      salt: saltAuthBytes,
-      iterations: 600000,
-      hash: "SHA-256",
-    },
-    baseKey,
-    256
-  );
+  const [aesKey, authBits] = await Promise.all([
+    window.crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: saltEncBytes,
+        iterations: 600000,
+        hash: "SHA-256",
+      },
+      baseKey,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    ),
+    window.crypto.subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt: saltAuthBytes,
+        iterations: 600000,
+        hash: "SHA-256",
+      },
+      baseKey,
+      256
+    ),
+  ]);
 
   const authHash = bufferToHex(authBits);
 

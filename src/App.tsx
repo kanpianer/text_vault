@@ -1322,7 +1322,7 @@ export default function App() {
         {/* Global actions: Save word and Settings overlay */}
         <div className="flex items-center gap-6">
           {/* Timer Dropdown */}
-          <div className="relative flex items-center">
+          <div className={`relative flex items-center transition-opacity duration-150 ${showMenu ? "opacity-0 pointer-events-none invisible" : ""}`}>
             {showTimerDropdown && (
               <div 
                 className="fixed inset-0 z-40 bg-transparent" 
@@ -1334,13 +1334,13 @@ export default function App() {
                 setShowTimerDropdown(!showTimerDropdown);
                 setShowMenu(false);
               }}
-              className="font-sans text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block relative z-50 min-w-[50px] text-right"
+              className={`font-sans text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block relative min-w-[50px] text-right ${showTimerDropdown ? "z-50" : ""}`}
             >
               {showCountdown && timeLeft !== null ? formatTimeLeft(timeLeft) : "TIMER"}
             </span>
 
             <AnimatePresence>
-              {showTimerDropdown && (
+              {showTimerDropdown && !showMenu && (
                 <motion.div
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}

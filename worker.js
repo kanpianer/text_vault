@@ -260,9 +260,115 @@ async function handleRequest(request, env) {
     return jsonResponse({ success: true });
   }
 
+  // API: Create new shared document
+  if (method === 'POST' && path === '/api/share/create') {
+    const body = await request.json();
+    const { id, hasPassword, salt_enc, salt_auth, auth_hash_double, encrypted_data, key_unprotected } = body;
+
+    if (!id || typeof id !== 'string' || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
+      return jsonResponse({ error: 'Invalid share ID. Must be 8-64 alphanumeric characters.' }, 400);
+    }
+
+    if (typeof hasPassword !== 'boolean' || !encrypted_data) {
+      return jsonResponse({ error: 'Missing required properties.' }, 400);
+    }
+
+    if (hasPassword && (!salt_enc || !salt_auth || !auth_hash_double)) {
+      return jsonResponse({ error: 'Password-protected shares require salt_enc, salt_auth, and auth_hash_double.' }, 400);
+    }
+
+    const existing = await env.VAULTS.get('share:' + id);
+    if (existing) {
+      return jsonResponse({ error: 'Share ID already exists.' }, 400);
+    }
+
+    const share = {
+      id,
+      hasPassword,
+      salt_enc: salt_enc || undefined,
+      salt_auth: salt_auth || undefined,
+      auth_hash_double: auth_hash_double || undefined,
+      encrypted_data,
+      key_unprotected: key_unprotected || undefined,
+      createdAt: new Date().toISOString(),
+    };
+
+    await env.VAULTS.put('share:' + id, JSON.stringify(share));
+    return jsonResponse({ success: true, id });
+  }
+
+  // API: Get shared document metadata or unprotected content
+  if (method === 'GET' && path.match(/^\/api\/share\/([^\/]+)$/)) {
+    const id = path.match(/^\/api\/share\/([^\/]+)$/)[1];
+    if (!id || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
+      return jsonResponse({ error: 'Invalid share ID.' }, 400);
+    }
+
+    const raw = await env.VAULTS.get('share:' + id);
+    if (!raw) {
+      return jsonResponse({ exists: false, error: 'Shared document not found.' }, 404);
+    }
+
+    const share = JSON.parse(raw);
+    if (share.hasPassword) {
+      return jsonResponse({
+        exists: true,
+        hasPassword: true,
+        salt_enc: share.salt_enc,
+        salt_auth: share.salt_auth,
+      });
+    } else {
+      return jsonResponse({
+        exists: true,
+        hasPassword: false,
+        encrypted_data: share.encrypted_data,
+        key_unprotected: share.key_unprotected,
+      });
+    }
+  }
+
+  // API: Access password-protected shared document
+  if (method === 'POST' && path.match(/^\/api\/share\/([^\/]+)\/access$/)) {
+    const id = path.match(/^\/api\/share\/([^\/]+)\/access$/)[1];
+    if (!id || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
+      return jsonResponse({ error: 'Invalid share ID.' }, 400);
+    }
+
+    const raw = await env.VAULTS.get('share:' + id);
+    if (!raw) {
+      return jsonResponse({ error: 'Shared document not found.' }, 404);
+    }
+
+    const share = JSON.parse(raw);
+    if (!share.hasPassword) {
+      return jsonResponse({
+        success: true,
+        encrypted_data: share.encrypted_data,
+        key_unprotected: share.key_unprotected,
+      });
+    }
+
+    const body = await request.json();
+    const { auth_hash } = body;
+    if (!auth_hash) {
+      return jsonResponse({ error: 'Password verification hash is required to access shared document.' }, 401);
+    }
+
+    const proof = await sha256(auth_hash);
+    if (!share.auth_hash_double || !safeCompare(proof, share.auth_hash_double)) {
+      return jsonResponse({ error: 'Password verification failed. Access denied.' }, 401);
+    }
+
+    return jsonResponse({
+      success: true,
+      encrypted_data: share.encrypted_data,
+    });
+  }
+
   // Return null if no API route matched (will serve static assets)
   return null;
 }
+
 
 export default {
   async fetch(request, env, ctx) {

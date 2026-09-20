@@ -143,3 +143,44 @@ export function validatePassword(password: string): boolean {
   return hasUpper && hasLower && hasDigit && hasSpecial;
 }
 
+export function generateRandomKeyHex(): string {
+  const cryptoObj = typeof window !== "undefined" && window.crypto ? window.crypto : globalThis.crypto;
+  const bytes = cryptoObj.getRandomValues(new Uint8Array(32));
+  return bufferToHex(bytes);
+}
+
+export async function importRawAesKey(keyHex: string): Promise<CryptoKey> {
+  const cryptoObj = typeof window !== "undefined" && window.crypto ? window.crypto : globalThis.crypto;
+  const keyBytes = hexToBytes(keyHex);
+  return cryptoObj.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+export async function encryptDataWithRawKey(plaintext: string, keyHex: string): Promise<string> {
+  const key = await importRawAesKey(keyHex);
+  return encryptData(plaintext, key);
+}
+
+export async function decryptDataWithRawKey(encryptedStr: string, keyHex: string): Promise<string> {
+  const key = await importRawAesKey(keyHex);
+  return decryptData(encryptedStr, key);
+}
+
+export function generateShortShareId(): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const cryptoObj = typeof window !== "undefined" && window.crypto ? window.crypto : globalThis.crypto;
+  const bytes = cryptoObj.getRandomValues(new Uint8Array(6));
+  let result = "";
+  for (let i = 0; i < 6; i++) {
+    result += chars[bytes[i] % chars.length];
+  }
+  return result;
+}
+
+
+

@@ -3,6 +3,8 @@ export interface TabContent {
   text: string;
   title?: string;
   scrollTop?: number;
+  isShared?: boolean;
+  shareId?: string;
 }
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error" | "pwd_changed";
@@ -12,3 +14,20 @@ export interface VaultSalts {
   salt_enc?: string;
   salt_auth?: string;
 }
+
+export interface SharedDocPayload {
+  title: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface ShareInfoResponse {
+  exists: boolean;
+  hasPassword?: boolean;
+  salt_enc?: string;
+  salt_auth?: string;
+  encrypted_data?: string;
+  key_unprotected?: string;
+  error?: string;
+}
+

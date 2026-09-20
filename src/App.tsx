@@ -9,6 +9,11 @@ import {
   generateSaltHex,
   validatePassword,
   sha256Client,
+  generateRandomKeyHex,
+  encryptDataWithRawKey,
+  decryptDataWithRawKey,
+  bufferToHex,
+  generateShortShareId,
 } from "./crypto";
 import { shouldShowBackToTop } from "./toolbarPosition";
 
@@ -132,9 +137,32 @@ export default function App() {
   const [showTimerDropdown, setShowTimerDropdown] = useState<boolean>(false);
   const [showCountdown, setShowCountdown] = useState<boolean>(false);
 
+  // Share Modal State
+  const [showShareModal, setShowShareModal] = useState<boolean>(false);
+  const [shareRequirePassword, setShareRequirePassword] = useState<boolean>(false);
+  const [sharePassword, setSharePassword] = useState<string>("");
+  const [shareConfirmPassword, setShareConfirmPassword] = useState<string>("");
+  const [shareError, setShareError] = useState<string>("");
+  const [isSharing, setIsSharing] = useState<boolean>(false);
+  const [generatedShareUrl, setGeneratedShareUrl] = useState<string>("");
+  const [isShareCopied, setIsShareCopied] = useState<boolean>(false);
 
+  // Shared Document Viewer State
+  const [sharedDocId, setSharedDocId] = useState<string>("");
+  const [sharedLoading, setSharedLoading] = useState<boolean>(false);
+  const [sharedDocNotFound, setSharedDocNotFound] = useState<boolean>(false);
+  const [sharedDocHasPassword, setSharedDocHasPassword] = useState<boolean>(false);
+  const [sharedDocSalts, setSharedDocSalts] = useState<{ salt_enc?: string; salt_auth?: string }>({});
+  const [sharedPasswordInput, setSharedPasswordInput] = useState<string>("");
+  const [sharedDocError, setSharedDocError] = useState<string>("");
+  const [sharedIsDecrypting, setSharedIsDecrypting] = useState<boolean>(false);
+  const [sharedDocContent, setSharedDocContent] = useState<{ title: string; text: string; createdAt?: string } | null>(null);
+  const [isSharedDocCopied, setIsSharedDocCopied] = useState<boolean>(false);
+  const sharedEditorRef = useRef<HTMLDivElement>(null);
+  const sharedPasswordInputRef = useRef<HTMLInputElement>(null);
 
-  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || showExportModal || Boolean(tabToClose) || showTimerDropdown;
+  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || showExportModal || showShareModal || Boolean(tabToClose) || showTimerDropdown;
+
 
 
 
@@ -276,9 +304,17 @@ export default function App() {
       setSearchName("");
       setSearchError("");
       setIsHomeFocused(false);
-      if (/^[a-zA-Z0-9]{1,10}$/.test(path)) {
+
+      const shareMatch = path.match(/^share\/([a-zA-Z0-9_-]+)$/);
+      if (shareMatch) {
+        setSharedDocId(shareMatch[1]);
+        setVaultName("");
+        setIsVerified(false);
+      } else if (/^[a-zA-Z0-9]{1,10}$/.test(path)) {
+        setSharedDocId("");
         setVaultName(path);
       } else {
+        setSharedDocId("");
         setVaultName("");
         setIsVerified(false);
       }
@@ -288,6 +324,71 @@ export default function App() {
     window.addEventListener("popstate", handleLocationChange);
     return () => window.removeEventListener("popstate", handleLocationChange);
   }, []);
+
+  // Shared doc fetching & auto-decrypt for unprotected
+  useEffect(() => {
+    if (!sharedDocId) {
+      setSharedDocContent(null);
+      setSharedDocNotFound(false);
+      setSharedDocHasPassword(false);
+      setSharedPasswordInput("");
+      setSharedDocError("");
+      return;
+    }
+
+    const fetchSharedDoc = async () => {
+      setSharedLoading(true);
+      setSharedDocNotFound(false);
+      setSharedDocError("");
+      setSharedDocContent(null);
+
+      try {
+        const resp = await fetch(`/api/share/${sharedDocId}`);
+        if (!resp.ok) {
+          setSharedDocNotFound(true);
+          return;
+        }
+
+        const data = await resp.json();
+        if (!data.exists) {
+          setSharedDocNotFound(true);
+          return;
+        }
+
+        if (data.hasPassword) {
+          setSharedDocHasPassword(true);
+          setSharedDocSalts({ salt_enc: data.salt_enc, salt_auth: data.salt_auth });
+        } else {
+          setSharedDocHasPassword(false);
+          const hashKey = window.location.hash ? window.location.hash.replace(/^#/, "") : "";
+          const keyToUse = hashKey || data.key_unprotected;
+          if (!keyToUse) {
+            setSharedDocError("Decryption key missing. Unable to decrypt shared document.");
+            return;
+          }
+
+          const decryptedStr = await decryptDataWithRawKey(data.encrypted_data, keyToUse);
+          const parsed = JSON.parse(decryptedStr);
+          setSharedDocContent(parsed);
+        }
+      } catch (err: any) {
+        console.error("Error fetching shared document:", err);
+        setSharedDocError("Failed to load or decrypt shared document.");
+      } finally {
+        setSharedLoading(false);
+      }
+    };
+
+    fetchSharedDoc();
+  }, [sharedDocId]);
+
+  // Focus password input for shared document
+  useEffect(() => {
+    if (sharedDocId && sharedDocHasPassword && !sharedDocContent) {
+      sharedPasswordInputRef.current?.focus();
+    }
+  }, [sharedDocId, sharedDocHasPassword, sharedDocContent]);
+
 
   // Fetch Vault state on navigation
   useEffect(() => {
@@ -1023,6 +1124,206 @@ export default function App() {
     return stripMarkdown(firstLine) || "Untitled";
   }
 
+  const activeTabRawTitle = useMemo(() => {
+    const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+    return activeTab ? getTabRawTitle(activeTab) : "Untitled";
+  }, [tabs, activeTabId]);
+
+  const isCurrentTabShared = useMemo(() => {
+    const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+    return Boolean(activeTab?.isShared || activeTab?.shareId);
+  }, [tabs, activeTabId]);
+
+
+  const handleUnlockSharedDoc = async () => {
+    if (!sharedPasswordInput) {
+      setSharedDocError("Password is required.");
+      return;
+    }
+
+    if (!sharedDocSalts.salt_enc || !sharedDocSalts.salt_auth) {
+      setSharedDocError("Security parameters missing.");
+      return;
+    }
+
+    setSharedIsDecrypting(true);
+    setSharedDocError("");
+
+    try {
+      const { aesKey, authHash } = await deriveKeyAndHash(
+        sharedPasswordInput,
+        sharedDocSalts.salt_enc,
+        sharedDocSalts.salt_auth
+      );
+
+      const resp = await fetch(`/api/share/${sharedDocId}/access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auth_hash: authHash }),
+      });
+
+      if (!resp.ok) {
+        setSharedDocError("Incorrect password. Access denied.");
+        return;
+      }
+
+      const data = await resp.json();
+      const decryptedStr = await decryptData(data.encrypted_data, aesKey);
+      const parsed = JSON.parse(decryptedStr);
+      setSharedDocContent(parsed);
+    } catch (err) {
+      console.error("Failed to unlock shared document:", err);
+      setSharedDocError("Decryption failed. Please check the password.");
+    } finally {
+      setSharedIsDecrypting(false);
+    }
+  };
+
+  const handleCopySharedContent = async () => {
+    if (!sharedDocContent) return;
+    try {
+      await navigator.clipboard.writeText(sharedDocContent.text);
+      setIsSharedDocCopied(true);
+      setTimeout(() => setIsSharedDocCopied(false), 2000);
+    } catch (e) {
+      console.error("Failed to copy", e);
+    }
+  };
+
+  const handleExportSharedMd = () => {
+    if (!sharedDocContent) return;
+    try {
+      let filename = (sharedDocContent.title || "document").replace(/[\\/:*?"<>|]/g, "_").trim();
+      if (!filename.toLowerCase().endsWith(".md")) {
+        filename += ".md";
+      }
+      const blob = new Blob([sharedDocContent.text], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Export failed", e);
+    }
+  };
+
+  const handleGenerateShareLink = async () => {
+    setShareError("");
+
+    if (shareRequirePassword) {
+      if (!sharePassword) {
+        setShareError("Password is required when protection is enabled.");
+        return;
+      }
+      if (sharePassword.length > 64) {
+        setShareError("Password cannot exceed 64 characters.");
+        return;
+      }
+      if (sharePassword !== shareConfirmPassword) {
+        setShareError("Passwords do not match.");
+        return;
+      }
+    }
+
+    const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+    if (!activeTab) {
+      setShareError("No active document found to share.");
+      return;
+    }
+
+    if (hasUnsavedChanges) {
+      performSaveAction({ silent: true });
+    }
+
+    setIsSharing(true);
+    try {
+      const rawTitle = getTabRawTitle(activeTab);
+      const docPayload = JSON.stringify({
+        title: rawTitle,
+        text: activeTab.text,
+        createdAt: new Date().toISOString(),
+      });
+
+      const shareId = generateShortShareId();
+      const shareUrl = `${window.location.origin}/share/${shareId}`;
+
+      if (shareRequirePassword) {
+        const sEnc = generateSaltHex();
+        const sAuth = generateSaltHex();
+        const { aesKey: dAesKey, authHash: dAuthHash } = await deriveKeyAndHash(sharePassword, sEnc, sAuth);
+        const encryptedData = await encryptData(docPayload, dAesKey);
+        const authHashDouble = await sha256Client(dAuthHash);
+
+        const resp = await fetch("/api/share/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: shareId,
+            hasPassword: true,
+            salt_enc: sEnc,
+            salt_auth: sAuth,
+            auth_hash_double: authHashDouble,
+            encrypted_data: encryptedData,
+          }),
+        });
+
+        if (!resp.ok) {
+          const d = await resp.json();
+          setShareError(d.error || "Failed to create share link.");
+          return;
+        }
+      } else {
+        const rawKeyHex = generateRandomKeyHex();
+        const encryptedData = await encryptDataWithRawKey(docPayload, rawKeyHex);
+
+        const resp = await fetch("/api/share/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: shareId,
+            hasPassword: false,
+            encrypted_data: encryptedData,
+            key_unprotected: rawKeyHex,
+          }),
+        });
+
+        if (!resp.ok) {
+          const d = await resp.json();
+          setShareError(d.error || "Failed to create share link.");
+          return;
+        }
+      }
+
+      // Mark the active tab as shared and record shareId
+      setTabs((prev) =>
+        prev.map((t) => (t.id === activeTab.id ? { ...t, isShared: true, shareId } : t))
+      );
+      setHasUnsavedChanges(true);
+
+      setGeneratedShareUrl(shareUrl);
+    } catch (err: any) {
+      console.error("Failed to share document:", err);
+      setShareError("Failed to encrypt and share document.");
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const handleCopyShareLink = async () => {
+    if (!generatedShareUrl) return;
+    try {
+      await navigator.clipboard.writeText(generatedShareUrl);
+      setIsShareCopied(true);
+      setTimeout(() => setIsShareCopied(false), 2500);
+    } catch (e) {
+      console.error("Copy failed", e);
+    }
+  };
+
   // --- Views Router ---
 
   // Loading indicator for async setups
@@ -1035,18 +1336,171 @@ export default function App() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.12, ease: "easeOut" }}
           className="fixed inset-0 flex items-center md:items-start justify-center md:pt-[28vh] bg-[#0c0c0e] z-50 pointer-events-none"
-
         >
-
           <span className="font-sans text-sm tracking-widest text-[#ffffff] font-medium block uppercase animate-pulse">
-
             Decrypting
-
           </span>
         </motion.div>
       )}
     </AnimatePresence>
   );
+
+  // 0. SHARED DOCUMENT VIEW (URL: /share/:id)
+  if (sharedDocId) {
+    return (
+      <div className="min-h-screen flex flex-col justify-between bg-[#0b0c0e] text-zinc-200 font-sans selection:bg-zinc-800">
+        <header className="sticky top-0 z-30 bg-[#0c0c0e]/95 backdrop-blur border-b border-zinc-800/80 w-full">
+          <div className="w-full max-w-4xl px-4 md:px-8 py-3 flex justify-between items-center mx-auto">
+            <div className="flex items-center gap-2 md:gap-3">
+              <span
+                onClick={() => navigateTo("")}
+                className="font-sans text-sm md:text-base tracking-widest text-[#f4f4f5] font-semibold cursor-pointer hover:text-zinc-400 transition-colors select-none"
+              >
+                TEXT_VAULT
+              </span>
+              <span className="text-zinc-600 text-xs select-none">/</span>
+              <span className="text-zinc-300 text-xs md:text-sm font-sans font-medium select-none truncate max-w-[180px] md:max-w-md">
+                {sharedDocContent?.title || "Shared Doc"}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 md:gap-4">
+              {sharedDocContent && (
+                <span
+                  onClick={handleCopySharedContent}
+                  className="text-xs font-sans text-zinc-400 hover:text-white cursor-pointer select-none uppercase tracking-wider px-2 py-1 transition-colors"
+                >
+                  {isSharedDocCopied ? "Copied!" : "Copy"}
+                </span>
+              )}
+              <span
+                onClick={() => navigateTo("")}
+                className="text-xs font-sans text-zinc-500 hover:text-white cursor-pointer select-none uppercase tracking-wider px-2 py-1 transition-colors"
+              >
+                Home
+              </span>
+            </div>
+          </div>
+        </header>
+
+        {/* Content area: Loading / Not Found / Password Prompt / Rendered Doc */}
+        <main className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 pt-6 pb-24 max-w-4xl mx-auto w-full">
+          {sharedLoading ? (
+            <div className="flex-1 flex items-center justify-center py-32">
+              <span className="font-sans text-sm tracking-widest text-zinc-400 uppercase animate-pulse">
+                Decrypting document...
+              </span>
+            </div>
+          ) : sharedDocNotFound ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center gap-4 py-32">
+              <h2 className="text-xl font-bold tracking-wide uppercase text-zinc-300">
+                Document Not Found
+              </h2>
+              <p className="text-xs text-zinc-500 max-w-sm">
+                This document link might be invalid, expired, or removed.
+              </p>
+              <button
+                onClick={() => navigateTo("")}
+                className="mt-4 px-4 py-2 bg-zinc-900 border border-zinc-800 text-xs uppercase tracking-wider text-zinc-300 hover:text-white hover:border-zinc-600 rounded transition-all cursor-pointer"
+              >
+                Return Home
+              </button>
+            </div>
+          ) : sharedDocHasPassword && !sharedDocContent ? (
+            <div className="flex-1 flex flex-col items-center justify-center w-full max-w-md mx-auto py-24">
+              <div className="w-full flex flex-col gap-6 items-center">
+                <h2 className="text-zinc-100 font-sans tracking-wide text-lg md:text-xl text-center uppercase font-semibold">
+                  Access Protected Document
+                </h2>
+                <p className="text-xs text-zinc-500 text-center -mt-2">
+                  This document requires a password to view.
+                </p>
+
+                <div className="w-full">
+                  <div className="relative grid items-center w-full max-w-xs mx-auto">
+                    <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
+                      ••••••••
+                    </span>
+                    <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
+                      {sharedPasswordInput ? '•'.repeat(sharedPasswordInput.length) : ''}
+                    </span>
+                    <input
+                      ref={sharedPasswordInputRef}
+                      autoFocus
+                      type="password"
+                      maxLength={64}
+                      value={sharedPasswordInput}
+                      onChange={(e) => setSharedPasswordInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleUnlockSharedDoc();
+                      }}
+                      className="col-start-1 row-start-1 w-full bg-transparent outline-none py-1 font-sans text-base md:text-lg tracking-[0.2em] text-center border-b border-zinc-700 focus:border-zinc-400 transition-colors"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                </div>
+
+                {sharedDocError && (
+                  <p className="font-sans text-[10px] text-red-500 text-center tracking-widest uppercase">
+                    [!] {sharedDocError}
+                  </p>
+                )}
+
+                <div className="flex justify-center gap-8 items-center mt-2">
+                  <span
+                    onClick={() => navigateTo("")}
+                    className="font-sans text-xs md:text-sm text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                  >
+                    Cancel
+                  </span>
+                  <span
+                    onClick={handleUnlockSharedDoc}
+                    className={`font-sans text-xs md:text-sm font-semibold text-zinc-200 hover:text-white hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block ${sharedIsDecrypting ? "opacity-50 pointer-events-none" : ""}`}
+                  >
+                    {sharedIsDecrypting ? "Decrypting..." : "Decrypt"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : sharedDocContent ? (
+            <div className="w-full flex flex-col flex-1">
+              <div className="flex-1 flex flex-col relative min-h-[500px]">
+                <Suspense fallback={<div className="text-zinc-600 font-sans text-sm py-16 text-center">Loading viewer...</div>}>
+                  <Editor
+                    editorRef={sharedEditorRef}
+                    activeTabId="shared"
+                    initialContent={sharedDocContent.text}
+                    hideToc={false}
+                    readOnly={true}
+                  />
+                </Suspense>
+              </div>
+            </div>
+          ) : (
+            sharedDocError && (
+              <div className="flex-1 flex flex-col items-center justify-center text-center gap-4 py-32">
+                <p className="text-xs text-red-400 max-w-sm">
+                  {sharedDocError}
+                </p>
+                <button
+                  onClick={() => navigateTo("")}
+                  className="mt-2 px-4 py-2 bg-zinc-900 border border-zinc-800 text-xs uppercase tracking-wider text-zinc-300 hover:text-white rounded transition-all cursor-pointer"
+                >
+                  Return Home
+                </button>
+              </div>
+            )
+          )}
+        </main>
+
+        <footer className="w-full max-w-4xl mx-auto flex justify-center items-center py-6 border-t border-zinc-900">
+          <span className="font-sans text-[10px] md:text-[11px] text-zinc-600 tracking-widest uppercase text-center select-none">
+            End To End Encrypted // <span onClick={() => navigateTo("")} className="text-white hover:text-zinc-300 cursor-pointer">Text_Vault</span>
+          </span>
+        </footer>
+      </div>
+    );
+  }
 
   // 1 & 2. HOME SCREEN AND PASSWORD PROMPT
   if (!isVerified) {
@@ -1445,6 +1899,21 @@ export default function App() {
                     className="text-xs md:text-sm font-sans text-zinc-500 hover:text-yellow-500 cursor-pointer uppercase tracking-wider transition-colors py-2"
                   >
                     EXPORT TO .MD
+                  </span>
+                  <span
+                    onClick={() => {
+                      setShowShareModal(true);
+                      setShareRequirePassword(false);
+                      setSharePassword("");
+                      setShareConfirmPassword("");
+                      setShareError("");
+                      setGeneratedShareUrl("");
+                      setIsShareCopied(false);
+                      setShowMenu(false);
+                    }}
+                    className="text-xs md:text-sm font-sans text-zinc-500 hover:text-emerald-400 cursor-pointer uppercase tracking-wider transition-colors py-2"
+                  >
+                    {isCurrentTabShared ? "SHARED DOC" : "Share this doc"}
                   </span>
                 </motion.div>
               )}
@@ -1884,6 +2353,152 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* SHARE THIS DOC MODAL */}
+      <AnimatePresence>
+        {showShareModal && (
+          <div className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center p-4 md:pt-[24vh] z-50">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-lg flex flex-col gap-6 relative"
+            >
+              <h3 className="text-zinc-100 font-sans tracking-wide text-lg text-center uppercase font-semibold">
+                Share This Doc
+              </h3>
+
+              {!generatedShareUrl ? (
+                <div className="flex flex-col gap-6">
+                  <p className="font-sans text-xs text-zinc-400 leading-relaxed text-center px-4">
+                    Doc: <span className="text-zinc-200 font-medium">{activeTabRawTitle}</span>
+                  </p>
+
+                  <div className="flex flex-col gap-4 w-full max-w-sm mx-auto">
+                    <label className="flex items-center justify-center gap-3 cursor-pointer select-none py-1">
+                      <input
+                        type="checkbox"
+                        checked={shareRequirePassword}
+                        onChange={(e) => {
+                          setShareRequirePassword(e.target.checked);
+                          setShareError("");
+                        }}
+                        className="w-4 h-4 rounded accent-zinc-200 cursor-pointer"
+                      />
+                      <span className="font-sans text-xs md:text-sm text-zinc-300">
+                        Require access password
+                      </span>
+                    </label>
+
+                    {shareRequirePassword ? (
+                      <div className="flex flex-col gap-4 mt-2">
+                        <div>
+                          <label className="font-sans text-[10px] text-zinc-500 uppercase tracking-widest block mb-1 text-center select-none">
+                            ACCESS PASSWORD
+                          </label>
+                          <input
+                            type="password"
+                            maxLength={64}
+                            value={sharePassword}
+                            onChange={(e) => setSharePassword(e.target.value)}
+                            placeholder="••••••••"
+                            className="w-full bg-zinc-900/60 border border-zinc-800 rounded px-3 py-2 text-center text-white text-sm font-sans tracking-widest outline-none focus:border-zinc-500 transition-colors"
+                          />
+                        </div>
+                        <div>
+                          <label className="font-sans text-[10px] text-zinc-500 uppercase tracking-widest block mb-1 text-center select-none">
+                            REPEAT PASSWORD
+                          </label>
+                          <input
+                            type="password"
+                            maxLength={64}
+                            value={shareConfirmPassword}
+                            onChange={(e) => setShareConfirmPassword(e.target.value)}
+                            placeholder="••••••••"
+                            className="w-full bg-zinc-900/60 border border-zinc-800 rounded px-3 py-2 text-center text-white text-sm font-sans tracking-widest outline-none focus:border-zinc-500 transition-colors"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="font-sans text-[11px] text-zinc-500 text-center tracking-wide leading-relaxed">
+                        Anyone with the link can view this document without a password.
+                      </p>
+                    )}
+
+                    {shareError && (
+                      <p className="font-sans text-[10px] text-red-500 text-center tracking-widest uppercase">
+                        [!] {shareError}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex justify-center gap-12 items-center mt-2">
+                    <span
+                      onClick={() => setShowShareModal(false)}
+                      className="font-sans text-xs md:text-sm text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                    >
+                      Cancel
+                    </span>
+                    <span
+                      onClick={handleGenerateShareLink}
+                      className={`font-sans text-xs md:text-sm font-semibold text-zinc-200 hover:text-white hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block ${isSharing ? "opacity-50 pointer-events-none" : ""}`}
+                    >
+                      {isSharing ? "Creating Link..." : "Create Share Link"}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-6">
+                  <p className="font-sans text-xs text-zinc-400 leading-relaxed text-center px-4">
+                    Share link generated successfully:
+                  </p>
+
+                  <div className="w-full max-w-md mx-auto">
+                    <div className="p-2.5 bg-zinc-900/80 border border-zinc-800 rounded flex items-center justify-between gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={generatedShareUrl}
+                        onClick={(e) => e.currentTarget.select()}
+                        className="bg-transparent font-mono text-xs text-zinc-300 w-full outline-none select-all px-1"
+                      />
+                      <button
+                        onClick={handleCopyShareLink}
+                        className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-sans uppercase tracking-wider rounded transition-colors flex-shrink-0 cursor-pointer"
+                      >
+                        {isShareCopied ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
+
+                    {shareRequirePassword ? (
+                      <p className="font-sans text-[11px] text-zinc-400 text-center leading-relaxed mt-3">
+                        Remember to send the access password to your recipient.
+                      </p>
+                    ) : (
+                      <p className="font-sans text-[11px] text-zinc-500 text-center leading-relaxed mt-3">
+                        Anyone with this link can view this document.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex justify-center items-center mt-2">
+                    <span
+                      onClick={() => {
+                        setGeneratedShareUrl("");
+                        setShowShareModal(false);
+                      }}
+                      className="font-sans text-xs md:text-sm text-zinc-400 hover:text-white transition-colors cursor-pointer select-none uppercase tracking-wider px-4 py-1"
+                    >
+                      Done
+                    </span>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {loadingOverlay}
     </motion.div>
   );

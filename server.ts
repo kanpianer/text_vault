@@ -334,7 +334,7 @@ app.post("/api/share/create", (req, res) => {
   const { id, hasPassword, salt_enc, salt_auth, auth_hash_double, encrypted_data, key_unprotected } = req.body;
 
   if (!id || typeof id !== "string" || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
-    return res.status(400).json({ error: "Invalid share ID. Must be 8-64 alphanumeric characters." });
+    return res.status(400).json({ error: "Invalid share ID. Must be 6-64 alphanumeric characters." });
   }
 
   if (typeof hasPassword !== "boolean" || !encrypted_data) {

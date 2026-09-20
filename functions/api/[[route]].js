@@ -1,21 +1,8 @@
 /**
- * Cloudflare Worker for Text Vault
+ * Cloudflare Pages Functions: /api/* handler
  * 
- * 这个文件将原本的 Express 服务器改造为 Cloudflare Worker 兼容版本
- * 
- * 部署说明：
- * 1. 创建 KV Namespace 并绑定为 "VAULTS"
- * 2. 将此文件内容复制到 Cloudflare Worker 编辑器
- * 3. 修改底部的 Pages URL 为您的实际 Pages URL
- * 4. 保存并部署
- * 
- * API 端点：
- * - GET  /api/vault/:name/salts   - 获取保险库的 salt 值
- * - GET  /api/vault/:name/check   - 检查保险库名称是否可用
- * - POST /api/vault/:name/create  - 创建新保险库
- * - POST /api/vault/:name/get     - 获取保险库内容（需要密码验证）
- * - POST /api/vault/:name/update  - 更新保险库内容
- * - POST /api/vault/:name/delete  - 删除保险库
+ * 当使用 Cloudflare Pages 部署时，此文件会自动拦截并处理所有 /api/* 路由，
+ * 直接访问绑定的 KV Namespace (VAULTS)，无需单独维护和配置独立 Cloudflare Worker。
  */
 
 // Helper to create SHA-256 hash
@@ -40,12 +27,14 @@ function safeCompare(a, b) {
 
 // Helper to get vault from KV storage
 async function getVault(env, name) {
+  if (!env || !env.VAULTS) return null;
   const vaultData = await env.VAULTS.get(name);
   return vaultData ? JSON.parse(vaultData) : null;
 }
 
 // Helper to save vault to KV storage
 async function saveVault(env, name, vault) {
+  if (!env || !env.VAULTS) throw new Error('KV binding VAULTS not found.');
   await env.VAULTS.put(name, JSON.stringify(vault));
 }
 
@@ -77,7 +66,7 @@ function jsonResponse(data, status = 200, extraHeaders = {}) {
 }
 
 // Router for API endpoints
-async function handleRequest(request, env) {
+async function handleApiRequest(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
   const method = request.method;
@@ -267,6 +256,7 @@ async function handleRequest(request, env) {
       );
     }
 
+    if (!env || !env.VAULTS) throw new Error('KV binding VAULTS not found.');
     await env.VAULTS.delete(name);
     return jsonResponse({ success: true });
   }
@@ -286,6 +276,10 @@ async function handleRequest(request, env) {
 
     if (hasPassword && (!salt_enc || !salt_auth || !auth_hash_double)) {
       return jsonResponse({ error: 'Password-protected shares require salt_enc, salt_auth, and auth_hash_double.' }, 400);
+    }
+
+    if (!env || !env.VAULTS) {
+      return jsonResponse({ error: 'KV Namespace VAULTS is not bound in Cloudflare Pages settings.' }, 500);
     }
 
     const existing = await env.VAULTS.get('share:' + id);
@@ -309,10 +303,11 @@ async function handleRequest(request, env) {
   }
 
   // API: Get shared document metadata or unprotected content
-  if (method === 'GET' && path.match(/^\/api\/share\/([^\/]+)$/)) {
-    const id = path.match(/^\/api\/share\/([^\/]+)$/)[1];
-    if (!id || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
-      return jsonResponse({ error: 'Invalid share ID.' }, 400);
+  if (method === 'GET' && path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})$/)) {
+    const id = path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})$/)[1];
+
+    if (!env || !env.VAULTS) {
+      return jsonResponse({ error: 'KV Namespace VAULTS is not bound in Cloudflare Pages settings.' }, 500);
     }
 
     const raw = await env.VAULTS.get('share:' + id);
@@ -339,10 +334,11 @@ async function handleRequest(request, env) {
   }
 
   // API: Access password-protected shared document
-  if (method === 'POST' && path.match(/^\/api\/share\/([^\/]+)\/access$/)) {
-    const id = path.match(/^\/api\/share\/([^\/]+)\/access$/)[1];
-    if (!id || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
-      return jsonResponse({ error: 'Invalid share ID.' }, 400);
+  if (method === 'POST' && path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})\/access$/)) {
+    const id = path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})\/access$/)[1];
+
+    if (!env || !env.VAULTS) {
+      return jsonResponse({ error: 'KV Namespace VAULTS is not bound in Cloudflare Pages settings.' }, 500);
     }
 
     const raw = await env.VAULTS.get('share:' + id);
@@ -376,52 +372,17 @@ async function handleRequest(request, env) {
     });
   }
 
-  // Return null if no API route matched (will serve static assets)
-  return null;
+  return jsonResponse({ error: `API route not found: ${path}` }, 404);
 }
 
-
-export default {
-  async fetch(request, env, ctx) {
-    try {
-      // 首先尝试处理 API 请求
-      const apiResponse = await handleRequest(request, env);
-      if (apiResponse) {
-        return apiResponse;
-      }
-
-      // 如果不是 API 请求，则转发到 Cloudflare Pages（前端）
-      // ⚠️ 重要：将下面的 URL 替换为您在 Pages 中部署的实际 URL
-      const pagesUrl = 'https://text-vault-app.pages.dev'; // <-- 修改这里
-      
-      const url = new URL(request.url);
-      const targetUrl = pagesUrl + url.pathname + url.search;
-      
-      const isGetOrHead = request.method === 'GET' || request.method === 'HEAD';
-      const pageResponse = await fetch(targetUrl, {
-        method: request.method,
-        headers: request.headers,
-        body: isGetOrHead ? null : request.body,
-      });
-
-      // SPA 回退支持：当直接在浏览器访问 /share/:id 或 /vaultname 时，若静态托管返回 404，则回退到 index.html
-      if (pageResponse.status === 404 && request.method === 'GET') {
-        const accept = request.headers.get('accept') || '';
-        if (accept.includes('text/html') || !url.pathname.includes('.')) {
-          return fetch(pagesUrl + '/index.html', {
-            method: 'GET',
-            headers: request.headers,
-          });
-        }
-      }
-
-      return pageResponse;
-    } catch (error) {
-      console.error('Worker error:', error);
-      return jsonResponse(
-        { error: 'Internal server error', message: error.message },
-        500
-      );
-    }
-  },
-};
+export async function onRequest(context) {
+  try {
+    return await handleApiRequest(context.request, context.env);
+  } catch (error) {
+    console.error('Pages Functions Error:', error);
+    return jsonResponse(
+      { error: 'Internal server error', message: error.message },
+      500
+    );
+  }
+}

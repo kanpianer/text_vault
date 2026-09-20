@@ -1236,7 +1236,7 @@ export default function App() {
     }
 
     if (hasUnsavedChanges) {
-      performSaveAction({ silent: true });
+      await performSaveAction({ silent: true });
     }
 
     setIsSharing(true);
@@ -1251,6 +1251,8 @@ export default function App() {
       const shareId = generateShortShareId();
       const shareUrl = `${window.location.origin}/share/${shareId}`;
 
+      let resp: Response;
+
       if (shareRequirePassword) {
         const sEnc = generateSaltHex();
         const sAuth = generateSaltHex();
@@ -1258,7 +1260,7 @@ export default function App() {
         const encryptedData = await encryptData(docPayload, dAesKey);
         const authHashDouble = await sha256Client(dAuthHash);
 
-        const resp = await fetch("/api/share/create", {
+        resp = await fetch("/api/share/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1270,17 +1272,11 @@ export default function App() {
             encrypted_data: encryptedData,
           }),
         });
-
-        if (!resp.ok) {
-          const d = await resp.json();
-          setShareError(d.error || "Failed to create share link.");
-          return;
-        }
       } else {
         const rawKeyHex = generateRandomKeyHex();
         const encryptedData = await encryptDataWithRawKey(docPayload, rawKeyHex);
 
-        const resp = await fetch("/api/share/create", {
+        resp = await fetch("/api/share/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1290,12 +1286,31 @@ export default function App() {
             key_unprotected: rawKeyHex,
           }),
         });
+      }
 
-        if (!resp.ok) {
+      if (!resp.ok) {
+        let errorMsg = `Server error (${resp.status})`;
+        try {
           const d = await resp.json();
-          setShareError(d.error || "Failed to create share link.");
-          return;
+          if (d && (d.error || d.message)) {
+            errorMsg = d.error || d.message;
+          }
+        } catch {
+          if (resp.status === 404) {
+            errorMsg = "API endpoint /api/share/create not found (404). Please ensure Cloudflare Worker is updated with the latest worker.js.";
+          } else if (resp.status === 405) {
+            errorMsg = "Method not allowed (405). The request reached static hosting instead of the API worker. Please update the Cloudflare Worker script.";
+          } else {
+            try {
+              const text = await resp.text();
+              if (text && text.length < 100 && !text.includes("<")) {
+                errorMsg = text;
+              }
+            } catch {}
+          }
         }
+        setShareError(errorMsg);
+        return;
       }
 
       // Mark the active tab as shared and record shareId
@@ -1307,7 +1322,12 @@ export default function App() {
       setGeneratedShareUrl(shareUrl);
     } catch (err: any) {
       console.error("Failed to share document:", err);
-      setShareError("Failed to encrypt and share document.");
+      const msg = err?.message || "";
+      if (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("Network request failed")) {
+        setShareError("Network request failed. Please check your connection or ensure backend API is running.");
+      } else {
+        setShareError(msg ? `Failed to share document: ${msg}` : "Failed to encrypt and share document.");
+      }
     } finally {
       setIsSharing(false);
     }

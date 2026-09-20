@@ -54,12 +54,15 @@ function isValidVaultName(name) {
   return /^[a-zA-Z0-9]{1,10}$/.test(name);
 }
 
-// Standard security headers
+// Standard security headers with CORS support
 const SECURITY_HEADERS = {
   'Content-Type': 'application/json',
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 // Helper to create JSON response with security headers
@@ -78,6 +81,14 @@ async function handleRequest(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
   const method = request.method;
+
+  // Handle CORS preflight options request
+  if (method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: SECURITY_HEADERS,
+    });
+  }
 
   // API: Check if vault exists and return salts
   if (method === 'GET' && path.match(/^\/api\/vault\/([^\/]+)\/salts$/)) {
@@ -266,7 +277,7 @@ async function handleRequest(request, env) {
     const { id, hasPassword, salt_enc, salt_auth, auth_hash_double, encrypted_data, key_unprotected } = body;
 
     if (!id || typeof id !== 'string' || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
-      return jsonResponse({ error: 'Invalid share ID. Must be 8-64 alphanumeric characters.' }, 400);
+      return jsonResponse({ error: 'Invalid share ID. Must be 6-64 alphanumeric characters.' }, 400);
     }
 
     if (typeof hasPassword !== 'boolean' || !encrypted_data) {
@@ -386,11 +397,25 @@ export default {
       const url = new URL(request.url);
       const targetUrl = pagesUrl + url.pathname + url.search;
       
-      return fetch(targetUrl, {
+      const isGetOrHead = request.method === 'GET' || request.method === 'HEAD';
+      const pageResponse = await fetch(targetUrl, {
         method: request.method,
         headers: request.headers,
-        body: request.body,
+        body: isGetOrHead ? null : request.body,
       });
+
+      // SPA 回退支持：当直接在浏览器访问 /share/:id 或 /vaultname 时，若静态托管返回 404，则回退到 index.html
+      if (pageResponse.status === 404 && request.method === 'GET') {
+        const accept = request.headers.get('accept') || '';
+        if (accept.includes('text/html') || !url.pathname.includes('.')) {
+          return fetch(pagesUrl + '/index.html', {
+            method: 'GET',
+            headers: request.headers,
+          });
+        }
+      }
+
+      return pageResponse;
     } catch (error) {
       console.error('Worker error:', error);
       return jsonResponse(

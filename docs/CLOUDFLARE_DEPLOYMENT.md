@@ -263,6 +263,22 @@ return fetch(pagesUrl + url.pathname + url.search);
    - 进入 KV namespace 查看键值
 3. 可能是 KV 同步延迟，稍等片刻重试
 
+### ❌ 问题：创建分享链接提示 "Failed to encrypt and share document" 或 404/405
+
+**原因：**
+当仓库新增“文档分享”功能时，Git 推送会自动更新 Cloudflare Pages 前端，但**不会**自动更新 Cloudflare Worker 中的代码。旧版本的 Worker 中不存在 `/api/share/*` 路由，请求会被转给 Pages 静态托管并返回 405/404。
+
+**解决方案：**
+1. **更新 Worker 脚本（方案 A，最常用）**：
+   - 打开项目根目录最新的 `worker.js` 文件，复制全部内容。
+   - 打开 Cloudflare 控制台 > Workers & Pages > 点击您的 Worker (`text-vault-api`) > **Edit code**。
+   - 将最新代码粘贴进去，确保底部的 `pagesUrl` 仍是您的 Pages 实际地址，点击 **Deploy**。
+2. **使用 Pages 原生 Functions（方案 B，推荐自动化）**：
+   - 项目已新增 `functions/api/[[route]].js`。
+   - 在 Cloudflare 控制台 > **Workers & Pages** > 选择您的 **Pages** 项目 > **Settings** > **Functions**。
+   - 找到 **KV namespace bindings**，添加变量名 `VAULTS`，绑定您的 `text-vault-storage` KV。
+   - 之后只要 Git 推送代码，前后端和分享 API 就会自动全量部署，无需再手动更新 Worker！
+
 ---
 
 ## 🎯 下一步优化

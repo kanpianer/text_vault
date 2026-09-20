@@ -1300,7 +1300,7 @@ export default function App() {
 
       // Mark the active tab as shared and record shareId
       setTabs((prev) =>
-        prev.map((t) => (t.id === activeTab.id ? { ...t, isShared: true, shareId } : t))
+        prev.map((t) => (t.id === activeTab.id ? { ...t, isShared: true, shareId, shareHasPassword: shareRequirePassword } : t))
       );
       setHasUnsavedChanges(true);
 
@@ -1412,9 +1412,6 @@ export default function App() {
                 <h2 className="text-zinc-100 font-sans tracking-wide text-lg md:text-xl text-center uppercase font-semibold">
                   Access Protected Document
                 </h2>
-                <p className="text-xs text-zinc-500 text-center -mt-2">
-                  This document requires a password to view.
-                </p>
 
                 <div className="w-full">
                   <div className="relative grid items-center w-full max-w-xs mx-auto">
@@ -1434,7 +1431,7 @@ export default function App() {
                       onKeyDown={(e) => {
                         if (e.key === "Enter") handleUnlockSharedDoc();
                       }}
-                      className="col-start-1 row-start-1 w-full bg-transparent outline-none py-1 font-sans text-base md:text-lg tracking-[0.2em] text-center border-b border-zinc-700 focus:border-zinc-400 transition-colors"
+                      className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-base md:text-lg tracking-[0.2em] text-center border-none"
                       placeholder="••••••••"
                     />
                   </div>
@@ -1902,12 +1899,18 @@ export default function App() {
                   </span>
                   <span
                     onClick={() => {
+                      const currentTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+                      if (currentTab?.shareId) {
+                        setGeneratedShareUrl(`${window.location.origin}/share/${currentTab.shareId}`);
+                        setShareRequirePassword(Boolean(currentTab.shareHasPassword));
+                      } else {
+                        setGeneratedShareUrl("");
+                        setShareRequirePassword(false);
+                      }
                       setShowShareModal(true);
-                      setShareRequirePassword(false);
                       setSharePassword("");
                       setShareConfirmPassword("");
                       setShareError("");
-                      setGeneratedShareUrl("");
                       setIsShareCopied(false);
                       setShowMenu(false);
                     }}
@@ -2365,7 +2368,7 @@ export default function App() {
               className="w-full max-w-lg flex flex-col gap-6 relative"
             >
               <h3 className="text-zinc-100 font-sans tracking-wide text-lg text-center uppercase font-semibold">
-                Share This Doc
+                {isCurrentTabShared ? "Shared Doc" : "Share This Doc"}
               </h3>
 
               {!generatedShareUrl ? (
@@ -2450,7 +2453,7 @@ export default function App() {
               ) : (
                 <div className="flex flex-col gap-6">
                   <p className="font-sans text-xs text-zinc-400 leading-relaxed text-center px-4">
-                    Share link generated successfully:
+                    {isCurrentTabShared ? "Share link for this doc:" : "Share link generated successfully:"}
                   </p>
 
                   <div className="w-full max-w-md mx-auto">
@@ -2481,10 +2484,17 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="flex justify-center items-center mt-2">
+                  <div className="flex justify-center items-center gap-8 mt-2">
                     <span
                       onClick={() => {
                         setGeneratedShareUrl("");
+                      }}
+                      className="font-sans text-xs text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer select-none uppercase tracking-wider px-2 py-1"
+                    >
+                      Re-share
+                    </span>
+                    <span
+                      onClick={() => {
                         setShowShareModal(false);
                       }}
                       className="font-sans text-xs md:text-sm text-zinc-400 hover:text-white transition-colors cursor-pointer select-none uppercase tracking-wider px-4 py-1"

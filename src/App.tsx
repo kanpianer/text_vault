@@ -2264,7 +2264,7 @@ export default function App() {
                         setShowDocPopup(false);
                       }
                     }}
-                    placeholder="search docs"
+                    placeholder="search docs..."
                     className="bg-transparent text-base md:text-lg text-zinc-200 placeholder-zinc-500 outline-none w-full font-sans"
                   />
                   {docSearchQuery && (

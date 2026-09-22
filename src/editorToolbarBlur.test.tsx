@@ -171,4 +171,103 @@ describe("Editor mobile toolbar blur and keyboard collapse behavior", () => {
     expect(toolbar.style.opacity).toBe("0");
     expect(toolbar.style.pointerEvents).toBe("none");
   });
+
+  it("enters edit state when clicking document content on desktop", async () => {
+    const editorRef = createRef<HTMLDivElement>();
+    const onChange = vi.fn();
+    const onActiveChange = vi.fn();
+
+    render(
+      <Editor
+        activeTabId="tab-1"
+        initialContent="<p>Click me to edit</p>"
+        onChange={onChange}
+        editorRef={editorRef}
+        readOnly={false}
+        onActiveChange={onActiveChange}
+      />
+    );
+
+    const editorEl = editorRef.current!;
+    const p = editorEl.querySelector("p")!;
+
+    // Initially inactive
+    expect(editorEl.getAttribute("contenteditable")).toBe("false");
+
+    // Click on paragraph
+    act(() => {
+      fireEvent.mouseDown(p);
+      fireEvent.click(p);
+    });
+
+    // Editor enters edit state
+    expect(editorEl.getAttribute("contenteditable")).toBe("true");
+    expect(onActiveChange).toHaveBeenCalledWith(true);
+  });
+
+  it("enters edit state when tapping document content on mobile", async () => {
+    const editorRef = createRef<HTMLDivElement>();
+    const onChange = vi.fn();
+    const onActiveChange = vi.fn();
+
+    render(
+      <Editor
+        activeTabId="tab-1"
+        initialContent="<p>Tap me on mobile</p>"
+        onChange={onChange}
+        editorRef={editorRef}
+        readOnly={false}
+        onActiveChange={onActiveChange}
+      />
+    );
+
+    const editorEl = editorRef.current!;
+    const p = editorEl.querySelector("p")!;
+
+    // Tap on mobile
+    act(() => {
+      fireEvent.touchStart(p, { touches: [{ clientX: 50, clientY: 50 }] });
+      fireEvent.touchEnd(p, { touches: [] });
+    });
+
+    // Editor enters edit state
+    expect(editorEl.getAttribute("contenteditable")).toBe("true");
+    expect(onActiveChange).toHaveBeenCalledWith(true);
+  });
+
+  it("keeps editor active when clicking between elements inside the editor", async () => {
+    const editorRef = createRef<HTMLDivElement>();
+    const onChange = vi.fn();
+    const onActiveChange = vi.fn();
+
+    render(
+      <Editor
+        activeTabId="tab-1"
+        initialContent="<p id='p1'>First paragraph</p><p id='p2'>Second paragraph</p>"
+        onChange={onChange}
+        editorRef={editorRef}
+        readOnly={false}
+        onActiveChange={onActiveChange}
+      />
+    );
+
+    const editorEl = editorRef.current!;
+    const p1 = editorEl.querySelector("#p1")!;
+    const p2 = editorEl.querySelector("#p2")!;
+
+    // Enter edit state
+    act(() => {
+      fireEvent.mouseDown(p1);
+      fireEvent.click(p1);
+    });
+    expect(editorEl.getAttribute("contenteditable")).toBe("true");
+
+    // Simulate focus transition within editor (from p1 to p2)
+    act(() => {
+      fireEvent.blur(editorEl, { relatedTarget: p2 });
+    });
+
+    // Editor should still be active!
+    expect(editorEl.getAttribute("contenteditable")).toBe("true");
+  });
 });

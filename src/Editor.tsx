@@ -740,10 +740,6 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
             if (!isKeyboardOpen) {
               setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
-              if (document.activeElement === el || el.contains(document.activeElement)) {
-                el.blur();
-                setIsActive(false);
-              }
               return;
             }
 
@@ -786,29 +782,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   }, [hideToc, updateToolbar]);
 
   useEffect(() => {
-    let lastVVHeight = window.visualViewport?.height ?? window.innerHeight;
-
     const handleVV = () => {
       if (window.matchMedia("(max-width: 767px)").matches) {
-        const currentVVHeight = window.visualViewport?.height ?? window.innerHeight;
-        const el = editorRef.current as HTMLElement | null;
-
-        // If viewport height expanded significantly (keyboard collapsed)
-        if (currentVVHeight - lastVVHeight > 80) {
-          const sel = window.getSelection();
-          if (sel && sel.isCollapsed && el && el.contains(sel.anchorNode)) {
-            const block = getCurrentBlock(el, sel.anchorNode) || (el.textContent?.trim() === "" ? el : null);
-            const text = (block?.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
-            if (text === "") {
-              setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
-              el.blur();
-              setIsActive(false);
-              lastVVHeight = currentVVHeight;
-              return;
-            }
-          }
-        }
-        lastVVHeight = currentVVHeight;
         updateToolbar();
       }
     };
@@ -1668,31 +1643,16 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   // ── click: activate editor ────────────────────────────────────────
 
   const handleMouseDown = (e: React.MouseEvent) => {
-
     const t = e.target as HTMLElement;
-
     if (t.tagName === "IMG") {
-
       e.preventDefault();
-
       return;
-
     }
-
-    if (!isActive && !readOnly) {
-
+    if (!isActive && !readOnly && editorRef.current) {
       editorRef.current.contentEditable = "true";
-
-      if (!window.matchMedia("(pointer: coarse)").matches) {
-
-        editorRef.current.focus({ preventScroll: true });
-
-      }
-
+      editorRef.current.focus({ preventScroll: true });
       setIsActive(true);
-
     }
-
   };
 
   // ── touch: detect tap to activate ─────────────────────────────────
@@ -1819,6 +1779,12 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
   const handleBlur = (e: React.FocusEvent) => {
     const related = e.relatedTarget as Node | null;
+    const el = editorRef.current as HTMLElement | null;
+
+    if (el && related && (el === related || el.contains(related))) {
+      return;
+    }
+
     const isMovingToSubInput =
       (linkInputRef.current && (linkInputRef.current === related || linkInputRef.current.contains(related))) ||
       (imageInputRef.current && (imageInputRef.current === related || imageInputRef.current.contains(related))) ||
@@ -1881,6 +1847,12 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
             e.stopPropagation();
             window.open(anchor.href, "_blank", "noopener,noreferrer");
             return;
+          }
+
+          if (!isActive && !readOnly && editorRef.current) {
+            editorRef.current.contentEditable = "true";
+            editorRef.current.focus({ preventScroll: true });
+            setIsActive(true);
           }
 
           if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {

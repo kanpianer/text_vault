@@ -47,7 +47,7 @@ describe("Editor mobile toolbar blur and keyboard collapse behavior", () => {
     expect(style.pointerEvents).toBe("none");
   });
 
-  it("hides toolbar and deactivates editor when keyboard collapses on mobile empty line", async () => {
+  it("shows toolbar at viewport bottom on mobile when in edit state on an empty line, and hides on blur", async () => {
     const editorRef = createRef<HTMLDivElement>();
     const onChange = vi.fn();
     const onActiveChange = vi.fn();
@@ -65,7 +65,7 @@ describe("Editor mobile toolbar blur and keyboard collapse behavior", () => {
     }));
 
     // Mock visualViewport
-    let vvHeight = 400; // keyboard open
+    let vvHeight = 500;
     const resizeListeners: Array<() => void> = [];
     const mockVisualViewport = {
       get height() {
@@ -105,7 +105,7 @@ describe("Editor mobile toolbar blur and keyboard collapse behavior", () => {
     const editorEl = editorRef.current!;
     const toolbar = editorEl.parentElement?.querySelector(".border.border-zinc-800.rounded") as HTMLElement;
 
-    // Simulate clicking empty line to activate and show toolbar
+    // Simulate clicking empty line to activate
     act(() => {
       fireEvent.mouseDown(editorEl);
       fireEvent.mouseUp(editorEl);
@@ -121,13 +121,21 @@ describe("Editor mobile toolbar blur and keyboard collapse behavior", () => {
     sel?.removeAllRanges();
     sel?.addRange(range);
 
-    // Keyboard collapse: visualViewport expands from 400 to 750
-    vvHeight = 750;
+    // Trigger visualViewport resize or selection update
     act(() => {
       resizeListeners.forEach((cb) => cb());
     });
 
-    // Toolbar must be immediately hidden
+    // Toolbar must be visible, fixed at bottom of viewport on mobile
+    expect(toolbar.style.opacity).toBe("1");
+    expect(toolbar.style.pointerEvents).toBe("auto");
+    expect(toolbar.style.position).toBe("fixed");
+
+    // When editor blurs (exiting focus), toolbar must hide
+    act(() => {
+      fireEvent.blur(editorEl);
+    });
+
     expect(toolbar.style.opacity).toBe("0");
     expect(toolbar.style.pointerEvents).toBe("none");
   });

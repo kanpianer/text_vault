@@ -1115,7 +1115,23 @@ export default function App() {
     });
   }, [tabs, docSearchQuery]);
 
-  // Measure editor width to set popup width to 1/2 of editor area width
+  // Track mobile viewport
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+      return window.matchMedia("(max-width: 767px)").matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mql = window.matchMedia("(max-width: 767px)");
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mql.addEventListener?.("change", onChange);
+    return () => mql.removeEventListener?.("change", onChange);
+  }, []);
+
+  // Measure editor width to set popup width to editor width on mobile or 1/2 of editor width on desktop
   useEffect(() => {
     const updateWidth = () => {
       if (editorRef.current && editorRef.current.offsetWidth > 0) {
@@ -1152,10 +1168,10 @@ export default function App() {
 
   const popupWidth = useMemo(() => {
     if (editorAreaWidth > 0) {
-      return Math.round(editorAreaWidth / 2);
+      return isMobile ? editorAreaWidth : Math.round(editorAreaWidth / 2);
     }
-    return 416;
-  }, [editorAreaWidth]);
+    return isMobile ? undefined : 416;
+  }, [editorAreaWidth, isMobile]);
 
   // Hover handlers for Text_Vault/ trigger and popup
   const handleDocTriggerMouseEnter = () => {
@@ -1190,20 +1206,26 @@ export default function App() {
   // Close popup when clicking outside
   useEffect(() => {
     if (!showDocPopup) return;
-    const handleOutsideClick = (e: MouseEvent) => {
+    const handleOutsideClick = (e: Event) => {
       if (reorderingTabIdRef.current) return;
+      const target = e.target as Node | null;
+      if (!target) return;
       if (
         docPopupRef.current &&
-        !docPopupRef.current.contains(e.target as Node) &&
+        !docPopupRef.current.contains(target) &&
         docTriggerRef.current &&
-        !docTriggerRef.current.contains(e.target as Node)
+        !docTriggerRef.current.contains(target)
       ) {
         setShowDocPopup(false);
       }
     };
-    document.addEventListener("mousedown", handleOutsideClick);
+    window.addEventListener("pointerdown", handleOutsideClick, true);
+    window.addEventListener("touchstart", handleOutsideClick, true);
+    window.addEventListener("mousedown", handleOutsideClick, true);
     return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
+      window.removeEventListener("pointerdown", handleOutsideClick, true);
+      window.removeEventListener("touchstart", handleOutsideClick, true);
+      window.removeEventListener("mousedown", handleOutsideClick, true);
     };
   }, [showDocPopup]);
 
@@ -1373,17 +1395,23 @@ export default function App() {
   // Close timer dropdown when clicking outside
   useEffect(() => {
     if (!showTimerDropdown) return;
-    const handleOutsideClick = (e: MouseEvent) => {
+    const handleOutsideClick = (e: Event) => {
+      const target = e.target as Node | null;
+      if (!target) return;
       if (
         timerContainerRef.current &&
-        !timerContainerRef.current.contains(e.target as Node)
+        !timerContainerRef.current.contains(target)
       ) {
         setShowTimerDropdown(false);
       }
     };
-    document.addEventListener("mousedown", handleOutsideClick);
+    window.addEventListener("pointerdown", handleOutsideClick, true);
+    window.addEventListener("touchstart", handleOutsideClick, true);
+    window.addEventListener("mousedown", handleOutsideClick, true);
     return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
+      window.removeEventListener("pointerdown", handleOutsideClick, true);
+      window.removeEventListener("touchstart", handleOutsideClick, true);
+      window.removeEventListener("mousedown", handleOutsideClick, true);
     };
   }, [showTimerDropdown]);
 
@@ -2159,16 +2187,33 @@ export default function App() {
       <div className="sticky top-0 z-30 bg-[#090a0b] flex flex-col w-full">
         <header className="w-full">
         <div className="w-full max-w-4xl px-4 md:px-8 py-3 flex justify-between items-center mx-auto relative">
+          {/* Mobile backdrop for Document Switcher to dismiss immediately on tap */}
+          {showDocPopup && (
+            <div
+              className="fixed inset-0 z-40 md:hidden bg-transparent"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowDocPopup(false);
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowDocPopup(false);
+              }}
+            />
+          )}
+
           <div className="flex items-center gap-3 min-w-0">
             <div
               ref={docTriggerRef}
               onMouseEnter={handleDocTriggerMouseEnter}
               onMouseLeave={handleDocTriggerMouseLeave}
               onClick={() => setShowDocPopup((prev) => !prev)}
-              className="font-sans text-sm md:text-base tracking-widest font-semibold select-none flex items-center cursor-pointer group shrink-0 py-1"
+              className="font-sans text-sm md:text-base tracking-widest font-semibold select-none flex items-center cursor-pointer group shrink-0 py-1 relative z-50"
             >
-              <span className="text-zinc-500 tracking-normal group-hover:text-white transition-colors duration-150">Text_Vault/</span>
-              <span className="lowercase text-white group-hover:text-zinc-500 transition-colors duration-150">{vaultName}</span>
+              <span className={`tracking-normal transition-colors duration-150 ${showDocPopup ? "text-white" : "text-zinc-500 group-hover:text-white"}`}>Text_Vault/</span>
+              <span className={`lowercase transition-colors duration-150 ${showDocPopup ? "text-zinc-500" : "text-white group-hover:text-zinc-500"}`}>{vaultName}</span>
             </div>
 
             {tabs.length < 20 && (
@@ -2194,10 +2239,10 @@ export default function App() {
                 onMouseEnter={handleDocPopupMouseEnter}
                 onMouseLeave={handleDocPopupMouseLeave}
                 style={{
-                  width: `${popupWidth}px`,
+                  width: isMobile ? (editorAreaWidth > 0 ? `${editorAreaWidth}px` : "calc(100vw - 32px)") : `${popupWidth}px`,
                   maxWidth: "calc(100vw - 32px)",
                 }}
-                className="absolute left-4 md:left-8 top-full mt-2 flex flex-col z-50 bg-[#090a0b] border border-zinc-800 rounded shadow-xl max-h-[75vh] overflow-hidden before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']"
+                className="absolute left-4 md:left-8 top-full mt-0 flex flex-col z-50 bg-[#090a0b] border border-zinc-800 rounded shadow-xl max-h-[75vh] overflow-hidden before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']"
               >
                 {/* Search bar header */}
                 <div className="flex items-center gap-2.5 px-3.5 py-2 border-b border-zinc-800 bg-[#090a0b] shrink-0">
@@ -2219,7 +2264,7 @@ export default function App() {
                         setShowDocPopup(false);
                       }
                     }}
-                    placeholder="Search documents..."
+                    placeholder="search docs"
                     className="bg-transparent text-base md:text-lg text-zinc-200 placeholder-zinc-500 outline-none w-full font-sans"
                   />
                   {docSearchQuery && (
@@ -2332,7 +2377,7 @@ export default function App() {
                                 handleCloseTab(e, tab.id);
                               }}
                               title="Delete Doc"
-                              className="text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded cursor-pointer shrink-0"
+                              className="text-zinc-600 hover:text-red-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-0.5 rounded cursor-pointer shrink-0"
                             >
                               <X size={16} strokeWidth={2} />
                             </button>
@@ -2360,30 +2405,54 @@ export default function App() {
 
         {/* Global actions: Save word and Settings overlay */}
         <div className="flex items-center gap-4 md:gap-6">
-          {/* Status indicator: UNSAVED / SAVING... / SAVED - Fixed position to the left of Timer */}
-          <div
-            className={`flex items-center justify-end w-[64px] md:w-[72px] select-none shrink-0 transition-opacity duration-150 ${
-              showMenu ? "opacity-0 pointer-events-none invisible" : ""
-            }`}
-          >
-            {hasUnsavedChanges && saveStatus === "idle" && !autoSaveAnim && (
-              <span className="font-sans text-[10px] md:text-xs text-zinc-500 animate-pulse tracking-wider leading-none">
-                [UNSAVED]
-              </span>
-            )}
+          {/* Status indicator: UNSAVED / SAVING... / SAVED - Same distance to Timer as Timer to Save */}
+          {((hasUnsavedChanges && saveStatus === "idle" && !autoSaveAnim) ||
+            saveStatus === "saving" ||
+            autoSaveAnim === "saving" ||
+            saveStatus === "saved" ||
+            autoSaveAnim === "saved") && (
+            <div
+              className={`flex items-center select-none shrink-0 transition-opacity duration-150 ${
+                showMenu ? "opacity-0 pointer-events-none invisible" : ""
+              }`}
+            >
+              {hasUnsavedChanges && saveStatus === "idle" && !autoSaveAnim && (
+                <span className="font-sans text-[10px] md:text-xs text-zinc-500 animate-pulse tracking-wider leading-none">
+                  [UNSAVED]
+                </span>
+              )}
 
-            {(saveStatus === "saving" || autoSaveAnim === "saving") && (
-              <span className="font-sans text-[10px] md:text-xs text-zinc-400 animate-pulse tracking-wider leading-none">
-                [SAVING...]
-              </span>
-            )}
+              {(saveStatus === "saving" || autoSaveAnim === "saving") && (
+                <span className="font-sans text-[10px] md:text-xs text-zinc-400 animate-pulse tracking-wider leading-none">
+                  [SAVING...]
+                </span>
+              )}
 
-            {(saveStatus === "saved" || autoSaveAnim === "saved") && (
-              <span className="font-sans text-[10px] md:text-xs text-zinc-400 tracking-wider leading-none">
-                [SAVED]
-              </span>
-            )}
-          </div>
+              {(saveStatus === "saved" || autoSaveAnim === "saved") && (
+                <span className="font-sans text-[10px] md:text-xs text-zinc-400 tracking-wider leading-none">
+                  [SAVED]
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Mobile backdrop for Timer Dropdown to dismiss immediately on tap */}
+          {showTimerDropdown && (
+            <div
+              className="fixed inset-0 z-40 md:hidden bg-transparent"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowTimerDropdown(false);
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowTimerDropdown(false);
+              }}
+            />
+          )}
+
           {/* Timer Dropdown */}
           <div 
             ref={timerContainerRef}
@@ -2396,7 +2465,7 @@ export default function App() {
                 setShowTimerDropdown(!showTimerDropdown);
                 setShowMenu(false);
               }}
-              className={`font-sans text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block relative min-w-[50px] text-right transition-colors duration-150 ${showTimerDropdown ? "z-50" : ""}`}
+              className={`font-sans text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block relative transition-colors duration-150 ${showTimerDropdown ? "z-50" : ""}`}
             >
               {showCountdown && timeLeft !== null ? formatTimeLeft(timeLeft) : "TIMER"}
             </span>

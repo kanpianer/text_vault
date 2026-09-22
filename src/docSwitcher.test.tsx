@@ -154,11 +154,15 @@ describe("App Document Switcher Component Integration", () => {
 
     // Document popup appears successfully without crash
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/Search documents.../i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/search docs/i)).toBeInTheDocument();
     });
 
+    // When open, Text_Vault/ and vault name have swapped colors
+    expect(trigger.className).toContain("text-white");
+    expect(vaultNameEl?.className).toContain("text-zinc-500");
+
     // Verify search works
-    const searchInput = screen.getByPlaceholderText(/Search documents.../i);
+    const searchInput = screen.getByPlaceholderText(/search docs/i);
     expect(searchInput.className).toContain("text-base");
     expect(searchInput.className).toContain("md:text-lg");
     fireEvent.change(searchInput, { target: { value: "notfoundtitle" } });
@@ -214,7 +218,7 @@ describe("App Document Switcher Component Integration", () => {
     // Re-open doc switcher to verify new tab is placed at the top of the list
     fireEvent.mouseEnter(trigger);
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/Search documents.../i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/search docs/i)).toBeInTheDocument();
     });
 
     const docItemsBefore = document.querySelectorAll("[data-tab-id]");
@@ -226,6 +230,10 @@ describe("App Document Switcher Component Integration", () => {
     // Click delete tab on the newly created tab at the top
     const deleteBtns = screen.getAllByTitle("Delete Doc");
     expect(deleteBtns.length).toBeGreaterThan(0);
+    // Verify delete button is visible by default on mobile (opacity-100) and hover on desktop (md:opacity-0 md:group-hover:opacity-100)
+    expect(deleteBtns[0].className).toContain("opacity-100");
+    expect(deleteBtns[0].className).toContain("md:opacity-0");
+    expect(deleteBtns[0].className).toContain("md:group-hover:opacity-100");
     fireEvent.click(deleteBtns[0]);
 
     // Verify delete confirmation prompt text and doc title with text-base md:text-lg font size and desktop positioning
@@ -271,7 +279,7 @@ describe("App Document Switcher Component Integration", () => {
     // Re-open doc switcher to test long-press reordering
     fireEvent.mouseEnter(trigger);
     await waitFor(() => {
-      expect(screen.getByPlaceholderText(/Search documents.../i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/search docs/i)).toBeInTheDocument();
     });
 
     const docItems = document.querySelectorAll("[data-tab-id]");
@@ -326,7 +334,7 @@ describe("App Document Switcher Component Integration", () => {
     fireEvent.pointerUp(window);
 
     // Document popup should remain open (not close on drag finish)
-    expect(screen.getByPlaceholderText(/Search documents.../i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/search docs/i)).toBeInTheDocument();
 
     // Verify tabs order reordered and marked unsaved
     await waitFor(() => {
@@ -426,5 +434,85 @@ describe("Unified Black Background #090a0b", () => {
     });
   });
 });
+
+describe("Mobile Adaptations & Spacing Refinements", () => {
+  beforeEach(() => {
+    window.history.pushState({}, "Test", "/testmob");
+  });
+
+  it("handles mobile doc popup click color swap, backdrop dismiss, and delete button opacity", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/check")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ exists: false }),
+        });
+      }
+      if (url.includes("/create")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Create Vault Password/i)).toBeInTheDocument();
+    });
+
+    const pwdInputs = screen.getAllByPlaceholderText(/••••••••/i);
+    fireEvent.change(pwdInputs[0], { target: { value: "ValidPass123!" } });
+    fireEvent.change(pwdInputs[1], { target: { value: "ValidPass123!" } });
+    fireEvent.click(screen.getByText("Initialize"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Text_Vault\//i)).toBeInTheDocument();
+    });
+
+    const trigger = screen.getByText(/Text_Vault\//i);
+    const vaultNameEl = trigger.nextElementSibling;
+
+    // Initially closed: Text_Vault/ is zinc-500, vaultName is white
+    expect(trigger.className).toContain("text-zinc-500");
+    expect(vaultNameEl?.className).toContain("text-white");
+
+    // Clicking Text_Vault/ opens the popup and swaps colors
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/search docs/i)).toBeInTheDocument();
+    });
+
+    const docPopup = screen.getByPlaceholderText(/search docs/i).closest(".absolute");
+    expect(docPopup?.className).toContain("mt-0");
+    expect(docPopup?.className).not.toContain("md:mt-4");
+    expect(docPopup?.className).toContain("left-4");
+    expect(docPopup?.className).toContain("md:left-8");
+
+    // Swapped colors while open
+    expect(trigger.className).toContain("text-white");
+    expect(vaultNameEl?.className).toContain("text-zinc-500");
+
+    // Check Timer span does NOT have min-w-[50px] or text-right
+    const timerSpan = screen.getByText("TIMER");
+    expect(timerSpan.className).not.toContain("min-w-[50px]");
+    expect(timerSpan.className).not.toContain("text-right");
+
+    // Clicking outside (on window with pointerdown) immediately closes the popup
+    fireEvent.pointerDown(document.body);
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText(/search docs/i)).not.toBeInTheDocument();
+    });
+
+    // Colors revert after closing
+    expect(trigger.className).toContain("text-zinc-500");
+    expect(vaultNameEl?.className).toContain("text-white");
+  });
+});
+
 
 

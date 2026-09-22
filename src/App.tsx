@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useLayoutEffect, useMemo, lazy, Suspense } from "react";
+import type React from "react";
+import { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Link2Off } from "lucide-react";
+import { X, Link2Off, Search, Plus } from "lucide-react";
 import { TabContent, SaveStatus } from "./types";
 import {
   deriveKeyAndHash,
@@ -119,23 +120,37 @@ export default function App() {
   const [deleteError, setDeleteError] = useState<string>("");
   const [isDeleteConfirmFocused, setIsDeleteConfirmFocused] = useState<boolean>(false);
 
-  // Chrome Tabs drag and drop state
-  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
-
-  // Mobile touch long-press drag state
-  const touchDragIndexRef = useRef<number | null>(null);
-  const touchDragOverIndexRef = useRef<number | null>(null);
-  const [touchDragIndex, setTouchDragIndex] = useState<number | null>(null);
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const touchStartPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const tabsContainerRef = useRef<HTMLDivElement>(null);
-
+  // Document titles dropdown & search state
+  const [showDocPopup, setShowDocPopup] = useState<boolean>(false);
+  const [docSearchQuery, setDocSearchQuery] = useState<string>("");
+  const [docCanScroll, setDocCanScroll] = useState<boolean>(false);
+  const [docScrollProgress, setDocScrollProgress] = useState<number>(0);
+  const [editorAreaWidth, setEditorAreaWidth] = useState<number>(0);
+  const docHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const docListRef = useRef<HTMLDivElement>(null);
+  const docPopupRef = useRef<HTMLDivElement>(null);
+  const docTriggerRef = useRef<HTMLDivElement>(null);
+  const docSearchInputRef = useRef<HTMLInputElement>(null);
+  const mainContainerRef = useRef<HTMLElement>(null);
   const [tabToClose, setTabToClose] = useState<string | null>(null);
+
+  // Tab reordering state & refs (long-press drag)
+  const [reorderingTabId, setReorderingTabId] = useState<string | null>(null);
+  const reorderingTabIdRef = useRef<string | null>(null);
+  const isDraggingJustFinishedRef = useRef<boolean>(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pointerStartPosRef = useRef<{ x: number; y: number } | null>(null);
+  const dragMetricsRef = useRef<{ listTop: number; listBottom: number; rowHeight: number; paddingTop: number } | null>(null);
+  const didReorderRef = useRef<boolean>(false);
+  const rafRef = useRef<number | null>(null);
+  const currentDragIndexRef = useRef<number>(-1);
 
   const [autoLockTimeoutMs, setAutoLockTimeoutMs] = useState<number>(300000);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [showTimerDropdown, setShowTimerDropdown] = useState<boolean>(false);
   const [showCountdown, setShowCountdown] = useState<boolean>(false);
+  const timerHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerContainerRef = useRef<HTMLDivElement>(null);
 
   // Share Modal State
   const [showShareModal, setShowShareModal] = useState<boolean>(false);
@@ -163,7 +178,7 @@ export default function App() {
   const sharedEditorRef = useRef<HTMLDivElement>(null);
   const sharedPasswordInputRef = useRef<HTMLInputElement>(null);
 
-  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || showExportModal || showShareModal || showUnshareConfirm || Boolean(tabToClose) || showTimerDropdown;
+  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || showExportModal || showShareModal || showUnshareConfirm || Boolean(tabToClose) || showTimerDropdown || showDocPopup;
 
 
 
@@ -768,12 +783,15 @@ export default function App() {
     const newId = `tab-${Date.now()}`;
     const newTab: TabContent = {
       id: newId,
-      text: ``,
+      text: `<h1><br></h1><p><br></p>`,
     };
-    setTabs([...tabs, newTab]);
+    setTabs([newTab, ...tabs]);
     scrollPositionsRef.current[activeTabId] = window.scrollY;
     setActiveTabId(newId);
     setHasUnsavedChanges(true);
+    if (docListRef.current) {
+      docListRef.current.scrollTop = 0;
+    }
   };
 
   // Close tab direct
@@ -782,6 +800,7 @@ export default function App() {
     e.stopPropagation();
     if (tabs.length <= 1) return;
 
+    setShowDocPopup(false);
     setTabToClose(id);
   };
 
@@ -799,95 +818,21 @@ export default function App() {
     setTabToClose(null);
   };
 
-  // Chrome Tabs drag reordering
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    setDraggingIndex(index);
-    e.dataTransfer.effectAllowed = "move";
-  };
-
-  const handleDragOver = (e: React.DragEvent, hoverIndex: number) => {
-    e.preventDefault();
-    if (draggingIndex === null || draggingIndex === hoverIndex) return;
-
-    const updated = [...tabs];
-    const item = updated.splice(draggingIndex, 1)[0];
-    updated.splice(hoverIndex, 0, item);
-
-    setDraggingIndex(hoverIndex);
-    setTabs(updated);
-    setHasUnsavedChanges(true);
-  };
-
-  const handleDragEnd = () => {
-    setDraggingIndex(null);
-  };
-
-  // Mobile touch long-press drag handlers
-  const handleTouchStart = (e: React.TouchEvent, index: number) => {
-    if (editingTabId !== null) return;
-    const touch = e.touches[0];
-    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
-    longPressTimerRef.current = setTimeout(() => {
-      touchDragIndexRef.current = index;
-      touchDragOverIndexRef.current = index;
-      setTouchDragIndex(index);
-    }, 400);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (touchDragIndexRef.current === null) {
-      // Cancel long-press if moved too far before timer fires
-      const touch = e.touches[0];
-      const dx = Math.abs(touch.clientX - touchStartPosRef.current.x);
-      const dy = Math.abs(touch.clientY - touchStartPosRef.current.y);
-      if (dx > 8 || dy > 8) {
-        if (longPressTimerRef.current) {
-          clearTimeout(longPressTimerRef.current);
-          longPressTimerRef.current = null;
-        }
-      }
-      return;
-    }
-    e.preventDefault();
-
-    const touch = e.touches[0];
-    const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
-    if (!targetEl || !tabsContainerRef.current) return;
-
-    // Find the tab element under the touch
-    const tabEl = targetEl.closest('[data-tab-index]') as HTMLElement | null;
-    if (!tabEl) return;
-
-    const targetIndex = parseInt(tabEl.getAttribute('data-tab-index') || '', 10);
-    if (isNaN(targetIndex)) return;
-
-    if (targetIndex !== touchDragIndexRef.current && targetIndex !== touchDragOverIndexRef.current) {
-      const from = touchDragIndexRef.current!;
-      const updated = [...tabs];
-      const item = updated.splice(from, 1)[0];
-      updated.splice(targetIndex, 0, item);
-
-      touchDragIndexRef.current = targetIndex;
-      touchDragOverIndexRef.current = targetIndex;
-      setTabs(updated);
-      setHasUnsavedChanges(true);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    touchDragIndexRef.current = null;
-    touchDragOverIndexRef.current = null;
-    setTouchDragIndex(null);
-  };
-
   const handleRenameSave = (tabId: string) => {
     const trimmed = editingTitle.trim();
     if (trimmed) {
-      setTabs(prev => prev.map(t => t.id === tabId ? { ...t, title: trimmed } : t));
+      setTabs(prev => prev.map(t => {
+        if (t.id !== tabId) return t;
+        let updatedText = t.text;
+        if (/<h1[^>]*>[\s\S]*?<\/h1>/i.test(updatedText)) {
+          updatedText = updatedText.replace(/<h1[^>]*>[\s\S]*?<\/h1>/i, `<h1>${trimmed}</h1>`);
+        } else if (/(?:^|\n)\s*#\s+[^\r\n]+/.test(updatedText)) {
+          updatedText = updatedText.replace(/(^|\n)\s*#\s+[^\r\n]+/, `$1# ${trimmed}`);
+        } else {
+          updatedText = `<h1>${trimmed}</h1>` + updatedText;
+        }
+        return { ...t, title: trimmed, text: updatedText };
+      }));
       setHasUnsavedChanges(true);
     }
     setEditingTabId(null);
@@ -1056,6 +1001,24 @@ export default function App() {
     if (!html) return "";
     // Fast path: inspect only the first 4000 characters without heavy DOMParser
     const slice = html.length > 4000 ? html.slice(0, 4000) : html;
+
+    // First, try to match the first <h1> tag:
+    const h1Match = slice.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+    if (h1Match) {
+      const cleanH1 = h1Match[1]
+        .replace(/<[^>]+>/g, " ")
+        .replace(/[\u200B\u200C\u200D\uFEFF]/g, "")
+        .trim();
+      if (cleanH1) return cleanH1;
+    }
+
+    // Second, match markdown # heading if present
+    const mdH1Match = slice.match(/(?:^|\n)\s*#\s+([^\r\n]+)/);
+    if (mdH1Match && mdH1Match[1].trim()) {
+      return mdH1Match[1].trim();
+    }
+
+    // Third, fallback to first block element
     const blockMatch = slice.match(/<(?:h[1-6]|p|div|li|summary|blockquote)[^>]*>([\s\S]*?)<\/(?:h[1-6]|p|div|li|summary|blockquote)>/i);
     const target = blockMatch ? blockMatch[1] : slice;
     const clean = target
@@ -1103,8 +1066,8 @@ export default function App() {
   }
 
   function getTabDisplayTitle(text: string, customTitle?: string): string {
-    const rawTitle = customTitle || getFirstLineTextFromHtml(text) || "Untitled";
-    const cleanTitle = stripMarkdown(rawTitle) || "Untitled";
+    const rawTitle = customTitle || getFirstLineTextFromHtml(text) || "untitled";
+    const cleanTitle = stripMarkdown(rawTitle) || "untitled";
     
     let visualLength = 0;
     let result = "";
@@ -1120,21 +1083,435 @@ export default function App() {
   }
 
   function getTabRawTitle(tab: TabContent): string {
-    if (tab.title) return stripMarkdown(tab.title) || "Untitled";
     const firstLine = getFirstLineTextFromHtml(tab.text);
-    if (!firstLine) return "Untitled";
-    return stripMarkdown(firstLine) || "Untitled";
+    if (firstLine) return stripMarkdown(firstLine);
+    if (tab.title) return stripMarkdown(tab.title);
+    return "untitled";
   }
 
-  const activeTabRawTitle = useMemo(() => {
-    const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
-    return activeTab ? getTabRawTitle(activeTab) : "Untitled";
+  const effectiveActiveTabId = useMemo(() => {
+    if (tabs.length === 0) return "";
+    return tabs.some((t) => t.id === activeTabId) ? activeTabId : tabs[0].id;
   }, [tabs, activeTabId]);
 
+  const activeTabRawTitle = useMemo(() => {
+    const activeTab = tabs.find((t) => t.id === effectiveActiveTabId) || tabs[0];
+    return activeTab ? getTabRawTitle(activeTab) : "untitled";
+  }, [tabs, effectiveActiveTabId]);
+
   const isCurrentTabShared = useMemo(() => {
-    const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+    const activeTab = tabs.find((t) => t.id === effectiveActiveTabId) || tabs[0];
     return Boolean(activeTab?.isShared || activeTab?.shareId);
-  }, [tabs, activeTabId]);
+  }, [tabs, effectiveActiveTabId]);
+
+  // Filtered documents for popup search
+  const filteredTabs = useMemo(() => {
+    const q = docSearchQuery.trim().toLowerCase();
+    if (!q) return tabs;
+    return tabs.filter((t) => {
+      const raw = getTabRawTitle(t).toLowerCase();
+      const display = getTabDisplayTitle(t.text, t.title).toLowerCase();
+      return raw.includes(q) || display.includes(q);
+    });
+  }, [tabs, docSearchQuery]);
+
+  // Measure editor width to set popup width to 1/2 of editor area width
+  useEffect(() => {
+    const updateWidth = () => {
+      if (editorRef.current && editorRef.current.offsetWidth > 0) {
+        setEditorAreaWidth(editorRef.current.offsetWidth);
+      } else if (mainContainerRef.current) {
+        const cs = window.getComputedStyle(mainContainerRef.current);
+        const pl = parseFloat(cs.paddingLeft) || 0;
+        const pr = parseFloat(cs.paddingRight) || 0;
+        const w = mainContainerRef.current.clientWidth - pl - pr;
+        if (w > 0) setEditorAreaWidth(w);
+      }
+    };
+
+    updateWidth();
+    const target = editorRef.current || mainContainerRef.current;
+    if (!target) return;
+
+    window.addEventListener("resize", updateWidth);
+
+    if (typeof ResizeObserver === "undefined") {
+      return () => window.removeEventListener("resize", updateWidth);
+    }
+
+    const ro = new ResizeObserver(() => {
+      updateWidth();
+    });
+    ro.observe(target);
+
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", updateWidth);
+    };
+  }, [isVerified]);
+
+  const popupWidth = useMemo(() => {
+    if (editorAreaWidth > 0) {
+      return Math.round(editorAreaWidth / 2);
+    }
+    return 416;
+  }, [editorAreaWidth]);
+
+  // Hover handlers for Text_Vault/ trigger and popup
+  const handleDocTriggerMouseEnter = () => {
+    if (docHoverTimeoutRef.current) {
+      clearTimeout(docHoverTimeoutRef.current);
+      docHoverTimeoutRef.current = null;
+    }
+    setShowDocPopup(true);
+  };
+
+  const handleDocTriggerMouseLeave = () => {
+    if (reorderingTabIdRef.current) return;
+    docHoverTimeoutRef.current = setTimeout(() => {
+      setShowDocPopup(false);
+    }, 200);
+  };
+
+  const handleDocPopupMouseEnter = () => {
+    if (docHoverTimeoutRef.current) {
+      clearTimeout(docHoverTimeoutRef.current);
+      docHoverTimeoutRef.current = null;
+    }
+  };
+
+  const handleDocPopupMouseLeave = () => {
+    if (reorderingTabIdRef.current) return;
+    docHoverTimeoutRef.current = setTimeout(() => {
+      setShowDocPopup(false);
+    }, 200);
+  };
+
+  // Close popup when clicking outside
+  useEffect(() => {
+    if (!showDocPopup) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (reorderingTabIdRef.current) return;
+      if (
+        docPopupRef.current &&
+        !docPopupRef.current.contains(e.target as Node) &&
+        docTriggerRef.current &&
+        !docTriggerRef.current.contains(e.target as Node)
+      ) {
+        setShowDocPopup(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [showDocPopup]);
+
+  // Tab long-press reorder handlers
+  const handleTabPointerDown = (e: React.PointerEvent, tabId: string) => {
+    if (e.button !== 0 && e.button !== undefined) return;
+    if (editingTabId || docSearchQuery.trim()) return;
+
+    pointerStartPosRef.current = { x: e.clientX, y: e.clientY };
+
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+    }
+
+    longPressTimerRef.current = setTimeout(() => {
+      try {
+        navigator.vibrate?.(25);
+      } catch {
+        // ignore
+      }
+      if (docListRef.current) {
+        const listRect = docListRef.current.getBoundingClientRect();
+        const firstItem = docListRef.current.querySelector("[data-tab-id]") as HTMLElement | null;
+        const h = firstItem ? firstItem.getBoundingClientRect().height : 28;
+        dragMetricsRef.current = {
+          listTop: listRect.top,
+          listBottom: listRect.bottom,
+          rowHeight: h > 0 ? h : 28,
+          paddingTop: 4,
+        };
+      }
+      currentDragIndexRef.current = tabs.findIndex((t) => t.id === tabId);
+      didReorderRef.current = false;
+      reorderingTabIdRef.current = tabId;
+      setReorderingTabId(tabId);
+      longPressTimerRef.current = null;
+    }, 250);
+  };
+
+  const handleTabPointerMove = (e: React.PointerEvent) => {
+    if (longPressTimerRef.current && pointerStartPosRef.current) {
+      const dx = e.clientX - pointerStartPosRef.current.x;
+      const dy = e.clientY - pointerStartPosRef.current.y;
+      if (Math.hypot(dx, dy) > 6) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    }
+  };
+
+  const handleTabPointerUp = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    pointerStartPosRef.current = null;
+  };
+
+  // Global window listeners while dragging to reorder
+  useEffect(() => {
+    if (!reorderingTabId) return;
+
+    const onGlobalPointerMove = (e: PointerEvent) => {
+      const currentId = reorderingTabIdRef.current;
+      const metrics = dragMetricsRef.current;
+      if (!currentId || !docListRef.current || !metrics) return;
+
+      // Autoscroll gently when dragging near edges
+      if (e.clientY < metrics.listTop + 20) {
+        docListRef.current.scrollTop -= 4;
+      } else if (e.clientY > metrics.listBottom - 20) {
+        docListRef.current.scrollTop += 4;
+      }
+
+      if (rafRef.current !== null) return;
+
+      const clientY = e.clientY;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        if (!docListRef.current || !reorderingTabIdRef.current || !dragMetricsRef.current) return;
+        const m = dragMetricsRef.current;
+        const scrollOffset = docListRef.current.scrollTop;
+        const relativeY = clientY - m.listTop + scrollOffset - m.paddingTop;
+        const targetIndex = Math.max(0, Math.min(tabs.length - 1, Math.floor(relativeY / m.rowHeight)));
+
+        if (targetIndex !== currentDragIndexRef.current && targetIndex >= 0) {
+          currentDragIndexRef.current = targetIndex;
+          setTabs((prevTabs) => {
+            const fromIndex = prevTabs.findIndex((t) => t.id === currentId);
+            if (fromIndex === -1 || fromIndex === targetIndex) return prevTabs;
+            const newTabs = [...prevTabs];
+            const [moved] = newTabs.splice(fromIndex, 1);
+            newTabs.splice(targetIndex, 0, moved);
+            return newTabs;
+          });
+          didReorderRef.current = true;
+        }
+      });
+    };
+
+    const onGlobalPointerUp = () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      if (reorderingTabIdRef.current) {
+        reorderingTabIdRef.current = null;
+        setReorderingTabId(null);
+        currentDragIndexRef.current = -1;
+        dragMetricsRef.current = null;
+        if (didReorderRef.current) {
+          setHasUnsavedChanges(true);
+          didReorderRef.current = false;
+        }
+        isDraggingJustFinishedRef.current = true;
+        setTimeout(() => {
+          isDraggingJustFinishedRef.current = false;
+        }, 100);
+      }
+    };
+
+    window.addEventListener("pointermove", onGlobalPointerMove, { passive: true });
+    window.addEventListener("pointerup", onGlobalPointerUp);
+    window.addEventListener("pointercancel", onGlobalPointerUp);
+
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      window.removeEventListener("pointermove", onGlobalPointerMove);
+      window.removeEventListener("pointerup", onGlobalPointerUp);
+      window.removeEventListener("pointercancel", onGlobalPointerUp);
+    };
+  }, [reorderingTabId, tabs.length]);
+
+  // Timer hover handlers
+  const handleTimerMouseEnter = () => {
+    if (timerHoverTimeoutRef.current) {
+      clearTimeout(timerHoverTimeoutRef.current);
+      timerHoverTimeoutRef.current = null;
+    }
+    if (!showMenu) {
+      setShowTimerDropdown(true);
+    }
+  };
+
+  const handleTimerMouseLeave = () => {
+    timerHoverTimeoutRef.current = setTimeout(() => {
+      setShowTimerDropdown(false);
+    }, 200);
+  };
+
+  const handleTimerPopupMouseEnter = () => {
+    if (timerHoverTimeoutRef.current) {
+      clearTimeout(timerHoverTimeoutRef.current);
+      timerHoverTimeoutRef.current = null;
+    }
+  };
+
+  const handleTimerPopupMouseLeave = () => {
+    timerHoverTimeoutRef.current = setTimeout(() => {
+      setShowTimerDropdown(false);
+    }, 200);
+  };
+
+  // Close timer dropdown when clicking outside
+  useEffect(() => {
+    if (!showTimerDropdown) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (
+        timerContainerRef.current &&
+        !timerContainerRef.current.contains(e.target as Node)
+      ) {
+        setShowTimerDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [showTimerDropdown]);
+
+  // Focus search input when popup opens
+  useEffect(() => {
+    if (showDocPopup) {
+      const t = setTimeout(() => {
+        docSearchInputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(t);
+    } else {
+      setDocSearchQuery("");
+    }
+  }, [showDocPopup]);
+
+  // Update scroll progress & overflow state
+  const updateDocScrollState = useCallback(() => {
+    const el = docListRef.current;
+    if (!el) return;
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    if (maxScroll > 1) {
+      setDocCanScroll(true);
+      const progress = Math.min(1, Math.max(0, el.scrollTop / maxScroll));
+      setDocScrollProgress(progress);
+    } else {
+      setDocCanScroll(false);
+      setDocScrollProgress(0);
+    }
+  }, []);
+
+  const handleDocListScroll = updateDocScrollState;
+
+  useLayoutEffect(() => {
+    if (showDocPopup) {
+      updateDocScrollState();
+      const raf = requestAnimationFrame(() => {
+        updateDocScrollState();
+      });
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [showDocPopup, filteredTabs, updateDocScrollState]);
+
+  useEffect(() => {
+    const el = docListRef.current;
+    if (!el || !showDocPopup || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      updateDocScrollState();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showDocPopup, updateDocScrollState]);
+
+  // Prevent background page from scrolling when scrolling inside popup
+  useEffect(() => {
+    const popupEl = docPopupRef.current;
+    const listEl = docListRef.current;
+    if (!popupEl || !showDocPopup) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.stopPropagation();
+
+      if (!listEl) {
+        e.preventDefault();
+        return;
+      }
+
+      const { scrollTop, scrollHeight, clientHeight } = listEl;
+      const maxScroll = scrollHeight - clientHeight;
+
+      if (maxScroll <= 0) {
+        e.preventDefault();
+        return;
+      }
+
+      const targetIsInsideList = listEl.contains(e.target as Node);
+      if (!targetIsInsideList) {
+        listEl.scrollTop += e.deltaY;
+        e.preventDefault();
+        return;
+      }
+
+      const isAtTop = scrollTop <= 0;
+      const isAtBottom = scrollTop >= maxScroll - 0.5;
+
+      if ((isAtTop && e.deltaY < 0) || (isAtBottom && e.deltaY > 0)) {
+        e.preventDefault();
+      }
+    };
+
+    let touchStartY = 0;
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartY = e.touches[0].clientY;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      e.stopPropagation();
+      if (!listEl) {
+        e.preventDefault();
+        return;
+      }
+      const touchY = e.touches[0].clientY;
+      const deltaY = touchStartY - touchY;
+      const { scrollTop, scrollHeight, clientHeight } = listEl;
+      const maxScroll = scrollHeight - clientHeight;
+
+      if (maxScroll <= 0) {
+        e.preventDefault();
+        return;
+      }
+
+      const isAtTop = scrollTop <= 0;
+      const isAtBottom = scrollTop >= maxScroll - 0.5;
+
+      if ((isAtTop && deltaY < 0) || (isAtBottom && deltaY > 0)) {
+        e.preventDefault();
+      }
+    };
+
+    popupEl.addEventListener("wheel", handleWheel, { passive: false });
+    popupEl.addEventListener("touchstart", handleTouchStart, { passive: true });
+    popupEl.addEventListener("touchmove", handleTouchMove, { passive: false });
+
+    return () => {
+      popupEl.removeEventListener("wheel", handleWheel);
+      popupEl.removeEventListener("touchstart", handleTouchStart);
+      popupEl.removeEventListener("touchmove", handleTouchMove);
+    };
+  }, [showDocPopup, filteredTabs]);
 
 
   const handleUnlockSharedDoc = async () => {
@@ -1393,7 +1770,7 @@ export default function App() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.12, ease: "easeOut" }}
-          className="fixed inset-0 flex items-center md:items-start justify-center md:pt-[28vh] bg-[#0c0c0e] z-50 pointer-events-none"
+          className="fixed inset-0 flex items-center md:items-start justify-center md:pt-[28vh] bg-[#090a0b] z-50 pointer-events-none"
         >
           <span className="font-sans text-sm tracking-widest text-[#ffffff] font-medium block uppercase animate-pulse">
             Decrypting
@@ -1406,8 +1783,8 @@ export default function App() {
   // 0. SHARED DOCUMENT VIEW (URL: /share/:id)
   if (sharedDocId) {
     return (
-      <div className="min-h-screen flex flex-col justify-between bg-[#0b0c0e] text-zinc-200 font-sans selection:bg-zinc-800">
-        <header className="sticky top-0 z-30 bg-[#0c0c0e]/95 backdrop-blur border-b border-zinc-800/80 w-full">
+      <div className="min-h-screen flex flex-col justify-between bg-[#090a0b] text-zinc-200 font-sans selection:bg-zinc-800">
+        <header className="sticky top-0 z-30 bg-[#090a0b]/95 backdrop-blur w-full">
           <div className="w-full max-w-4xl px-4 md:px-8 py-3 flex justify-between items-center mx-auto">
             <div className="flex items-center gap-2 md:gap-3">
               <span
@@ -1442,7 +1819,7 @@ export default function App() {
         </header>
 
         {/* Content area: Loading / Not Found / Password Prompt / Rendered Doc */}
-        <main className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 pt-6 pb-24 max-w-4xl mx-auto w-full">
+        <main className="flex-1 flex flex-col bg-[#090a0b] px-4 md:px-8 pt-6 pb-24 max-w-4xl mx-auto w-full">
           {sharedLoading ? (
             <div className="flex-1 flex items-center justify-center py-32">
               <span className="font-sans text-sm tracking-widest text-zinc-400 uppercase animate-pulse">
@@ -1548,7 +1925,7 @@ export default function App() {
           )}
         </main>
 
-        <footer className="w-full max-w-4xl mx-auto flex justify-center items-center py-6 border-t border-zinc-900">
+        <footer className="w-full max-w-4xl mx-auto flex justify-center items-center py-6">
           <span className="font-sans text-[10px] md:text-[11px] text-zinc-600 tracking-widest uppercase text-center select-none">
             End To End Encrypted // <span onClick={() => navigateTo("")} className="text-white hover:text-zinc-300 cursor-pointer">Text_Vault</span>
           </span>
@@ -1560,7 +1937,7 @@ export default function App() {
   // 1 & 2. HOME SCREEN AND PASSWORD PROMPT
   if (!isVerified) {
     return (
-      <div className="min-h-screen flex flex-col justify-between bg-[#0b0c0e] text-zinc-200 px-6 py-12 md:py-16 font-sans">
+      <div className="min-h-screen flex flex-col justify-between bg-[#090a0b] text-zinc-200 px-6 py-12 md:py-16 font-sans">
         <header className="flex justify-between items-center w-full max-w-6xl mx-auto">
           <span className="font-sans text-sm md:text-base tracking-widest text-[#f4f4f5] font-semibold select-none">TEXT_VAULT</span>
           <span className="font-sans text-[10px] md:text-xs text-zinc-600 tracking-wider">v0.1</span>
@@ -1632,7 +2009,7 @@ export default function App() {
         {/* PASSWORD PROMPT MODAL */}
         <AnimatePresence>
           {vaultName && !isDecrypting && (
-            <div className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center md:pt-[28vh] z-50">
+            <div className="fixed inset-0 bg-[#090a0b] flex items-center md:items-start justify-center md:pt-[28vh] z-50">
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -1761,7 +2138,7 @@ export default function App() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.16, ease: "easeOut" }}
-      className="min-h-screen flex flex-col justify-between bg-[#0b0c0e] text-zinc-200 font-sans relative"
+      className="min-h-screen flex flex-col justify-between bg-[#090a0b] text-zinc-200 font-sans relative"
     >
       {/* Password Changed fullscreen overlay */}
       <AnimatePresence>
@@ -1770,7 +2147,7 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 flex items-center justify-center bg-[#0c0c0e] z-50 pointer-events-none"
+            className="fixed inset-0 flex items-center justify-center bg-[#090a0b] z-50 pointer-events-none"
           >
             <span className="font-sans text-sm tracking-widest text-[#ffffff] font-medium block uppercase animate-pulse">
               Password Changed
@@ -1779,71 +2156,247 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <div className="sticky top-0 z-30 bg-[#0c0c0e] flex flex-col w-full touch-none">
+      <div className="sticky top-0 z-30 bg-[#090a0b] flex flex-col w-full">
         <header className="w-full">
-        <div className="w-full max-w-4xl px-4 md:px-8 py-4 flex justify-between items-center mx-auto">
-          <div className="flex items-center gap-4">
-            <span
-              onClick={async () => {
-                if (hasUnsavedChanges) {
-                  await performSaveAction();
-                }
-                handleLock();
-                navigateTo("");
-              }}
-              className="font-sans text-sm md:text-base tracking-widest font-semibold select-none flex items-center cursor-pointer group"
+        <div className="w-full max-w-4xl px-4 md:px-8 py-3 flex justify-between items-center mx-auto relative">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              ref={docTriggerRef}
+              onMouseEnter={handleDocTriggerMouseEnter}
+              onMouseLeave={handleDocTriggerMouseLeave}
+              onClick={() => setShowDocPopup((prev) => !prev)}
+              className="font-sans text-sm md:text-base tracking-widest font-semibold select-none flex items-center cursor-pointer group shrink-0 py-1"
             >
-              <span className="text-zinc-500 tracking-normal group-hover:text-white transition-colors">Text_Vault/</span><span className="lowercase text-white group-hover:text-zinc-500 transition-colors">{vaultName}</span>
-            </span>
-            {/* Status indicator: UNSAVED / SAVING... / SAVED */}
+              <span className="text-zinc-500 tracking-normal group-hover:text-white transition-colors duration-150">Text_Vault/</span>
+              <span className="lowercase text-white group-hover:text-zinc-500 transition-colors duration-150">{vaultName}</span>
+            </div>
 
-            {hasUnsavedChanges && saveStatus === "idle" && !autoSaveAnim && (
-
-              <span className="font-sans text-[10px] md:text-xs text-zinc-500 animate-pulse tracking-wide select-none">
-
-                [UNSAVED]
-
-              </span>
-
-            )}
-
-            {(saveStatus === "saving" || autoSaveAnim === "saving") && (
-
-              <span className="font-sans text-[10px] md:text-xs text-zinc-400 animate-pulse tracking-wide select-none">
-
-                [SAVING...]
-
-              </span>
-
-            )}
-
-            {(saveStatus === "saved" || autoSaveAnim === "saved") && (
-
-              <span className="font-sans text-[10px] md:text-xs text-zinc-400 tracking-wide select-none">
-
-                [SAVED]
-
-              </span>
-
+            {tabs.length < 20 && (
+              <button
+                type="button"
+                onClick={handleAddTab}
+                title="New Document"
+                className="text-zinc-400 hover:text-white flex items-center justify-center cursor-pointer transition-colors select-none shrink-0 p-1"
+              >
+                <Plus size={15} strokeWidth={2} />
+              </button>
             )}
           </div>
 
-        {/* Global actions: Save word and Settings overlay */}
-        <div className="flex items-center gap-6">
-          {/* Timer Dropdown */}
-          <div className={`relative flex items-center transition-opacity duration-150 ${showMenu ? "opacity-0 pointer-events-none invisible" : ""}`}>
-            {showTimerDropdown && (
-              <div 
-                className="fixed inset-0 z-40 bg-transparent" 
-                onClick={() => setShowTimerDropdown(false)} 
-              />
+          {/* Document Switcher & Search Popup */}
+          <AnimatePresence>
+            {showDocPopup && (
+              <motion.div
+                ref={docPopupRef}
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 5 }}
+                onMouseEnter={handleDocPopupMouseEnter}
+                onMouseLeave={handleDocPopupMouseLeave}
+                style={{
+                  width: `${popupWidth}px`,
+                  maxWidth: "calc(100vw - 32px)",
+                }}
+                className="absolute left-4 md:left-8 top-full mt-2 flex flex-col z-50 bg-[#090a0b] border border-zinc-800 rounded shadow-xl max-h-[75vh] overflow-hidden before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']"
+              >
+                {/* Search bar header */}
+                <div className="flex items-center gap-2.5 px-3.5 py-2 border-b border-zinc-800 bg-[#090a0b] shrink-0">
+                  <Search size={18} className="w-4 h-4 md:w-[18px] md:h-[18px] text-zinc-500 shrink-0" />
+                  <input
+                    ref={docSearchInputRef}
+                    type="text"
+                    value={docSearchQuery}
+                    onChange={(e) => setDocSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        if (docSearchQuery) {
+                          setDocSearchQuery("");
+                        } else {
+                          setShowDocPopup(false);
+                        }
+                      } else if (e.key === "Enter" && filteredTabs.length > 0) {
+                        handleTabSwitch(filteredTabs[0].id);
+                        setShowDocPopup(false);
+                      }
+                    }}
+                    placeholder="Search documents..."
+                    className="bg-transparent text-base md:text-lg text-zinc-200 placeholder-zinc-500 outline-none w-full font-sans"
+                  />
+                  {docSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setDocSearchQuery("")}
+                      className="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer shrink-0"
+                    >
+                      <X size={16} className="w-4 h-4 md:w-[18px] md:h-[18px]" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Document list */}
+                <div
+                  ref={docListRef}
+                  onScroll={handleDocListScroll}
+                  className={`flex-1 overflow-y-auto min-h-0 py-1 overscroll-contain no-scrollbar ${
+                    reorderingTabId ? "select-none cursor-grabbing" : ""
+                  }`}
+                >
+                  {filteredTabs.length === 0 ? (
+                    <div className="px-3 py-6 text-center text-xs text-zinc-500 font-sans">
+                      No matching documents
+                    </div>
+                  ) : (
+                    filteredTabs.map((tab) => {
+                      const isActive = tab.id === effectiveActiveTabId;
+                      const isEditing = editingTabId === tab.id;
+                      const isReordering = reorderingTabId === tab.id;
+                      return (
+                        <motion.div
+                          layout="position"
+                          transition={{ duration: 0.12, ease: "easeOut" }}
+                          key={tab.id}
+                          data-tab-id={tab.id}
+                          onPointerDown={(e) => handleTabPointerDown(e, tab.id)}
+                          onPointerMove={handleTabPointerMove}
+                          onPointerUp={handleTabPointerUp}
+                          onPointerCancel={handleTabPointerUp}
+                          onClick={() => {
+                            if (isDraggingJustFinishedRef.current) return;
+                            if (!isEditing) {
+                              handleTabSwitch(tab.id);
+                              setShowDocPopup(false);
+                            }
+                          }}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            setEditingTabId(tab.id);
+                            setEditingTitle(getTabRawTitle(tab));
+                          }}
+                          className={`group flex items-center justify-between px-3.5 py-0.5 text-base md:text-lg font-sans transition-colors relative select-none ${
+                            isReordering ? "cursor-grabbing" : "cursor-pointer"
+                          }`}
+                          style={{
+                            touchAction: isReordering ? "none" : "auto",
+                          }}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
+                            <span
+                              className="w-[5.33px] h-[5.33px] rounded-full shrink-0 bg-white -translate-y-[1.5px]"
+                              style={{
+                                width: "5.33px",
+                                height: "5.33px",
+                                backgroundColor: "#ffffff",
+                                opacity: isActive ? 1 : 0,
+                                pointerEvents: "none",
+                              }}
+                            />
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                autoFocus
+                                value={editingTitle}
+                                onChange={(e) => setEditingTitle(e.target.value)}
+                                onBlur={() => handleRenameSave(tab.id)}
+                                onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
+                                onFocus={(e) => e.target.select()}
+                                className="bg-transparent border-b border-zinc-400 text-white outline-none font-sans text-base md:text-lg py-0.5 flex-1"
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onPointerDown={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <span
+                                className={`truncate select-none pb-0.5 border-b-[1.5px] transition-colors text-base md:text-lg ${
+                                  isActive
+                                    ? "text-white font-medium border-zinc-300"
+                                    : isReordering
+                                    ? "text-white font-medium border-transparent"
+                                    : "text-zinc-400 group-hover:text-white border-transparent"
+                                }`}
+                                style={{
+                                  color: isActive || isReordering ? "#ffffff" : undefined,
+                                }}
+                                title={getTabRawTitle(tab)}
+                              >
+                                {getTabRawTitle(tab)}
+                              </span>
+                            )}
+                          </div>
+
+                          {tabs.length > 1 && (
+                            <button
+                              type="button"
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCloseTab(e, tab.id);
+                              }}
+                              title="Delete Doc"
+                              className="text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded cursor-pointer shrink-0"
+                            >
+                              <X size={16} strokeWidth={2} />
+                            </button>
+                          )}
+                        </motion.div>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Bottom border & scroll progress indicator */}
+                <div className="relative w-full h-[1px] bg-zinc-800 shrink-0">
+                  {docCanScroll && (
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 w-[2px] h-[8px] bg-zinc-300 rounded-[1px] transition-[left] duration-75 pointer-events-none"
+                      style={{
+                        left: `calc(${docScrollProgress} * (100% - 2px))`,
+                      }}
+                    />
+                  )}
+                </div>
+              </motion.div>
             )}
+          </AnimatePresence>
+
+        {/* Global actions: Save word and Settings overlay */}
+        <div className="flex items-center gap-4 md:gap-6">
+          {/* Status indicator: UNSAVED / SAVING... / SAVED - Fixed position to the left of Timer */}
+          <div
+            className={`flex items-center justify-end w-[64px] md:w-[72px] select-none shrink-0 transition-opacity duration-150 ${
+              showMenu ? "opacity-0 pointer-events-none invisible" : ""
+            }`}
+          >
+            {hasUnsavedChanges && saveStatus === "idle" && !autoSaveAnim && (
+              <span className="font-sans text-[10px] md:text-xs text-zinc-500 animate-pulse tracking-wider leading-none">
+                [UNSAVED]
+              </span>
+            )}
+
+            {(saveStatus === "saving" || autoSaveAnim === "saving") && (
+              <span className="font-sans text-[10px] md:text-xs text-zinc-400 animate-pulse tracking-wider leading-none">
+                [SAVING...]
+              </span>
+            )}
+
+            {(saveStatus === "saved" || autoSaveAnim === "saved") && (
+              <span className="font-sans text-[10px] md:text-xs text-zinc-400 tracking-wider leading-none">
+                [SAVED]
+              </span>
+            )}
+          </div>
+          {/* Timer Dropdown */}
+          <div 
+            ref={timerContainerRef}
+            onMouseEnter={handleTimerMouseEnter}
+            onMouseLeave={handleTimerMouseLeave}
+            className={`relative flex items-center transition-opacity duration-150 ${showMenu ? "opacity-0 pointer-events-none invisible" : ""}`}
+          >
             <span
               onClick={() => {
                 setShowTimerDropdown(!showTimerDropdown);
                 setShowMenu(false);
               }}
-              className={`font-sans text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block relative min-w-[50px] text-right ${showTimerDropdown ? "z-50" : ""}`}
+              className={`font-sans text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block relative min-w-[50px] text-right transition-colors duration-150 ${showTimerDropdown ? "z-50" : ""}`}
             >
               {showCountdown && timeLeft !== null ? formatTimeLeft(timeLeft) : "TIMER"}
             </span>
@@ -1854,7 +2407,9 @@ export default function App() {
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 5 }}
-                  className="absolute right-0 top-full mt-4 flex flex-col items-end gap-3 z-50 whitespace-nowrap bg-[#0c0c0e] border border-zinc-800 rounded shadow-xl py-2 px-4"
+                  onMouseEnter={handleTimerPopupMouseEnter}
+                  onMouseLeave={handleTimerPopupMouseLeave}
+                  className="absolute right-0 top-full mt-2 flex flex-col items-end gap-3 z-50 whitespace-nowrap bg-[#090a0b] border border-zinc-800 rounded shadow-xl py-2 px-4 before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']"
                 >
                   {[5, 10, 15, 30].map(mins => (
                     <span
@@ -1893,7 +2448,7 @@ export default function App() {
             {/* Menu Backdrop */}
             {showMenu && (
               <div 
-                className="fixed inset-0 z-40 bg-[#0c0c0e]" 
+                className="fixed inset-0 z-40 bg-[#090a0b]" 
                 onClick={() => setShowMenu(false)} 
               />
             )}
@@ -1983,99 +2538,11 @@ export default function App() {
         </div>
         </div>
       </header>
-
-      {/* Navigation / Chrome mimic row */}
-      <div className="w-full max-w-4xl px-4 md:px-8 pb-1 pt-1 flex flex-wrap justify-between items-center gap-4 mx-auto bg-[#0c0c0e]">
-          {/* Draggable Chrome tabs reordered */}
-          <div ref={tabsContainerRef} className="flex flex-wrap items-end gap-0 flex-1">
-            {tabs.map((tab, idx) => {
-              const active = tab.id === activeTabId;
-              const isEditing = editingTabId === tab.id;
-              const isTouchDragging = touchDragIndex === idx;
-              return (
-                <div
-                  key={tab.id}
-                  data-tab-index={idx}
-                  draggable={!isEditing}
-                  onDragStart={(e) => handleDragStart(e, idx)}
-                  onDragOver={(e) => handleDragOver(e, idx)}
-                  onDragEnd={handleDragEnd}
-                  onTouchStart={(e) => handleTouchStart(e, idx)}
-                  onTouchMove={handleTouchMove}
-                  onTouchEnd={handleTouchEnd}
-                  onTouchCancel={handleTouchEnd}
-                  onClick={() => {
-                    handleTabSwitch(tab.id);
-                  }}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    setEditingTabId(tab.id);
-                    setEditingTitle(getTabRawTitle(tab));
-                    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-                  }}
-                  className={`relative flex items-center pl-0 pr-1.5 pt-1.5 pb-1 text-sm md:text-base font-sans select-none cursor-pointer transition-opacity ${
-                    active
-                      ? "text-white"
-                      : "text-zinc-500 hover:text-zinc-300"
-                  } ${draggingIndex === idx ? "opacity-30" : ""} ${isTouchDragging ? "opacity-30" : ""}`}
-                >
-                  <div className="flex items-center gap-0.5 pb-0.5">
-                    {isEditing ? (
-                      <input
-                        type="text"
-                        autoFocus
-                        value={editingTitle}
-                        onChange={(e) => setEditingTitle(e.target.value)}
-                        onBlur={() => handleRenameSave(tab.id)}
-                        onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
-                        onFocus={(e) => e.target.select()}
-                        className="bg-transparent border-b border-zinc-500 text-white outline-none font-sans text-sm pb-0.5 max-w-[120px]"
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <span 
-                        className={`tracking-wide text-zinc-100 block whitespace-nowrap select-text pb-px border-b-[1.5px] ${active ? "border-zinc-300" : "border-transparent"}`} 
-                        title={getTabRawTitle(tab)}
-                      >
-                        {getTabDisplayTitle(tab.text, tab.title)}
-                      </span>
-                    )}
-
-                    {tabs.length > 1 && (
-                      <span
-                        onClick={(e) => handleCloseTab(e, tab.id)}
-                        className="text-zinc-500 hover:text-red-400 select-none pl-0 ml-0.5 flex items-center justify-center transition-colors"
-                      >
-                        <X size={10} strokeWidth={2.5} />
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-
-            {tabs.length < 20 && (
-              <div
-                onClick={handleAddTab}
-                className="relative flex items-center px-1.5 pt-1.5 pb-1 text-sm font-sans select-none cursor-pointer text-zinc-500 hover:text-white transition-colors"
-              >
-                <div className="flex items-center gap-0.5 pb-0.5">
-                  <span className="tracking-wide font-semibold">
-                    + Tab
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Desktop Visual editor toggles (Edit, Split, Preview) */}
-        </div>
       </div>
 
-      <main className="flex-1 flex flex-col bg-[#0c0c0e] px-4 md:px-8 pt-0 pb-0 max-w-4xl mx-auto w-full">
+      <main ref={mainContainerRef} className="flex-1 flex flex-col bg-[#090a0b] px-4 md:px-8 pt-0 pb-0 max-w-4xl mx-auto w-full">
         {/* Content Box (Unified Line-by-Line Edit & Preview Area) */}
-        <div className="flex-1 flex flex-col relative pt-1 md:pt-2 pb-24 min-h-[550px]"
+        <div className="flex-1 flex flex-col relative pt-0 pb-24 min-h-[550px]"
           onClick={(e) => {
             if (e.target === e.currentTarget && editorRef.current) {
               const el = editorRef.current;
@@ -2128,42 +2595,49 @@ export default function App() {
 
       {/* DELETE TAB POPUP */}
       <AnimatePresence>
-        {tabToClose && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-50"
-          >
-            <div className="w-full max-w-sm flex flex-col gap-6 relative">
-              <h3 className="text-zinc-100 font-sans tracking-wide text-lg text-center uppercase">
-                DELETE TAB
-              </h3>
-
-              <p className="font-sans text-xs text-zinc-400 text-center leading-relaxed">
-                Are you sure you want to delete this tab?
-              </p>
-
-              <div className="flex justify-center gap-12 items-center mt-2">
-                <span
-                  onClick={() => setTabToClose(null)}
-                  className="font-sans text-xs text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
-                >
-                  Cancel
+        {tabToClose && (() => {
+          const docToDelete = tabs.find((t) => t.id === tabToClose);
+          const docToDeleteTitle = docToDelete ? getTabRawTitle(docToDelete) : "untitled";
+          return (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="fixed inset-0 bg-[#090a0b] flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-50"
+            >
+              <div className="w-full max-w-sm flex flex-col items-center gap-6 relative">
+                {/* Document name matching title window font size, vertically aligned with delete vault modal on desktop */}
+                <span className="font-sans text-base md:text-lg text-zinc-200 font-medium tracking-wide text-center">
+                  {docToDeleteTitle}
                 </span>
-                <span
-                  onClick={confirmCloseTab}
-                  className="font-sans text-xs font-semibold text-red-500 hover:text-red-400 transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
-                >
-                  Confirm
-                </span>
+
+                <p className="font-sans text-xs md:text-sm text-zinc-400 text-center leading-relaxed">
+                  are you sure you want to delete this doc？
+                </p>
+
+                <div className="flex justify-center gap-12 items-center mt-2">
+                  <span
+                    onClick={() => setTabToClose(null)}
+                    className="font-sans text-xs md:text-sm text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                  >
+                    Cancel
+                  </span>
+                  <span
+                    onClick={confirmCloseTab}
+                    className="font-sans text-xs md:text-sm font-semibold text-red-500 hover:text-red-400 transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
+                  >
+                    Confirm
+                  </span>
+                </div>
               </div>
-            </div>
-          </motion.div>
-        )}
+            </motion.div>
+          );
+        })()}
+      </AnimatePresence>
 
+      <AnimatePresence>
         {showChangePasswordModal && (
-          <div className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center md:pt-[28vh] z-50">
+          <div className="fixed inset-0 bg-[#090a0b] flex items-center md:items-start justify-center md:pt-[28vh] z-50">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -2263,7 +2737,7 @@ export default function App() {
       {/* 3-PHASE DESTRUCTION POPUP CONFIRM */}
       <AnimatePresence>
         {showExportModal && (
-          <div className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-50">
+          <div className="fixed inset-0 bg-[#090a0b] flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-50">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -2300,7 +2774,7 @@ export default function App() {
 
       <AnimatePresence>
         {showDeleteModal && (
-          <div className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-50">
+          <div className="fixed inset-0 bg-[#090a0b] flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-50">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -2418,7 +2892,7 @@ export default function App() {
       {/* SHARE THIS DOC MODAL */}
       <AnimatePresence>
         {showShareModal && (
-          <div className="fixed inset-0 bg-[#0c0c0e] flex items-center md:items-start justify-center p-4 md:pt-[24vh] z-50">
+          <div className="fixed inset-0 bg-[#090a0b] flex items-center md:items-start justify-center p-4 md:pt-[24vh] z-50">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -2569,7 +3043,7 @@ export default function App() {
       {/* CONFIRM UNSHARE POPUP */}
       <AnimatePresence>
         {showUnshareConfirm && (
-          <div className="fixed inset-0 bg-[#0c0c0e]/90 backdrop-blur-sm flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-[60]">
+          <div className="fixed inset-0 bg-[#090a0b]/90 backdrop-blur-sm flex items-center md:items-start justify-center p-4 md:pt-[28vh] z-[60]">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

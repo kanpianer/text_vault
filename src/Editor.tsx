@@ -1,3 +1,4 @@
+import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { marked } from "marked";
 import hljs from "highlight.js/lib/common";
@@ -35,6 +36,33 @@ export function sanitizeUrl(url: string): string {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
+export function updateH1Placeholders(root: HTMLElement | null) {
+  if (!root) return;
+  const sel = window.getSelection();
+  const isFocusedInEditor = document.activeElement === root || root.contains(document.activeElement);
+  const activeNode = sel && sel.rangeCount > 0 ? sel.anchorNode : null;
+
+  root.querySelectorAll("h1").forEach((h1) => {
+    const text = (h1.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF\s]/g, "");
+    const hasMedia = h1.querySelector("img, svg, video, iframe") !== null;
+    const isCursorInH1 = Boolean(
+      isFocusedInEditor &&
+      activeNode &&
+      (h1 === activeNode || h1.contains(activeNode))
+    );
+
+    if (text === "" && !hasMedia && !isCursorInH1) {
+      if (h1.getAttribute("data-placeholder") !== "untitled") {
+        h1.setAttribute("data-placeholder", "untitled");
+      }
+    } else {
+      if (h1.hasAttribute("data-placeholder")) {
+        h1.removeAttribute("data-placeholder");
+      }
+    }
+  });
+}
+
 export function normalizeEditorNodes(root: HTMLElement | null) {
   if (!root) return;
   root.querySelectorAll("img").forEach((img) => {
@@ -56,6 +84,7 @@ export function normalizeEditorNodes(root: HTMLElement | null) {
       summary.appendChild(document.createElement("br"));
     }
   });
+  updateH1Placeholders(root);
 }
 
 function getCurrentBlock(root: HTMLElement, node: Node): HTMLElement | null {
@@ -434,14 +463,14 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     const el = editorRef.current as HTMLElement | null;
     if (!el) return;
     if (activeTabId !== previousTabId.current || isFirstRender.current) {
-      el.innerHTML = initialContent || "<p><br></p>";
+      el.innerHTML = initialContent || "<h1><br></h1><p><br></p>";
       normalizeEditorNodes(el);
       previousTabId.current = activeTabId;
       isFirstRender.current = false;
     } else {
       const hasFocus = document.activeElement === el || el.contains(document.activeElement);
       if (!hasFocus && el.innerHTML !== initialContent) {
-        el.innerHTML = initialContent || "<p><br></p>";
+        el.innerHTML = initialContent || "<h1><br></h1><p><br></p>";
         normalizeEditorNodes(el);
       }
     }
@@ -847,7 +876,9 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   useEffect(() => {
     const onSelectionChange = () => {
       const el = editorRef.current as HTMLElement | null;
-      if (!el || readOnly || !isActive) return;
+      if (!el) return;
+      updateH1Placeholders(el);
+      if (readOnly || !isActive) return;
       const sel = window.getSelection();
       // only respond to non-collapsed selections (text is selected)
       if (sel && !sel.isCollapsed && el.contains(sel.anchorNode)) {
@@ -1562,10 +1593,12 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
   const handleMouseUp = () => {
     setTimeout(updateToolbar, 0);
+    updateH1Placeholders(editorRef.current);
   };
 
   const handleKeyUp = () => {
     updateToolbar();
+    updateH1Placeholders(editorRef.current);
   };
 
   // ── click: activate editor ────────────────────────────────────────
@@ -1721,9 +1754,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
 
   const handleBlur = () => {
-
     if (!readOnly) setIsActive(false);
-
+    updateH1Placeholders(editorRef.current);
   };
 
   // ── toolbar scroll ────────────────────────────────────────────────
@@ -1753,6 +1785,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         onTouchEnd={handleTouchEnd}
         onPaste={handlePaste}
         onInput={(e) => {
+          updateH1Placeholders(editorRef.current);
           onChange(e.currentTarget.innerHTML, editorRef.current);
         }}
         onKeyDown={handleKeyDown}
@@ -1919,7 +1952,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       {/* Floating toolbar */}
       <div
         ref={toolbarRef}
-        className="flex items-center select-none font-sans text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[calc(100vw-2rem)]"
+        className="flex items-center select-none font-sans text-xs text-zinc-500 bg-[#090a0b] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[calc(100vw-2rem)]"
         style={toolbarStyle}
         onMouseDown={(e) => e.preventDefault()}
         onMouseEnter={() => {
@@ -2013,7 +2046,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       {/* Link input */}
       {showLinkInput && (
         <div
-          className="flex items-center font-sans text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px]"
+          className="flex items-center font-sans text-xs text-zinc-500 bg-[#090a0b] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px]"
           style={{
             position: "absolute",
             top: toolbarPosRef.current.top,
@@ -2071,7 +2104,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       {/* Image input */}
       {showImageInput && (
         <div
-          className="flex items-center font-sans text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px]"
+          className="flex items-center font-sans text-xs text-zinc-500 bg-[#090a0b] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[400px]"
           style={{
             position: "absolute",
             top: toolbarPosRef.current.top,
@@ -2121,7 +2154,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       {/* Table input */}
       {showTableInput && (
         <div
-          className="flex items-center font-sans text-xs text-zinc-500 bg-[#121215] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[500px]"
+          className="flex items-center font-sans text-xs text-zinc-500 bg-[#090a0b] h-[30px] border border-zinc-800 rounded z-50 shadow-2xl max-w-[500px]"
           style={{
             position: "absolute",
             top: toolbarPosRef.current.top,

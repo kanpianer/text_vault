@@ -172,8 +172,8 @@ describe("App Document Switcher Component Integration", () => {
     const activeDocTitle = tab1Items[0];
     expect(activeDocTitle).toBeInTheDocument();
     expect(activeDocTitle.className).toContain("text-white");
-    expect(activeDocTitle.className).toContain("border-zinc-300");
-    expect(activeDocTitle.className).toContain("border-b-[1.5px]");
+    expect(activeDocTitle.className).not.toContain("border-b");
+    expect(activeDocTitle.className).not.toContain("border-zinc-300");
     expect(activeDocTitle.className).toContain("text-base");
     expect(activeDocTitle.className).toContain("md:text-lg");
 

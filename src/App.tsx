@@ -2306,12 +2306,12 @@ export default function App() {
                               />
                             ) : (
                               <span
-                                className={`truncate select-none pb-0.5 border-b-[1.5px] transition-colors text-base md:text-lg ${
+                                className={`truncate select-none transition-colors text-base md:text-lg ${
                                   isActive
-                                    ? "text-white font-medium border-zinc-300"
+                                    ? "text-white font-medium"
                                     : isReordering
-                                    ? "text-white font-medium border-transparent"
-                                    : "text-zinc-400 group-hover:text-white border-transparent"
+                                    ? "text-white font-medium"
+                                    : "text-zinc-400 group-hover:text-white"
                                 }`}
                                 style={{
                                   color: isActive || isReordering ? "#ffffff" : undefined,

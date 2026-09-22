@@ -487,6 +487,14 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   useEffect(() => { if (readOnly) setIsActive(false); }, [readOnly]);
   useEffect(() => { setIsActive(false); setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" }); setPreviewTocIndex(null); }, [activeTabId]);
   useEffect(() => { onActiveChange?.(isActive && !readOnly); }, [isActive, readOnly, onActiveChange]);
+  useEffect(() => {
+    if (!isActive) {
+      setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
+      setShowLinkInput(false);
+      setShowImageInput(false);
+      setShowTableInput(false);
+    }
+  }, [isActive]);
   isActiveRef.current = isActive;
 
   const updateToc = useCallback(() => {
@@ -658,10 +666,30 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       return;
     }
 
-    if (!isActiveRef.current) return;
+    if (!isActiveRef.current) {
+      setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
+      return;
+    }
+
+    const isFocused =
+      document.activeElement === el ||
+      el.contains(document.activeElement) ||
+      (toolbarRef.current && toolbarRef.current.contains(document.activeElement)) ||
+      (linkInputRef.current && linkInputRef.current === document.activeElement) ||
+      (imageInputRef.current && imageInputRef.current === document.activeElement) ||
+      (tableRowRef.current && tableRowRef.current === document.activeElement) ||
+      (tableColRef.current && tableColRef.current === document.activeElement);
+
+    if (!isFocused) {
+      setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
+      return;
+    }
 
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) { setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" }); return; }
+    if (!sel || sel.rangeCount === 0 || !el.contains(sel.anchorNode)) {
+      setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
+      return;
+    }
 
     const range = sel.getRangeAt(0);
     const container = el.parentElement as HTMLElement;
@@ -706,6 +734,19 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         const text = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
         if (text === "") {
           if (isMobile) {
+            const isKeyboardOpen = window.visualViewport
+              ? (window.innerHeight - window.visualViewport.height) > 80
+              : true;
+
+            if (!isKeyboardOpen) {
+              setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
+              if (document.activeElement === el || el.contains(document.activeElement)) {
+                el.blur();
+                setIsActive(false);
+              }
+              return;
+            }
+
             let topStr = "auto";
             let bottomStr = "16px";
             if (window.visualViewport) {
@@ -745,8 +786,29 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
   }, [hideToc, updateToolbar]);
 
   useEffect(() => {
+    let lastVVHeight = window.visualViewport?.height ?? window.innerHeight;
+
     const handleVV = () => {
       if (window.matchMedia("(max-width: 767px)").matches) {
+        const currentVVHeight = window.visualViewport?.height ?? window.innerHeight;
+        const el = editorRef.current as HTMLElement | null;
+
+        // If viewport height expanded significantly (keyboard collapsed)
+        if (currentVVHeight - lastVVHeight > 80) {
+          const sel = window.getSelection();
+          if (sel && sel.isCollapsed && el && el.contains(sel.anchorNode)) {
+            const block = getCurrentBlock(el, sel.anchorNode) || (el.textContent?.trim() === "" ? el : null);
+            const text = (block?.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
+            if (text === "") {
+              setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
+              el.blur();
+              setIsActive(false);
+              lastVVHeight = currentVVHeight;
+              return;
+            }
+          }
+        }
+        lastVVHeight = currentVVHeight;
         updateToolbar();
       }
     };
@@ -883,6 +945,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       // only respond to non-collapsed selections (text is selected)
       if (sel && !sel.isCollapsed && el.contains(sel.anchorNode)) {
         updateToolbar();
+      } else if (!sel || !el.contains(sel?.anchorNode)) {
+        setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
       }
     };
     document.addEventListener("selectionchange", onSelectionChange);
@@ -1753,9 +1817,26 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
 
 
-  const handleBlur = () => {
+  const handleBlur = (e: React.FocusEvent) => {
+    const related = e.relatedTarget as Node | null;
+    const isMovingToSubInput =
+      (linkInputRef.current && (linkInputRef.current === related || linkInputRef.current.contains(related))) ||
+      (imageInputRef.current && (imageInputRef.current === related || imageInputRef.current.contains(related))) ||
+      (tableRowRef.current && (tableRowRef.current === related || tableRowRef.current.contains(related))) ||
+      (tableColRef.current && (tableColRef.current === related || tableColRef.current.contains(related)));
+
+    const isMovingToToolbar = toolbarRef.current && related && toolbarRef.current.contains(related);
+
+    if (isMovingToToolbar || isMovingToSubInput) {
+      return;
+    }
+
     if (!readOnly) setIsActive(false);
     updateH1Placeholders(editorRef.current);
+    setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
+    setShowLinkInput(false);
+    setShowImageInput(false);
+    setShowTableInput(false);
   };
 
   // ── toolbar scroll ────────────────────────────────────────────────

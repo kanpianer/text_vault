@@ -671,25 +671,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       return;
     }
 
-    const isFocused =
-      document.activeElement === el ||
-      el.contains(document.activeElement) ||
-      (toolbarRef.current && toolbarRef.current.contains(document.activeElement)) ||
-      (linkInputRef.current && linkInputRef.current === document.activeElement) ||
-      (imageInputRef.current && imageInputRef.current === document.activeElement) ||
-      (tableRowRef.current && tableRowRef.current === document.activeElement) ||
-      (tableColRef.current && tableColRef.current === document.activeElement);
-
-    if (!isFocused) {
-      setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
-      return;
-    }
-
     const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0 || !el.contains(sel.anchorNode)) {
-      setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
-      return;
-    }
+    if (!sel || sel.rangeCount === 0) { setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" }); return; }
 
     const range = sel.getRangeAt(0);
     const container = el.parentElement as HTMLElement;
@@ -734,15 +717,6 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
         const text = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
         if (text === "") {
           if (isMobile) {
-            const isKeyboardOpen = window.visualViewport
-              ? (window.innerHeight - window.visualViewport.height) > 80
-              : true;
-
-            if (!isKeyboardOpen) {
-              setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
-              return;
-            }
-
             let topStr = "auto";
             let bottomStr = "16px";
             if (window.visualViewport) {
@@ -780,6 +754,12 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       updateToolbar();
     }
   }, [hideToc, updateToolbar]);
+
+  useEffect(() => {
+    if (isActive) {
+      updateToolbar();
+    }
+  }, [isActive, updateToolbar]);
 
   useEffect(() => {
     const handleVV = () => {
@@ -917,11 +897,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       updateH1Placeholders(el);
       if (readOnly || !isActive) return;
       const sel = window.getSelection();
-      // only respond to non-collapsed selections (text is selected)
-      if (sel && !sel.isCollapsed && el.contains(sel.anchorNode)) {
+      if (sel && sel.anchorNode && el.contains(sel.anchorNode)) {
         updateToolbar();
-      } else if (!sel || !el.contains(sel?.anchorNode)) {
-        setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
       }
     };
     document.addEventListener("selectionchange", onSelectionChange);
@@ -1649,9 +1626,11 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       return;
     }
     if (!isActive && !readOnly && editorRef.current) {
+      isActiveRef.current = true;
       editorRef.current.contentEditable = "true";
       editorRef.current.focus({ preventScroll: true });
       setIsActive(true);
+      setTimeout(updateToolbar, 0);
     }
   };
 
@@ -1706,6 +1685,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
       const changedEditable = el.contentEditable !== "true";
 
+      isActiveRef.current = true;
       el.contentEditable = "true";
 
       setIsActive(true);
@@ -1797,6 +1777,7 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       return;
     }
 
+    isActiveRef.current = false;
     if (!readOnly) setIsActive(false);
     updateH1Placeholders(editorRef.current);
     setToolbarStyle({ position: "absolute", opacity: 0, pointerEvents: "none" });
@@ -1850,9 +1831,11 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
           }
 
           if (!isActive && !readOnly && editorRef.current) {
+            isActiveRef.current = true;
             editorRef.current.contentEditable = "true";
             editorRef.current.focus({ preventScroll: true });
             setIsActive(true);
+            setTimeout(updateToolbar, 0);
           }
 
           if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {

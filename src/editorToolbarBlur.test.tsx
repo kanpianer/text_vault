@@ -278,4 +278,67 @@ describe("Editor mobile toolbar blur and keyboard collapse behavior", () => {
     // Editor should still be active!
     expect(editorEl.getAttribute("contenteditable")).toBe("true");
   });
+
+  it("has mobile-friendly attributes to prevent IME/autocorrect interference", () => {
+    const editorRef = createRef<HTMLDivElement>();
+    render(
+      <Editor
+        activeTabId="tab-1"
+        initialContent="<h1>Heading</h1>"
+        onChange={vi.fn()}
+        editorRef={editorRef}
+        readOnly={false}
+      />
+    );
+    const editorEl = editorRef.current!;
+    expect(editorEl.getAttribute("spellcheck")).toBe("false");
+    expect(editorEl.getAttribute("autocorrect")).toBe("off");
+    expect(editorEl.getAttribute("autocapitalize")).toBe("none");
+  });
+
+  it("does not overwrite active editor DOM when re-rendered with stale initialContent during heading edits", () => {
+    const editorRef = createRef<HTMLDivElement>();
+    const onChange = vi.fn();
+
+    const { rerender } = render(
+      <Editor
+        activeTabId="tab-1"
+        initialContent="<h1>Heading with space</h1>"
+        onChange={onChange}
+        editorRef={editorRef}
+        readOnly={false}
+      />
+    );
+
+    const editorEl = editorRef.current!;
+    const h1 = editorEl.querySelector("h1")!;
+
+    // Activate editing
+    act(() => {
+      fireEvent.mouseDown(h1);
+      fireEvent.click(h1);
+    });
+    expect(editorEl.getAttribute("contenteditable")).toBe("true");
+
+    // Simulate deleting a character at the end of the heading
+    h1.textContent = "Heading with spac";
+    act(() => {
+      fireEvent.input(editorEl, { inputType: "deleteContentBackward" });
+    });
+
+    // Re-render with old initialContent (as happens when parent state is slightly behind or TOC updates)
+    rerender(
+      <Editor
+        activeTabId="tab-1"
+        initialContent="<h1>Heading with space</h1>"
+        onChange={onChange}
+        editorRef={editorRef}
+        readOnly={false}
+      />
+    );
+
+    // Live DOM should NOT be overwritten while active
+    expect(editorEl.querySelector("h1")?.textContent).toBe("Heading with spac");
+  });
 });
+

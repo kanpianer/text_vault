@@ -244,13 +244,15 @@ hr {
 }
 .editor-body {
   font-family: var(--font-sans);
+  white-space: pre-wrap;
   word-wrap: break-word;
+  word-break: break-word;
   user-select: text;
   -webkit-user-select: text;
 }
 .editor-body h1 {
   font-size: 22px;
-  line-height: 22px;
+  line-height: 28px;
   font-weight: 800;
   color: #ffffff;
   letter-spacing: -0.025em;
@@ -259,6 +261,8 @@ hr {
   margin-top: 1rem;
   margin-bottom: 0.5rem;
   border-bottom: 1px solid #27272a;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .editor-body > h1:first-child,
 .editor-body h1:first-of-type {
@@ -272,27 +276,31 @@ hr {
   display: inline-block;
   float: left;
   height: 0;
-  line-height: 22px;
+  line-height: 28px;
 }
 .editor-body h2 {
   font-size: 20px;
-  line-height: 20px;
+  line-height: 26px;
   font-weight: 600;
   color: #f4f4f5;
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
   margin-top: 0.75rem;
   margin-bottom: 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .editor-body h3 {
   font-size: 18px;
-  line-height: 18px;
+  line-height: 24px;
   font-weight: 600;
   color: #e4e4e7;
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .editor-body blockquote {
   border-left: 4px solid #52525b;

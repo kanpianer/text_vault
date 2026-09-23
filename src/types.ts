@@ -6,6 +6,7 @@ export interface TabContent {
   isShared?: boolean;
   shareId?: string;
   shareHasPassword?: boolean;
+  isPinned?: boolean;
 }
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error" | "pwd_changed";

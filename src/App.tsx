@@ -1,7 +1,7 @@
 import type React from "react";
 import { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Link2Off, Search, Plus } from "lucide-react";
+import { X, Link2Off, Search, Plus, Pin } from "lucide-react";
 import { TabContent, SaveStatus } from "./types";
 import {
   deriveKeyAndHash,
@@ -785,13 +785,54 @@ export default function App() {
       id: newId,
       text: `<h1><br></h1><p><br></p>`,
     };
-    setTabs([newTab, ...tabs]);
+    setTabs((prev) => {
+      const firstUnpinnedIndex = prev.findIndex((t) => !t.isPinned);
+      if (firstUnpinnedIndex === -1) {
+        return [...prev, newTab];
+      }
+      const newTabs = [...prev];
+      newTabs.splice(firstUnpinnedIndex, 0, newTab);
+      return newTabs;
+    });
     scrollPositionsRef.current[activeTabId] = window.scrollY;
     setActiveTabId(newId);
     setHasUnsavedChanges(true);
     if (docListRef.current) {
       docListRef.current.scrollTop = 0;
     }
+  };
+
+  // Pin tab to top / unpin tab
+  const handlePinTab = (e: React.MouseEvent, tabId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setTabs((prev) => {
+      const fromIndex = prev.findIndex((t) => t.id === tabId);
+      if (fromIndex === -1) return prev;
+      const tab = prev[fromIndex];
+      const isCurrentlyPinned = Boolean(tab.isPinned);
+
+      if (isCurrentlyPinned && fromIndex === 0) {
+        // Already pinned at index 0: unpin and move after remaining pinned items
+        const newTabs = [...prev];
+        const [moved] = newTabs.splice(fromIndex, 1);
+        const unpinnedTab = { ...moved, isPinned: false };
+        const nextUnpinnedIdx = newTabs.findIndex((t) => !t.isPinned);
+        if (nextUnpinnedIdx === -1) {
+          newTabs.push(unpinnedTab);
+        } else {
+          newTabs.splice(nextUnpinnedIdx, 0, unpinnedTab);
+        }
+        return newTabs;
+      } else {
+        // Pin and move to the top
+        const newTabs = [...prev];
+        const [moved] = newTabs.splice(fromIndex, 1);
+        newTabs.unshift({ ...moved, isPinned: true });
+        return newTabs;
+      }
+    });
+    setHasUnsavedChanges(true);
   };
 
   // Close tab direct
@@ -2245,7 +2286,7 @@ export default function App() {
                 className="absolute left-4 md:left-8 top-full mt-0 flex flex-col z-50 bg-[#090a0b] border border-zinc-800 rounded shadow-xl max-h-[75vh] overflow-hidden before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']"
               >
                 {/* Search bar header */}
-                <div className="flex items-center gap-2.5 px-3.5 py-2 border-b border-zinc-800 bg-[#090a0b] shrink-0">
+                <div className="flex items-center gap-2.5 px-3.5 py-2 bg-[#090a0b] shrink-0">
                   <Search size={18} className="w-4 h-4 md:w-[18px] md:h-[18px] text-zinc-500 shrink-0" />
                   <input
                     ref={docSearchInputRef}
@@ -2369,18 +2410,37 @@ export default function App() {
                           </div>
 
                           {tabs.length > 1 && (
-                            <button
-                              type="button"
-                              onPointerDown={(e) => e.stopPropagation()}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCloseTab(e, tab.id);
-                              }}
-                              title="Delete Doc"
-                              className="text-zinc-600 hover:text-red-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-0.5 rounded cursor-pointer shrink-0"
-                            >
-                              <X size={16} strokeWidth={2} />
-                            </button>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => handlePinTab(e, tab.id)}
+                                title={tab.isPinned ? "Unpin Doc" : "Pin to Top"}
+                                className={`p-0.5 rounded cursor-pointer shrink-0 transition-opacity ${
+                                  tab.isPinned
+                                    ? "text-white opacity-100"
+                                    : "text-zinc-600 hover:text-white opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                                }`}
+                              >
+                                <Pin
+                                  size={15}
+                                  strokeWidth={2}
+                                  fill={tab.isPinned ? "currentColor" : "none"}
+                                />
+                              </button>
+                              <button
+                                type="button"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCloseTab(e, tab.id);
+                                }}
+                                title="Delete Doc"
+                                className="text-zinc-600 hover:text-red-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-0.5 rounded cursor-pointer shrink-0"
+                              >
+                                <X size={16} strokeWidth={2} />
+                              </button>
+                            </div>
                           )}
                         </motion.div>
                       );

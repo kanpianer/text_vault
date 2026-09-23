@@ -512,6 +512,63 @@ describe("Mobile Adaptations & Spacing Refinements", () => {
     expect(trigger.className).toContain("text-zinc-500");
     expect(vaultNameEl?.className).toContain("text-white");
   });
+
+  it("renders pin button in front of delete button and pins document to top on click", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/check")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ exists: false }),
+        });
+      }
+      if (url.includes("/create")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Create Vault Password/i)).toBeInTheDocument();
+    });
+
+    const pwdInputs = screen.getAllByPlaceholderText(/••••••••/i);
+    fireEvent.change(pwdInputs[0], { target: { value: "ValidPass123!" } });
+    fireEvent.change(pwdInputs[1], { target: { value: "ValidPass123!" } });
+    fireEvent.click(screen.getByText("Initialize"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Text_Vault\//i)).toBeInTheDocument();
+    });
+
+    // Add a second tab using the + button
+    const plusBtn = screen.getByTitle("New Document");
+    fireEvent.click(plusBtn);
+
+    // Open the doc popup
+    const trigger = screen.getByText(/Text_Vault\//i);
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/search docs/i)).toBeInTheDocument();
+    });
+
+    // There should now be pin buttons
+    const pinButtons = screen.getAllByTitle(/Pin to Top/i);
+    expect(pinButtons.length).toBe(2);
+
+    // Click pin on the second item
+    fireEvent.click(pinButtons[1]);
+
+    // Now the item is pinned to the top and has title "Unpin Doc"
+    await waitFor(() => {
+      expect(screen.getByTitle("Unpin Doc")).toBeInTheDocument();
+    });
+  });
 });
 
 

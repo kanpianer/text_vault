@@ -1870,8 +1870,8 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       let rect: DOMRect | null = null;
       if (sel && sel.rangeCount > 0) {
         const range = sel.getRangeAt(0);
-        rect = range.getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) {
+        rect = typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() : null;
+        if (!rect || (rect.width === 0 && rect.height === 0)) {
           let node = range.startContainer;
           const block = editorRef.current ? getCurrentBlock(editorRef.current, node) : null;
           if (block) {

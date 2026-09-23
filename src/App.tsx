@@ -62,9 +62,26 @@ export default function App() {
 
   const editorRef = useRef<HTMLDivElement>(null);
   const scrollPositionsRef = useRef<Record<string, number>>({});
+  const tabsRef = useRef(tabs);
+  const pendingTabUpdateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
+
+  if (pendingTabUpdateTimerRef.current === null) {
+    tabsRef.current = tabs;
+  }
+
+  const flushPendingTabUpdate = useCallback(() => {
+    if (pendingTabUpdateTimerRef.current !== null) {
+      clearTimeout(pendingTabUpdateTimerRef.current);
+      pendingTabUpdateTimerRef.current = null;
+      setTabs(tabsRef.current);
+    }
+  }, []);
 
   const handleTabSwitch = (newTabId: string) => {
     if (newTabId === activeTabId) return;
+    flushPendingTabUpdate();
     scrollPositionsRef.current[activeTabId] = window.scrollY;
     setActiveTabId(newTabId);
   };
@@ -189,18 +206,22 @@ export default function App() {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Refs mirroring state for stable auto-save effect (prevents focus loss)
-
   const hasUnsavedRef = useRef(hasUnsavedChanges);
-
   const saveStatusRef = useRef(saveStatus);
-
-  const tabsRef = useRef(tabs);
+  const showCountdownRef = useRef(showCountdown);
 
   hasUnsavedRef.current = hasUnsavedChanges;
-
   saveStatusRef.current = saveStatus;
+  showCountdownRef.current = showCountdown;
 
-  tabsRef.current = tabs;
+  useEffect(() => {
+    return () => {
+      if (pendingTabUpdateTimerRef.current !== null) {
+        clearTimeout(pendingTabUpdateTimerRef.current);
+        pendingTabUpdateTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const resetVaultAuthInputs = () => {
     setPassword("");
@@ -439,10 +460,15 @@ export default function App() {
 
   // Lock function - Purge secret keys out of memory
   const handleLock = () => {
+    if (pendingTabUpdateTimerRef.current !== null) {
+      clearTimeout(pendingTabUpdateTimerRef.current);
+      pendingTabUpdateTimerRef.current = null;
+    }
     setAesKey(null);
     setAuthHash("");
     resetVaultAuthInputs();
     setTabs([]);
+    tabsRef.current = [];
     setActiveTabId("");
     setIsVerified(false);
     setHasUnsavedChanges(false);
@@ -598,6 +624,7 @@ export default function App() {
 
   // Save text payload - used by Ctrl+S, manual button, and Auto-save
   const performSaveAction = async (opts?: { silent?: boolean }): Promise<boolean> => {
+    flushPendingTabUpdate();
     if (!aesKey || !authHash || !vaultName || tabsRef.current.length === 0) return false;
 
     const silent = opts?.silent ?? false;
@@ -705,7 +732,10 @@ export default function App() {
       "keydown",       // any keyboard press
       "wheel",         // mouse wheel / trackpad scroll
     ];
-    events.forEach((event) => document.addEventListener(event, resetTimer, { capture: true }));
+    events.forEach((event) => {
+      const isPassive = event === "pointermove" || event === "wheel";
+      document.addEventListener(event, resetTimer, { capture: true, passive: isPassive });
+    });
 
     const checkInterval = setInterval(() => {
       const elapsed = Date.now() - lastActivityRef.current;
@@ -714,13 +744,15 @@ export default function App() {
       if (remaining <= 0) {
         clearInterval(checkInterval);
         handleAutoSaveAndLock();
-      } else {
+      } else if (showCountdownRef.current) {
         setTimeLeft(remaining);
       }
     }, 1000);
 
     return () => {
-      events.forEach((event) => document.removeEventListener(event, resetTimer, { capture: true }));
+      events.forEach((event) => {
+        document.removeEventListener(event, resetTimer, { capture: true });
+      });
       clearInterval(checkInterval);
     };
   }, [isVerified, autoLockTimeoutMs]);
@@ -768,17 +800,34 @@ export default function App() {
     // Left as stub for backward-compatibility / fallback if needed, but we handle line editing directly
   };
 
-  const handleEditorInput = (html: string, currentTarget: HTMLElement | null) => {
-    const newText = html;
+  const handleEditorInput = useCallback((html: string, currentTarget: HTMLElement | null) => {
+    const currentId = activeTabIdRef.current;
+    tabsRef.current = tabsRef.current.map((t) => (t.id === currentId ? { ...t, text: html } : t));
 
-    setTabs(prev => prev.map(t => t.id === activeTabId ? { ...t, text: newText } : t));
+    if (!hasUnsavedRef.current) {
+      setHasUnsavedChanges(true);
+    }
 
-    setHasUnsavedChanges(true);
+    if (pendingTabUpdateTimerRef.current !== null) {
+      clearTimeout(pendingTabUpdateTimerRef.current);
+    }
 
-  };
+    pendingTabUpdateTimerRef.current = setTimeout(() => {
+      pendingTabUpdateTimerRef.current = null;
+      setTabs(tabsRef.current);
+    }, 250);
+  }, []);
+
+  const handleEditorActiveChange = useCallback((focused: boolean) => {
+    setIsEditorFocused(focused);
+    if (!focused) {
+      flushPendingTabUpdate();
+    }
+  }, [flushPendingTabUpdate]);
 
   // Add new tab node
   const handleAddTab = () => {
+    flushPendingTabUpdate();
     if (tabs.length >= 20) return;
     const newId = `tab-${Date.now()}`;
     const newTab: TabContent = {
@@ -806,6 +855,7 @@ export default function App() {
   const handlePinTab = (e: React.MouseEvent, tabId: string) => {
     e.preventDefault();
     e.stopPropagation();
+    flushPendingTabUpdate();
     setTabs((prev) => {
       const fromIndex = prev.findIndex((t) => t.id === tabId);
       if (fromIndex === -1) return prev;
@@ -839,6 +889,7 @@ export default function App() {
   const handleCloseTab = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
+    flushPendingTabUpdate();
     if (tabs.length <= 1) return;
 
     setShowDocPopup(false);
@@ -847,6 +898,7 @@ export default function App() {
 
   const confirmCloseTab = () => {
     if (!tabToClose) return;
+    flushPendingTabUpdate();
 
     const remaining = tabs.filter((t) => t.id !== tabToClose);
     setTabs(remaining);
@@ -860,6 +912,7 @@ export default function App() {
   };
 
   const handleRenameSave = (tabId: string) => {
+    flushPendingTabUpdate();
     const trimmed = editingTitle.trim();
     if (trimmed) {
       setTabs(prev => prev.map(t => {
@@ -959,6 +1012,7 @@ export default function App() {
   };
 
   const handleExportMd = async () => {
+    flushPendingTabUpdate();
     setIsLoading(true);
     try {
       const JSZipModule = await import("jszip");
@@ -1220,6 +1274,7 @@ export default function App() {
       clearTimeout(docHoverTimeoutRef.current);
       docHoverTimeoutRef.current = null;
     }
+    flushPendingTabUpdate();
     setShowDocPopup(true);
   };
 
@@ -2250,7 +2305,10 @@ export default function App() {
               ref={docTriggerRef}
               onMouseEnter={handleDocTriggerMouseEnter}
               onMouseLeave={handleDocTriggerMouseLeave}
-              onClick={() => setShowDocPopup((prev) => !prev)}
+              onClick={() => {
+                flushPendingTabUpdate();
+                setShowDocPopup((prev) => !prev);
+              }}
               className="font-sans text-sm md:text-base tracking-widest font-semibold select-none flex items-center cursor-pointer group shrink-0 py-1 relative z-50"
             >
               <span className={`tracking-normal transition-colors duration-150 ${showDocPopup ? "text-white" : "text-zinc-500 group-hover:text-white"}`}>Text_Vault/</span>
@@ -2544,7 +2602,9 @@ export default function App() {
                     <span
                       key={mins}
                       onClick={() => {
-                        setAutoLockTimeoutMs(mins * 60000);
+                        const ms = mins * 60000;
+                        setAutoLockTimeoutMs(ms);
+                        setTimeLeft(ms);
                         setShowCountdown(true);
                         setShowTimerDropdown(false);
                       }}
@@ -2641,6 +2701,7 @@ export default function App() {
                   </span>
                   <span
                     onClick={() => {
+                      flushPendingTabUpdate();
                       const currentTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
                       if (currentTab?.shareId) {
                         setGeneratedShareUrl(`${window.location.origin}/share/${currentTab.shareId}`);
@@ -2712,7 +2773,7 @@ export default function App() {
               activeTabId={activeTabId}
               initialContent={activeTabContent}
               onChange={handleEditorInput}
-              onActiveChange={setIsEditorFocused}
+              onActiveChange={handleEditorActiveChange}
               hideToc={shouldHideEditorToc}
               readOnly={saveStatus === "saving" || saveStatus === "saved" || saveStatus === "pwd_changed"}
             />

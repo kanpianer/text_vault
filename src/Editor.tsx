@@ -1,7 +1,6 @@
-import type React from "react";
-import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, memo } from "react";
 import { marked } from "marked";
-import hljs from "highlight.js/lib/common";
+import hljs from "./highlight";
 import DOMPurify from "dompurify";
 import {
   calculateSelectionPosition,
@@ -454,7 +453,7 @@ function placeCaretAtRange(range: Range | null) {
 
 
 
-export function Editor({ activeTabId, initialContent, onChange, editorRef, readOnly, onActiveChange, hideToc = false }: any) {
+function EditorComponent({ activeTabId, initialContent, onChange, editorRef, readOnly, onActiveChange, hideToc = false }: any) {
   const previousTabId = useRef(activeTabId);
   const isFirstRender = useRef(true);
   const [isActive, setIsActive] = useState(false);
@@ -1256,7 +1255,18 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
         // Syntax Highlighting
         if (pre.dataset.rawText !== rawContent) {
-          let highlighted = hljs.highlightAuto(rawContent).value;
+          const langMatch = (pre.className || pre.getAttribute("data-lang") || "").match(/language-([a-zA-Z0-9_-]+)/);
+          const lang = langMatch ? langMatch[1].toLowerCase() : (pre.getAttribute("data-lang") || "").toLowerCase();
+          let highlighted = "";
+          if (lang && hljs.getLanguage(lang)) {
+            try {
+              highlighted = hljs.highlight(rawContent, { language: lang, ignoreIllegals: true }).value;
+            } catch {
+              highlighted = hljs.highlightAuto(rawContent).value;
+            }
+          } else {
+            highlighted = hljs.highlightAuto(rawContent).value;
+          }
           // Append a trailing newline to ensure the last line is editable in contenteditable
           highlighted += "\n";
           pre.innerHTML = highlighted;
@@ -2405,3 +2415,6 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
     </div>
   );
 }
+
+EditorComponent.displayName = "Editor";
+export const Editor = memo(EditorComponent);

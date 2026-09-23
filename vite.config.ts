@@ -15,9 +15,19 @@ export default defineConfig(() => {
     build: {
       rollupOptions: {
         output: {
-          manualChunks: {
-            'vendor-react': ['react', 'react-dom'],
-            'vendor-motion': ['motion/react'],
+          manualChunks(id) {
+            if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+              return 'vendor-react';
+            }
+            if (id.includes('node_modules/motion/') || id.includes('node_modules/framer-motion/')) {
+              return 'vendor-motion';
+            }
+            if (id.includes('node_modules/marked') || id.includes('node_modules/dompurify')) {
+              return 'vendor-markdown';
+            }
+            if (id.includes('node_modules/highlight.js')) {
+              return 'vendor-highlight';
+            }
           },
         },
       },

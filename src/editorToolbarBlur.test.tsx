@@ -340,5 +340,251 @@ describe("Editor mobile toolbar blur and keyboard collapse behavior", () => {
     // Live DOM should NOT be overwritten while active
     expect(editorEl.querySelector("h1")?.textContent).toBe("Heading with spac");
   });
+
+  describe("Editor paste behavior on empty lines", () => {
+    function setCaretInNode(node: Node) {
+      const sel = window.getSelection()!;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
+    it("pastes single-line text into an empty line without creating extra empty paragraphs", async () => {
+      const editorRef = createRef<HTMLDivElement>();
+      const onChange = vi.fn();
+
+      render(
+        <Editor
+          activeTabId="tab-1"
+          initialContent="<p><br></p>"
+          onChange={onChange}
+          editorRef={editorRef}
+          readOnly={false}
+        />
+      );
+
+      const editorEl = editorRef.current!;
+      const p = editorEl.querySelector("p")!;
+
+      // Click to activate
+      act(() => {
+        fireEvent.mouseDown(p);
+        fireEvent.click(p);
+      });
+
+      setCaretInNode(p);
+
+      act(() => {
+        fireEvent.paste(editorEl, {
+          clipboardData: {
+            getData: (format: string) => (format === "text/plain" ? "Hello world" : ""),
+          },
+        });
+      });
+
+      // Should have exactly 1 paragraph containing "Hello world", no extra <p><br></p>
+      const paragraphs = editorEl.querySelectorAll("p");
+      expect(paragraphs.length).toBe(1);
+      expect(paragraphs[0].textContent).toBe("Hello world");
+      expect(editorEl.querySelectorAll("br").length).toBe(0);
+      expect(onChange).toHaveBeenCalledWith("<p>Hello world</p>", editorEl);
+    });
+
+    it("pastes text with trailing newline into an empty line without adding an extra line break", async () => {
+      const editorRef = createRef<HTMLDivElement>();
+      const onChange = vi.fn();
+
+      render(
+        <Editor
+          activeTabId="tab-1"
+          initialContent="<p><br></p>"
+          onChange={onChange}
+          editorRef={editorRef}
+          readOnly={false}
+        />
+      );
+
+      const editorEl = editorRef.current!;
+      const p = editorEl.querySelector("p")!;
+
+      act(() => {
+        fireEvent.mouseDown(p);
+        fireEvent.click(p);
+      });
+
+      setCaretInNode(p);
+
+      act(() => {
+        fireEvent.paste(editorEl, {
+          clipboardData: {
+            getData: (format: string) => (format === "text/plain" ? "Copied line\n" : ""),
+          },
+        });
+      });
+
+      const paragraphs = editorEl.querySelectorAll("p");
+      expect(paragraphs.length).toBe(1);
+      expect(paragraphs[0].textContent).toBe("Copied line");
+      expect(editorEl.querySelectorAll("br").length).toBe(0);
+    });
+
+    it("pastes into an empty H1 heading without creating extra empty lines and preserving H1", async () => {
+      const editorRef = createRef<HTMLDivElement>();
+      const onChange = vi.fn();
+
+      render(
+        <Editor
+          activeTabId="tab-1"
+          initialContent="<h1><br></h1>"
+          onChange={onChange}
+          editorRef={editorRef}
+          readOnly={false}
+        />
+      );
+
+      const editorEl = editorRef.current!;
+      const h1 = editorEl.querySelector("h1")!;
+
+      act(() => {
+        fireEvent.mouseDown(h1);
+        fireEvent.click(h1);
+      });
+
+      setCaretInNode(h1);
+
+      act(() => {
+        fireEvent.paste(editorEl, {
+          clipboardData: {
+            getData: (format: string) => (format === "text/plain" ? "My Document Title" : ""),
+          },
+        });
+      });
+
+      const headings = editorEl.querySelectorAll("h1");
+      expect(headings.length).toBe(1);
+      expect(headings[0].textContent).toBe("My Document Title");
+      expect(editorEl.querySelectorAll("p").length).toBe(0);
+      expect(editorEl.querySelectorAll("br").length).toBe(0);
+    });
+
+    it("pastes multi-line text into an empty line without extra trailing empty lines", async () => {
+      const editorRef = createRef<HTMLDivElement>();
+      const onChange = vi.fn();
+
+      render(
+        <Editor
+          activeTabId="tab-1"
+          initialContent="<p><br></p>"
+          onChange={onChange}
+          editorRef={editorRef}
+          readOnly={false}
+        />
+      );
+
+      const editorEl = editorRef.current!;
+      const p = editorEl.querySelector("p")!;
+
+      act(() => {
+        fireEvent.mouseDown(p);
+        fireEvent.click(p);
+      });
+
+      setCaretInNode(p);
+
+      act(() => {
+        fireEvent.paste(editorEl, {
+          clipboardData: {
+            getData: (format: string) => (format === "text/plain" ? "Line 1\nLine 2" : ""),
+          },
+        });
+      });
+
+      // Within single paragraph with soft break: <p>Line 1<br>Line 2</p>
+      const paragraphs = editorEl.querySelectorAll("p");
+      expect(paragraphs.length).toBe(1);
+      expect(paragraphs[0].innerHTML).toContain("Line 1<br>Line 2");
+      // Exactly 1 <br> between lines, no trailing extra <br> or <p><br></p>
+      expect(editorEl.querySelectorAll("br").length).toBe(1);
+    });
+
+    it("pastes multiple markdown paragraphs into an empty line replacing it cleanly without a trailing empty line", async () => {
+      const editorRef = createRef<HTMLDivElement>();
+      const onChange = vi.fn();
+
+      render(
+        <Editor
+          activeTabId="tab-1"
+          initialContent="<p><br></p>"
+          onChange={onChange}
+          editorRef={editorRef}
+          readOnly={false}
+        />
+      );
+
+      const editorEl = editorRef.current!;
+      const p = editorEl.querySelector("p")!;
+
+      act(() => {
+        fireEvent.mouseDown(p);
+        fireEvent.click(p);
+      });
+
+      setCaretInNode(p);
+
+      act(() => {
+        fireEvent.paste(editorEl, {
+          clipboardData: {
+            getData: (format: string) => (format === "text/plain" ? "Para 1\n\nPara 2" : ""),
+          },
+        });
+      });
+
+      const paragraphs = editorEl.querySelectorAll("p");
+      expect(paragraphs.length).toBe(2);
+      expect(paragraphs[0].textContent).toBe("Para 1");
+      expect(paragraphs[1].textContent).toBe("Para 2");
+      expect(editorEl.querySelectorAll("br").length).toBe(0);
+    });
+
+    it("pastes plain text inside a code block <pre> without converting to rich HTML", async () => {
+      const editorRef = createRef<HTMLDivElement>();
+      const onChange = vi.fn();
+      document.execCommand = vi.fn();
+
+      render(
+        <Editor
+          activeTabId="tab-1"
+          initialContent="<pre><code></code></pre>"
+          onChange={onChange}
+          editorRef={editorRef}
+          readOnly={false}
+        />
+      );
+
+      const editorEl = editorRef.current!;
+      const pre = editorEl.querySelector("pre")!;
+
+      act(() => {
+        fireEvent.mouseDown(pre);
+        fireEvent.click(pre);
+      });
+
+      setCaretInNode(pre);
+
+      act(() => {
+        fireEvent.paste(editorEl, {
+          clipboardData: {
+            getData: (format: string) => (format === "text/plain" ? "# heading" : ""),
+          },
+        });
+      });
+
+      // Inside pre, it must use insertText instead of insertHTML
+      expect(document.execCommand).toHaveBeenCalledWith("insertText", false, "# heading");
+    });
+  });
 });
+
 

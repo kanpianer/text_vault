@@ -110,6 +110,44 @@ function getCurrentBlock(root: HTMLElement, node: Node): HTMLElement | null {
   return el && el !== root ? el : null;
 }
 
+export function isBlockEmpty(block: HTMLElement | null): boolean {
+  if (!block) return false;
+  const text = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF\s]/g, "");
+  const hasMedia = block.querySelector("img, svg, video, iframe, table, input") !== null;
+  return text === "" && !hasMedia;
+}
+
+export function placeCaretAtEnd(node: Node) {
+  const sel = window.getSelection();
+  if (!sel) return;
+
+  let target: Node = node;
+  while (target.lastChild) {
+    if (target.nodeType === Node.TEXT_NODE) break;
+    if (
+      target instanceof HTMLElement &&
+      ["IMG", "INPUT", "VIDEO", "HR"].includes(target.tagName)
+    ) {
+      break;
+    }
+    target = target.lastChild;
+  }
+
+  const range = document.createRange();
+  if (target.nodeType === Node.TEXT_NODE) {
+    range.setStart(target, target.textContent?.length || 0);
+    range.collapse(true);
+  } else if (target.nodeName === "BR") {
+    range.setStartBefore(target);
+    range.collapse(true);
+  } else {
+    range.selectNodeContents(target);
+    range.collapse(false);
+  }
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 function getTocBarWidthRem(title: string, level: number) {
   const baseWidth = level === 1 ? 0.32 : level === 2 ? 0.28 : 0.22;
   return Math.min(1.05, baseWidth + title.length * 0.013);
@@ -1306,9 +1344,48 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
 
   const handlePaste = async (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const text = e.clipboardData.getData("text/plain");
-    if (!text) return;
-    let html = await marked.parse(text, { breaks: true });
+    const rawText = e.clipboardData.getData("text/plain");
+    if (!rawText) return;
+
+    const el = editorRef.current as HTMLElement | null;
+    if (!el || readOnly) return;
+
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+
+    let block = getCurrentBlock(el, range.startContainer);
+    if (!block && el.contains(range.startContainer)) {
+      const text = (el.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF\s]/g, "");
+      if (text === "") {
+        block = el;
+      }
+    }
+
+    // Inside code block: insert as plain text
+    if (block && (block.tagName === "PRE" || block.closest("pre"))) {
+      document.execCommand("insertText", false, rawText);
+      normalizeEditorNodes(el);
+      updateToolbar();
+      onChange(el.innerHTML, el);
+      return;
+    }
+
+    // Normalize newlines and strip trailing newlines so paste doesn't create extra blank lines
+    const normalizedText = rawText.replace(/\r\n/g, "\n");
+    const trimmedText = normalizedText.replace(/[\r\n]+$/, "");
+
+    if (trimmedText === "") {
+      if (rawText.length > 0) {
+        document.execCommand("insertText", false, rawText);
+        normalizeEditorNodes(el);
+        updateToolbar();
+        onChange(el.innerHTML, el);
+      }
+      return;
+    }
+
+    let html = (marked.parse(trimmedText, { async: false, breaks: true }) as string) || "";
     html = html.replace(
       /<input disabled="" type="checkbox">/gi,
       '<input type="checkbox" style="margin-right:8px" contenteditable="false">'
@@ -1332,9 +1409,74 @@ export function Editor({ activeTabId, initialContent, onChange, editorRef, readO
       ALLOW_DATA_ATTR: true,
     });
 
-    document.execCommand("insertHTML", false, cleanHtml);
-    normalizeEditorNodes(editorRef.current);
-    onChange(editorRef.current.innerHTML, editorRef.current);
+    const temp = document.createElement("div");
+    temp.innerHTML = cleanHtml.trim();
+
+    // Clean up top-level empty text nodes (such as \n between blocks from marked)
+    Array.from(temp.childNodes).forEach((child) => {
+      if (
+        child.nodeType === Node.TEXT_NODE &&
+        (child.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim() === ""
+      ) {
+        child.remove();
+      }
+    });
+
+    if (temp.childNodes.length === 0) return;
+
+    const empty = isBlockEmpty(block);
+    const isSingleInline =
+      (temp.children.length === 1 && temp.firstElementChild?.tagName === "P") ||
+      (temp.children.length === 0 && temp.childNodes.length > 0);
+    const inlineContent = isSingleInline
+      ? (temp.firstElementChild ? temp.firstElementChild.innerHTML : temp.innerHTML)
+      : "";
+
+    if (empty && block) {
+      if (block === el) {
+        el.innerHTML = "";
+        const nodes = Array.from(temp.childNodes);
+        let lastNode: Node | null = null;
+        for (const n of nodes) {
+          el.appendChild(n);
+          lastNode = n;
+        }
+        normalizeEditorNodes(el);
+        if (lastNode) placeCaretAtEnd(lastNode);
+      } else if (isSingleInline) {
+        // Single paragraph / inline text pasted into an empty line:
+        // Replace empty block's content directly with the parsed inline content
+        block.innerHTML = inlineContent;
+        normalizeEditorNodes(el);
+        placeCaretAtEnd(block);
+      } else {
+        // Multi-block content pasted into an empty line: replace the empty block
+        const parent = block.parentNode || el;
+        const nodes = Array.from(temp.childNodes);
+        let lastNode: Node | null = null;
+        for (const n of nodes) {
+          parent.insertBefore(n, block);
+          lastNode = n;
+        }
+        block.remove();
+        normalizeEditorNodes(el);
+        if (lastNode) placeCaretAtEnd(lastNode);
+      }
+    } else {
+      if (isSingleInline && !inlineContent.includes("<br>")) {
+        // Single-line inline text pasted into existing non-empty text:
+        // Insert inline without splitting paragraph
+        document.execCommand("insertHTML", false, inlineContent);
+      } else {
+        // Multi-line or block content pasted into existing text
+        document.execCommand("insertHTML", false, cleanHtml.replace(/[\r\n]+$/, ""));
+      }
+      normalizeEditorNodes(el);
+    }
+
+    updateH1Placeholders(el, isActiveRef.current);
+    updateToolbar();
+    onChange(el.innerHTML, el);
   };
 
   // ── keydown: markdown shortcuts ───────────────────────────────────

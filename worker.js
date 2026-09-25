@@ -274,7 +274,7 @@ async function handleRequest(request, env) {
   // API: Create new shared document
   if (method === 'POST' && path === '/api/share/create') {
     const body = await request.json();
-    const { id, hasPassword, salt_enc, salt_auth, auth_hash_double, encrypted_data, key_unprotected } = body;
+    const { id, hasPassword, salt_enc, salt_auth, auth_hash_double, encrypted_data, key_unprotected, owner_auth_hash_double } = body;
 
     if (!id || typeof id !== 'string' || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
       return jsonResponse({ error: 'Invalid share ID. Must be 6-64 alphanumeric characters.' }, 400);
@@ -302,6 +302,8 @@ async function handleRequest(request, env) {
       encrypted_data,
       key_unprotected: key_unprotected || undefined,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      owner_auth_hash_double: owner_auth_hash_double || undefined,
     };
 
     await env.VAULTS.put('share:' + id, JSON.stringify(share));
@@ -376,10 +378,65 @@ async function handleRequest(request, env) {
     });
   }
 
+  // API: Update shared document
+  if (method === 'POST' && path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})\/update$/)) {
+    const id = path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})\/update$/)[1];
+    const raw = await env.VAULTS.get('share:' + id);
+    if (!raw) {
+      return jsonResponse({ error: 'Shared document not found.' }, 404);
+    }
+
+    const share = JSON.parse(raw);
+    const body = await request.json();
+    const { auth_hash, encrypted_data, key_unprotected, salt_enc, salt_auth, auth_hash_double } = body;
+
+    if (!encrypted_data) {
+      return jsonResponse({ error: 'Missing encrypted data.' }, 400);
+    }
+
+    if (share.owner_auth_hash_double) {
+      if (!auth_hash) {
+        return jsonResponse({ error: 'Missing owner credentials. Update denied.' }, 401);
+      }
+      const proof = await sha256(auth_hash);
+      if (!safeCompare(proof, share.owner_auth_hash_double)) {
+        return jsonResponse({ error: 'Verification failed. Access denied.' }, 401);
+      }
+    }
+
+    share.encrypted_data = encrypted_data;
+    share.updatedAt = new Date().toISOString();
+    if (key_unprotected !== undefined) share.key_unprotected = key_unprotected;
+    if (salt_enc !== undefined) share.salt_enc = salt_enc;
+    if (salt_auth !== undefined) share.salt_auth = salt_auth;
+    if (auth_hash_double !== undefined) share.auth_hash_double = auth_hash_double;
+
+    await env.VAULTS.put('share:' + id, JSON.stringify(share));
+    return jsonResponse({ success: true, id });
+  }
+
   // API: Delete shared document
   if (method === 'POST' && path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})\/delete$/)) {
     const id = path.match(/^\/api\/share\/([a-zA-Z0-9_-]{6,64})\/delete$/)[1];
     if (env && env.VAULTS) {
+      const raw = await env.VAULTS.get('share:' + id);
+      if (raw) {
+        const share = JSON.parse(raw);
+        if (share.owner_auth_hash_double) {
+          let body = {};
+          try {
+            body = await request.json();
+          } catch {}
+          const { auth_hash } = body || {};
+          if (!auth_hash) {
+            return jsonResponse({ error: 'Missing owner credentials. Delete denied.' }, 401);
+          }
+          const proof = await sha256(auth_hash);
+          if (!safeCompare(proof, share.owner_auth_hash_double)) {
+            return jsonResponse({ error: 'Verification failed. Access denied.' }, 401);
+          }
+        }
+      }
       await env.VAULTS.delete('share:' + id);
     }
     return jsonResponse({ success: true });

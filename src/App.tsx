@@ -1,7 +1,7 @@
 import type React from "react";
 import { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { X, Link2Off, Search, Plus, Pin } from "lucide-react";
+import { X, Link2Off, Search, Plus, Pin, Eye, EyeOff } from "lucide-react";
 import { TabContent, SaveStatus } from "./types";
 import {
   deriveKeyAndHash,
@@ -29,6 +29,34 @@ const VAULT_MAX_CHARS = 1_000_000;
 const TAB_MAX_CHARS = 100_000;
 
 
+
+// Password Requirements Live Indicator
+function PasswordRulesIndicator({ password }: { password: string }) {
+  if (!password) return null;
+  const checks = [
+    { label: "8-64 chars", ok: password.length >= 8 && password.length <= 64 },
+    { label: "Uppercase", ok: /[A-Z]/.test(password) },
+    { label: "Lowercase", ok: /[a-z]/.test(password) },
+    { label: "Number", ok: /[0-9]/.test(password) },
+    { label: "Symbol", ok: /[^A-Za-z0-9]/.test(password) },
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 mt-2 text-[10px] md:text-[11px] font-sans">
+      {checks.map((c) => (
+        <span
+          key={c.label}
+          className={`flex items-center gap-1 transition-colors ${
+            c.ok ? "text-emerald-400 font-medium" : "text-zinc-500"
+          }`}
+        >
+          <span>{c.ok ? "✓" : "○"}</span>
+          <span>{c.label}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export default function App() {
   // Navigation & Router
@@ -112,7 +140,7 @@ export default function App() {
   // Save State Transition
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
 
-  const [autoSaveAnim, setAutoSaveAnim] = useState<"saving" | "saved" | null>(null);
+  const [autoSaveAnim, setAutoSaveAnim] = useState<"saving" | "saved" | "error" | null>(null);
 
 
 
@@ -180,6 +208,23 @@ export default function App() {
   const [isSharing, setIsSharing] = useState<boolean>(false);
   const [generatedShareUrl, setGeneratedShareUrl] = useState<string>("");
   const [isShareCopied, setIsShareCopied] = useState<boolean>(false);
+  const [isUpdatingShare, setIsUpdatingShare] = useState<boolean>(false);
+  const [isShareUpdated, setIsShareUpdated] = useState<boolean>(false);
+
+  // Doc switcher keyboard navigation & search highlight
+  const [highlightedDocIndex, setHighlightedDocIndex] = useState<number>(-1);
+
+  // Password visibility map
+  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+  const togglePasswordVisibility = (field: string) => {
+    setShowPasswords((prev) => ({ ...prev, [field]: !prev[field] }));
+  };
+
+  // Cheatsheet modal state
+  const [showCheatsheetModal, setShowCheatsheetModal] = useState<boolean>(false);
+
+  // Import file input ref
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   // Shared Document Viewer State
   const [sharedDocId, setSharedDocId] = useState<string>("");
@@ -195,7 +240,17 @@ export default function App() {
   const sharedEditorRef = useRef<HTMLDivElement>(null);
   const sharedPasswordInputRef = useRef<HTMLInputElement>(null);
 
-  const shouldHideEditorToc = showMenu || showChangePasswordModal || showDeleteModal || showExportModal || showShareModal || showUnshareConfirm || Boolean(tabToClose) || showTimerDropdown || showDocPopup;
+  const shouldHideEditorToc =
+    showMenu ||
+    showChangePasswordModal ||
+    showDeleteModal ||
+    showExportModal ||
+    showShareModal ||
+    showUnshareConfirm ||
+    showCheatsheetModal ||
+    Boolean(tabToClose) ||
+    showTimerDropdown ||
+    showDocPopup;
 
 
 
@@ -691,15 +746,15 @@ export default function App() {
       timer = setTimeout(async () => {
 
         if (hasUnsavedRef.current && saveStatusRef.current === "idle") {
-
           setAutoSaveAnim("saving");
-
-          await performSaveAction({ silent: true });
-
-          setAutoSaveAnim("saved");
-
-          setTimeout(() => setAutoSaveAnim(null), 200);
-
+          const ok = await performSaveAction({ silent: true });
+          if (ok) {
+            setAutoSaveAnim("saved");
+            setTimeout(() => setAutoSaveAnim(null), 300);
+          } else {
+            setAutoSaveAnim("error");
+            setTimeout(() => setAutoSaveAnim(null), 3000);
+          }
         }
 
       }, 20000);
@@ -709,6 +764,18 @@ export default function App() {
       if (timer !== null) clearTimeout(timer);
     };
   }, [isVerified, hasUnsavedChanges, saveStatus]);
+
+  // Intercept accidental tab close/refresh when there are unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   // Inactivity tracking for auto-lock
   useEffect(() => {
@@ -956,6 +1023,7 @@ export default function App() {
       return;
     }
 
+    flushPendingTabUpdate();
     setIsLoading(true);
     setPwdModalError("");
     try {
@@ -965,7 +1033,8 @@ export default function App() {
       const { aesKey: dAesKey, authHash: dAuthHash } = await deriveKeyAndHash(newPassword, sEnc, sAuth);
 
       // Re-encrypt values inside current active local state using the new key
-      const payloadString = JSON.stringify({ tabs });
+      const currentTabs = tabsRef.current.length > 0 ? tabsRef.current : tabs;
+      const payloadString = JSON.stringify({ tabs: currentTabs });
       const encryptedPayload = await encryptData(payloadString, dAesKey);
       const authHashDouble = await sha256Client(dAuthHash);
 
@@ -1055,6 +1124,71 @@ export default function App() {
     } finally {
       setIsLoading(false);
       setShowExportModal(false);
+    }
+  };
+
+  const handleImportFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    flushPendingTabUpdate();
+    setIsLoading(true);
+
+    try {
+      const newTabsToAdd: TabContent[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.name.toLowerCase().endsWith(".zip")) {
+          const JSZipModule = await import("jszip");
+          const ZipClass = typeof JSZipModule === "function" ? JSZipModule : (JSZipModule as any).default || JSZipModule;
+          const zip = await ZipClass.loadAsync(file);
+          const entries = Object.keys(zip.files);
+          for (const filename of entries) {
+            const entry = zip.files[filename];
+            if (!entry.dir && !filename.startsWith("__MACOSX/") && !filename.startsWith(".")) {
+              const lower = filename.toLowerCase();
+              if (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.endsWith(".txt")) {
+                const text = await entry.async("text");
+                const docTitle = filename.split("/").pop()?.replace(/\.[^/.]+$/, "") || "Untitled";
+                const cleanText = text.includes("<h1") || text.includes("<p>")
+                  ? text
+                  : `<h1>${docTitle}</h1>\n` + text;
+                newTabsToAdd.push({
+                  id: `tab-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+                  text: cleanText,
+                });
+              }
+            }
+          }
+        } else {
+          const text = await file.text();
+          const docTitle = file.name.replace(/\.[^/.]+$/, "") || "Untitled";
+          const cleanText = text.includes("<h1") || text.includes("<p>")
+            ? text
+            : `<h1>${docTitle}</h1>\n` + text;
+          newTabsToAdd.push({
+            id: `tab-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            text: cleanText,
+          });
+        }
+      }
+
+      if (newTabsToAdd.length > 0) {
+        setTabs((prev) => [...prev, ...newTabsToAdd]);
+        setActiveTabId(newTabsToAdd[0].id);
+        setHasUnsavedChanges(true);
+        setTimeout(() => {
+          performSaveAction({ silent: true });
+        }, 200);
+      }
+    } catch (err: any) {
+      console.error("Import failed:", err);
+      alert("Failed to import files: " + (err?.message || String(err)));
+    } finally {
+      setIsLoading(false);
+      if (importFileInputRef.current) {
+        importFileInputRef.current.value = "";
+      }
     }
   };
 
@@ -1325,6 +1459,21 @@ export default function App() {
     };
   }, [showDocPopup]);
 
+  useEffect(() => {
+    if (showDocPopup) {
+      setHighlightedDocIndex(-1);
+    }
+  }, [showDocPopup]);
+
+  useEffect(() => {
+    if (showDocPopup && highlightedDocIndex >= 0 && docListRef.current) {
+      const items = docListRef.current.querySelectorAll("[data-tab-id]");
+      if (items[highlightedDocIndex]) {
+        (items[highlightedDocIndex] as HTMLElement).scrollIntoView?.({ block: "nearest" });
+      }
+    }
+  }, [highlightedDocIndex, showDocPopup]);
+
   // Tab long-press reorder handlers
   const handleTabPointerDown = (e: React.PointerEvent, tabId: string) => {
     if (e.button !== 0 && e.button !== undefined) return;
@@ -1405,7 +1554,23 @@ export default function App() {
         const m = dragMetricsRef.current;
         const scrollOffset = docListRef.current.scrollTop;
         const relativeY = clientY - m.listTop + scrollOffset - m.paddingTop;
-        const targetIndex = Math.max(0, Math.min(tabs.length - 1, Math.floor(relativeY / m.rowHeight)));
+        const currentTabs = tabsRef.current;
+        const currentTab = currentTabs.find((t) => t.id === currentId);
+        const pinnedCount = currentTabs.filter((t) => t.isPinned).length;
+        const isCurrentPinned = Boolean(currentTab?.isPinned);
+
+        let minIndex = 0;
+        let maxIndex = Math.max(0, currentTabs.length - 1);
+        if (isCurrentPinned) {
+          minIndex = 0;
+          maxIndex = Math.max(0, pinnedCount - 1);
+        } else {
+          minIndex = pinnedCount;
+          maxIndex = Math.max(pinnedCount, currentTabs.length - 1);
+        }
+
+        const rawIndex = Math.floor(relativeY / m.rowHeight);
+        const targetIndex = Math.max(minIndex, Math.min(maxIndex, rawIndex));
 
         if (targetIndex !== currentDragIndexRef.current && targetIndex >= 0) {
           currentDragIndexRef.current = targetIndex;
@@ -1754,6 +1919,7 @@ export default function App() {
       const shareId = generateShortShareId();
       const shareUrl = `${window.location.origin}/share/${shareId}`;
 
+      const ownerAuthHashDouble = authHash ? await sha256Client(authHash) : undefined;
       let resp: Response;
 
       if (shareRequirePassword) {
@@ -1773,6 +1939,7 @@ export default function App() {
             salt_auth: sAuth,
             auth_hash_double: authHashDouble,
             encrypted_data: encryptedData,
+            owner_auth_hash_double: ownerAuthHashDouble,
           }),
         });
       } else {
@@ -1787,6 +1954,7 @@ export default function App() {
             hasPassword: false,
             encrypted_data: encryptedData,
             key_unprotected: rawKeyHex,
+            owner_auth_hash_double: ownerAuthHashDouble,
           }),
         });
       }
@@ -1857,6 +2025,8 @@ export default function App() {
         try {
           await fetch(`/api/share/${shareIdToDelete}/delete`, {
             method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ auth_hash: authHash }),
           });
         } catch (e) {
           console.error("Failed to delete share on server:", e);
@@ -1880,6 +2050,80 @@ export default function App() {
       console.error("Unshare failed", e);
     } finally {
       setIsUnsharing(false);
+    }
+  };
+
+  const handleUpdateShareLink = async () => {
+    const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+    if (!activeTab || !activeTab.shareId) return;
+
+    setIsUpdatingShare(true);
+    setShareError("");
+
+    try {
+      const docPayload = JSON.stringify({
+        title: getTabRawTitle(activeTab) || "Untitled Document",
+        text: activeTab.text,
+        updatedAt: new Date().toISOString(),
+      });
+
+      let resp: Response;
+
+      if (activeTab.shareHasPassword) {
+        if (!sharePassword) {
+          setShareError("Enter share password to re-encrypt and update.");
+          setIsUpdatingShare(false);
+          return;
+        }
+        const sEnc = generateSaltHex();
+        const sAuth = generateSaltHex();
+        const { aesKey: dAesKey, authHash: dAuthHash } = await deriveKeyAndHash(sharePassword, sEnc, sAuth);
+        const encryptedData = await encryptData(docPayload, dAesKey);
+        const authHashDouble = await sha256Client(dAuthHash);
+
+        resp = await fetch(`/api/share/${activeTab.shareId}/update`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            auth_hash: authHash,
+            encrypted_data: encryptedData,
+            salt_enc: sEnc,
+            salt_auth: sAuth,
+            auth_hash_double: authHashDouble,
+          }),
+        });
+      } else {
+        const rawKeyHex = generateRandomKeyHex();
+        const encryptedData = await encryptDataWithRawKey(docPayload, rawKeyHex);
+
+        resp = await fetch(`/api/share/${activeTab.shareId}/update`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            auth_hash: authHash,
+            encrypted_data: encryptedData,
+            key_unprotected: rawKeyHex,
+          }),
+        });
+      }
+
+      if (!resp.ok) {
+        let errorMsg = `Server error (${resp.status})`;
+        try {
+          const d = await resp.json();
+          if (d && (d.error || d.message)) errorMsg = d.error || d.message;
+        } catch {}
+        setShareError(errorMsg);
+        return;
+      }
+
+      setIsShareUpdated(true);
+      setTimeout(() => setIsShareUpdated(false), 2500);
+    } catch (err: any) {
+      console.error("Update share failed:", err);
+      setShareError(err?.message || "Failed to update share.");
+    } finally {
+      setIsUpdatingShare(false);
     }
   };
 
@@ -1907,92 +2151,131 @@ export default function App() {
   // 0. SHARED DOCUMENT VIEW (URL: /share/:id)
   if (sharedDocId) {
     return (
-      <div className="min-h-screen flex flex-col justify-between bg-[#090a0b] text-zinc-200 font-sans selection:bg-zinc-800">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.16, ease: "easeOut" }}
+        className="min-h-screen flex flex-col justify-between bg-[#090a0b] text-zinc-200 font-sans relative selection:bg-zinc-800"
+      >
         <header className="sticky top-0 z-30 bg-[#090a0b]/95 backdrop-blur w-full">
-          <div className="w-full max-w-4xl px-4 md:px-8 py-3 flex justify-between items-center mx-auto">
-            <div className="flex items-center gap-2 md:gap-3">
-              <span
-                onClick={() => navigateTo("")}
-                className="font-sans text-sm md:text-base tracking-widest text-[#f4f4f5] font-semibold cursor-pointer hover:text-zinc-400 transition-colors select-none"
-              >
-                TEXT_VAULT
-              </span>
-              <span className="text-zinc-600 text-xs select-none">/</span>
-              <span className="text-zinc-300 text-xs md:text-sm font-sans font-medium select-none truncate max-w-[180px] md:max-w-md">
-                {sharedDocContent?.title || "Shared Doc"}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2 md:gap-4">
-              {sharedDocContent && (
-                <span
-                  onClick={handleCopySharedContent}
-                  className="text-xs font-sans text-zinc-400 hover:text-white cursor-pointer select-none uppercase tracking-wider px-2 py-1 transition-colors"
+          <div className="w-full max-w-4xl px-4 md:px-8 py-3 flex justify-between items-center mx-auto relative">
+              <div className="flex items-center gap-3 min-w-0">
+                <div
+                  onClick={() => navigateTo("")}
+                  className="font-sans text-sm md:text-base tracking-widest font-semibold select-none flex items-center cursor-pointer group shrink-0 py-1 relative z-50"
                 >
-                  {isSharedDocCopied ? "Copied!" : "Copy"}
+                  <span className="tracking-normal transition-colors duration-150 text-zinc-500 group-hover:text-white">Text_Vault/</span>
+                  <span className="transition-colors duration-150 text-white group-hover:text-zinc-500 truncate max-w-[180px] md:max-w-md">
+                    {sharedDocContent?.title || "shared"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 md:gap-6">
+                <span className="font-sans text-[10px] md:text-xs text-zinc-500 tracking-wider leading-none select-none shrink-0">
+                  [SHARED]
                 </span>
-              )}
-              <span
-                onClick={() => navigateTo("")}
-                className="text-xs font-sans text-zinc-500 hover:text-white cursor-pointer select-none uppercase tracking-wider px-2 py-1 transition-colors"
-              >
-                Home
-              </span>
+
+                {sharedDocContent && (
+                  <>
+                    <span
+                      onClick={handleCopySharedContent}
+                      className="font-sans text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block transition-colors py-1"
+                    >
+                      {isSharedDocCopied ? "COPIED!" : "COPY"}
+                    </span>
+                    <span
+                      onClick={handleExportSharedMd}
+                      className="font-sans text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block transition-colors py-1"
+                    >
+                      EXPORT
+                    </span>
+                  </>
+                )}
+
+                <span
+                  onClick={() => navigateTo("")}
+                  className="font-sans text-xs md:text-sm uppercase tracking-wider text-zinc-400 hover:text-white cursor-pointer select-none leading-none block transition-colors py-1"
+                >
+                  HOME
+                </span>
+              </div>
             </div>
-          </div>
-        </header>
+          </header>
 
         {/* Content area: Loading / Not Found / Password Prompt / Rendered Doc */}
-        <main className="flex-1 flex flex-col bg-[#090a0b] px-4 md:px-8 pt-6 pb-24 max-w-4xl mx-auto w-full">
+        <main className="flex-1 flex flex-col bg-[#090a0b] px-4 md:px-8 pt-0 pb-0 max-w-4xl mx-auto w-full">
           {sharedLoading ? (
             <div className="flex-1 flex items-center justify-center py-32">
-              <span className="font-sans text-sm tracking-widest text-zinc-400 uppercase animate-pulse">
+              <span className="font-sans text-sm tracking-widest text-[#ffffff] font-medium block uppercase animate-pulse">
                 Decrypting document...
               </span>
             </div>
           ) : sharedDocNotFound ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center gap-4 py-32">
-              <h2 className="text-xl font-bold tracking-wide uppercase text-zinc-300">
+              <h3 className="text-zinc-100 font-sans tracking-wide text-lg md:text-xl text-center uppercase">
                 Document Not Found
-              </h2>
-              <p className="text-xs text-zinc-500 max-w-sm">
+              </h3>
+              <p className="font-sans text-xs text-zinc-500 max-w-sm tracking-wider leading-relaxed">
                 This document link might be invalid, expired, or removed.
               </p>
-              <button
-                onClick={() => navigateTo("")}
-                className="mt-4 px-4 py-2 bg-zinc-900 border border-zinc-800 text-xs uppercase tracking-wider text-zinc-300 hover:text-white hover:border-zinc-600 rounded transition-all cursor-pointer"
-              >
-                Return Home
-              </button>
+              <div className="flex justify-center items-center mt-2">
+                <span
+                  onClick={() => navigateTo("")}
+                  className="font-sans text-xs md:text-sm font-semibold text-zinc-200 hover:text-white hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                >
+                  Return Home
+                </span>
+              </div>
             </div>
           ) : sharedDocHasPassword && !sharedDocContent ? (
-            <div className="flex-1 flex flex-col items-center justify-center w-full max-w-md mx-auto py-24">
-              <div className="w-full flex flex-col gap-6 items-center">
-                <h2 className="text-zinc-100 font-sans tracking-wide text-lg md:text-xl text-center uppercase font-semibold">
-                  Access Protected Document
-                </h2>
+            <div className="fixed inset-0 bg-[#090a0b] flex items-center md:items-start justify-center md:pt-[28vh] z-50">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="w-full max-w-4xl px-4 md:px-8 flex flex-col gap-6 relative"
+              >
+                <h3 className="text-zinc-100 font-sans tracking-wide text-lg md:text-xl text-center uppercase">
+                  ACCESS PROTECTED DOCUMENT
+                </h3>
 
-                <div className="w-full">
-                  <div className="relative grid items-center w-full max-w-xs mx-auto">
-                    <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
-                      ••••••••
-                    </span>
-                    <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
-                      {sharedPasswordInput ? '•'.repeat(sharedPasswordInput.length) : ''}
-                    </span>
-                    <input
-                      ref={sharedPasswordInputRef}
-                      autoFocus
-                      type="password"
-                      maxLength={64}
-                      value={sharedPasswordInput}
-                      onChange={(e) => setSharedPasswordInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleUnlockSharedDoc();
-                      }}
-                      className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-base md:text-lg tracking-[0.2em] text-center border-none"
-                      placeholder="••••••••"
-                    />
+                <div className="flex flex-col w-full items-center">
+                  <div className="w-full mb-6">
+                    <div className="w-full flex justify-center items-center">
+                      <div className="relative grid items-center">
+                        <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
+                          ••••••••
+                        </span>
+                        <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
+                          {sharedPasswordInput ? (showPasswords["sharedUnlock"] ? sharedPasswordInput : '•'.repeat(sharedPasswordInput.length)) : ''}
+                        </span>
+                        <input
+                          ref={sharedPasswordInputRef}
+                          autoFocus
+                          type={showPasswords["sharedUnlock"] ? "text" : "password"}
+                          maxLength={64}
+                          value={sharedPasswordInput}
+                          onChange={(e) => setSharedPasswordInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleUnlockSharedDoc();
+                          }}
+                          className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-lg tracking-[0.2em] text-center"
+                          placeholder="••••••••"
+                        />
+                        {Boolean(sharedPasswordInput) && (
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            onClick={() => togglePasswordVisibility("sharedUnlock")}
+                            className="absolute -right-7 md:-right-8 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer transition-colors"
+                            title={showPasswords["sharedUnlock"] ? "Hide password" : "Show password"}
+                          >
+                            {showPasswords["sharedUnlock"] ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -2002,7 +2285,7 @@ export default function App() {
                   </p>
                 )}
 
-                <div className="flex justify-center gap-8 items-center mt-2">
+                <div className="flex justify-center gap-12 items-center mt-2">
                   <span
                     onClick={() => navigateTo("")}
                     className="font-sans text-xs md:text-sm text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
@@ -2016,34 +2299,34 @@ export default function App() {
                     {sharedIsDecrypting ? "Decrypting..." : "Decrypt"}
                   </span>
                 </div>
-              </div>
+              </motion.div>
             </div>
           ) : sharedDocContent ? (
-            <div className="w-full flex flex-col flex-1">
-              <div className="flex-1 flex flex-col relative min-h-[500px]">
-                <Suspense fallback={<div className="text-zinc-600 font-sans text-sm py-16 text-center">Loading viewer...</div>}>
-                  <Editor
-                    editorRef={sharedEditorRef}
-                    activeTabId="shared"
-                    initialContent={sharedDocContent.text}
-                    hideToc={false}
-                    readOnly={true}
-                  />
-                </Suspense>
-              </div>
+            <div className="flex-1 flex flex-col relative pt-0 pb-24 min-h-[550px]">
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center text-zinc-600 font-sans text-sm py-16">Loading editor...</div>}>
+                <Editor
+                  editorRef={sharedEditorRef}
+                  activeTabId="shared"
+                  initialContent={sharedDocContent.text}
+                  hideToc={false}
+                  readOnly={true}
+                />
+              </Suspense>
             </div>
           ) : (
             sharedDocError && (
               <div className="flex-1 flex flex-col items-center justify-center text-center gap-4 py-32">
-                <p className="text-xs text-red-400 max-w-sm">
+                <p className="text-xs text-red-400 max-w-sm font-sans tracking-wider">
                   {sharedDocError}
                 </p>
-                <button
-                  onClick={() => navigateTo("")}
-                  className="mt-2 px-4 py-2 bg-zinc-900 border border-zinc-800 text-xs uppercase tracking-wider text-zinc-300 hover:text-white rounded transition-all cursor-pointer"
-                >
-                  Return Home
-                </button>
+                <div className="flex justify-center items-center mt-2">
+                  <span
+                    onClick={() => navigateTo("")}
+                    className="font-sans text-xs md:text-sm font-semibold text-zinc-200 hover:text-white hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
+                  >
+                    Return Home
+                  </span>
+                </div>
               </div>
             )
           )}
@@ -2054,7 +2337,7 @@ export default function App() {
             End To End Encrypted // <span onClick={() => navigateTo("")} className="text-white hover:text-zinc-300 cursor-pointer">Text_Vault</span>
           </span>
         </footer>
-      </div>
+      </motion.div>
     );
   }
 
@@ -2085,12 +2368,12 @@ export default function App() {
                   ref={searchInputRef}
                   type="text"
                   value={searchName}
-                  maxLength={9}
+                  maxLength={10}
                   onFocus={() => setIsHomeFocused(true)}
                   onBlur={() => setIsHomeFocused(false)}
                   onChange={(e) => {
                     const val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
-                    if (val.length <= 9) {
+                    if (val.length <= 10) {
                       setSearchName(val);
                       setSearchError("");
                     }
@@ -2157,12 +2440,12 @@ export default function App() {
                           ••••••••
                         </span>
                         <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
-                          {password ? '•'.repeat(password.length) : ''}
+                          {password ? (showPasswords["homePassword"] ? password : '•'.repeat(password.length)) : ''}
                         </span>
                         <input
                           ref={passwordInputRef}
                           autoFocus
-                          type="password"
+                          type={showPasswords["homePassword"] ? "text" : "password"}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           maxLength={64}
@@ -2181,8 +2464,20 @@ export default function App() {
                             }
                           }}
                         />
+                        {Boolean(password) && (
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            onClick={() => togglePasswordVisibility("homePassword")}
+                            className="absolute -right-7 md:-right-8 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer transition-colors"
+                            title={showPasswords["homePassword"] ? "Hide password" : "Show password"}
+                          >
+                            {showPasswords["homePassword"] ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        )}
                       </div>
                     </div>
+                    {isNewVault && <PasswordRulesIndicator password={password} />}
                   </div>
 
                   {isNewVault && (
@@ -2196,10 +2491,10 @@ export default function App() {
                             ••••••••
                           </span>
                           <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
-                          {confirmPassword ? '•'.repeat(confirmPassword.length) : ''}
+                            {confirmPassword ? (showPasswords["homeConfirmPassword"] ? confirmPassword : '•'.repeat(confirmPassword.length)) : ''}
                           </span>
                           <input
-                            type="password"
+                            type={showPasswords["homeConfirmPassword"] ? "text" : "password"}
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             maxLength={64}
@@ -2209,6 +2504,17 @@ export default function App() {
                               if (e.key === "Enter") handleCreateVault();
                             }}
                           />
+                          {Boolean(confirmPassword) && (
+                            <button
+                              type="button"
+                              tabIndex={-1}
+                              onClick={() => togglePasswordVisibility("homeConfirmPassword")}
+                              className="absolute -right-7 md:-right-8 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer transition-colors"
+                              title={showPasswords["homeConfirmPassword"] ? "Hide password" : "Show password"}
+                            >
+                              {showPasswords["homeConfirmPassword"] ? <EyeOff size={15} /> : <Eye size={15} />}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -2350,16 +2656,33 @@ export default function App() {
                     ref={docSearchInputRef}
                     type="text"
                     value={docSearchQuery}
-                    onChange={(e) => setDocSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      const q = e.target.value;
+                      setDocSearchQuery(q);
+                      setHighlightedDocIndex(q.trim() ? 0 : -1);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") {
                         if (docSearchQuery) {
                           setDocSearchQuery("");
+                          setHighlightedDocIndex(-1);
                         } else {
                           setShowDocPopup(false);
                         }
+                      } else if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        if (filteredTabs.length > 0) {
+                          setHighlightedDocIndex((prev) => (prev < 0 ? 0 : (prev + 1) % filteredTabs.length));
+                        }
+                      } else if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        if (filteredTabs.length > 0) {
+                          setHighlightedDocIndex((prev) => (prev <= 0 ? filteredTabs.length - 1 : prev - 1));
+                        }
                       } else if (e.key === "Enter" && filteredTabs.length > 0) {
-                        handleTabSwitch(filteredTabs[0].id);
+                        e.preventDefault();
+                        const target = (highlightedDocIndex >= 0 && filteredTabs[highlightedDocIndex]) || filteredTabs[0];
+                        handleTabSwitch(target.id);
                         setShowDocPopup(false);
                       }
                     }}
@@ -2369,7 +2692,10 @@ export default function App() {
                   {docSearchQuery && (
                     <button
                       type="button"
-                      onClick={() => setDocSearchQuery("")}
+                      onClick={() => {
+                        setDocSearchQuery("");
+                        setHighlightedDocIndex(-1);
+                      }}
                       className="text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer shrink-0"
                     >
                       <X size={16} className="w-4 h-4 md:w-[18px] md:h-[18px]" />
@@ -2390,10 +2716,11 @@ export default function App() {
                       No matching documents
                     </div>
                   ) : (
-                    filteredTabs.map((tab) => {
+                    filteredTabs.map((tab, idx) => {
                       const isActive = tab.id === effectiveActiveTabId;
                       const isEditing = editingTabId === tab.id;
                       const isReordering = reorderingTabId === tab.id;
+                      const isHighlighted = highlightedDocIndex >= 0 && idx === highlightedDocIndex;
                       return (
                         <motion.div
                           layout="position"
@@ -2404,6 +2731,7 @@ export default function App() {
                           onPointerMove={handleTabPointerMove}
                           onPointerUp={handleTabPointerUp}
                           onPointerCancel={handleTabPointerUp}
+                          onMouseEnter={() => setHighlightedDocIndex(idx)}
                           onClick={() => {
                             if (isDraggingJustFinishedRef.current) return;
                             if (!isEditing) {
@@ -2417,6 +2745,8 @@ export default function App() {
                             setEditingTitle(getTabRawTitle(tab));
                           }}
                           className={`group flex items-center justify-between px-3.5 py-0.5 text-base md:text-lg font-sans transition-colors relative select-none ${
+                            isHighlighted ? "bg-white/[0.08] " : ""
+                          }${
                             isReordering ? "cursor-grabbing" : "cursor-pointer"
                           }`}
                           style={{
@@ -2523,12 +2853,32 @@ export default function App() {
 
         {/* Global actions: Save word and Settings overlay */}
         <div className="flex items-center gap-4 md:gap-6">
-          {/* Status indicator: UNSAVED / SAVING... / SAVED - Same distance to Timer as Timer to Save */}
+          {/* Character limit warning indicator */}
+          {remainingChars < 20000 && (
+            <div
+              className={`flex items-center select-none shrink-0 transition-opacity duration-150 ${
+                showMenu ? "opacity-0 pointer-events-none invisible" : ""
+              }`}
+            >
+              <span
+                className={`font-sans text-[10px] md:text-xs tracking-wider leading-none ${
+                  remainingChars < 5000 ? "text-red-500 font-semibold animate-pulse" : "text-amber-500/90"
+                }`}
+                title={`${remainingChars.toLocaleString()} characters remaining in this doc`}
+              >
+                [{Math.max(0, Math.round(remainingChars / 1000))}k left]
+              </span>
+            </div>
+          )}
+
+          {/* Status indicator: UNSAVED / SAVING... / SAVED / SAVE FAILED */}
           {((hasUnsavedChanges && saveStatus === "idle" && !autoSaveAnim) ||
             saveStatus === "saving" ||
             autoSaveAnim === "saving" ||
             saveStatus === "saved" ||
-            autoSaveAnim === "saved") && (
+            autoSaveAnim === "saved" ||
+            saveStatus === "error" ||
+            autoSaveAnim === "error") && (
             <div
               className={`flex items-center select-none shrink-0 transition-opacity duration-150 ${
                 showMenu ? "opacity-0 pointer-events-none invisible" : ""
@@ -2549,6 +2899,12 @@ export default function App() {
               {(saveStatus === "saved" || autoSaveAnim === "saved") && (
                 <span className="font-sans text-[10px] md:text-xs text-zinc-400 tracking-wider leading-none">
                   [SAVED]
+                </span>
+              )}
+
+              {(saveStatus === "error" || autoSaveAnim === "error") && (
+                <span className="font-sans text-[10px] md:text-xs text-red-500 font-medium tracking-wider leading-none">
+                  [SAVE FAILED / OFFLINE]
                 </span>
               )}
             </div>
@@ -2701,6 +3057,15 @@ export default function App() {
                   </span>
                   <span
                     onClick={() => {
+                      importFileInputRef.current?.click();
+                      setShowMenu(false);
+                    }}
+                    className="text-xs md:text-sm font-sans text-zinc-500 hover:text-cyan-400 cursor-pointer uppercase tracking-wider transition-colors py-2"
+                  >
+                    IMPORT (.MD / .ZIP)
+                  </span>
+                  <span
+                    onClick={() => {
                       flushPendingTabUpdate();
                       const currentTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
                       if (currentTab?.shareId) {
@@ -2721,6 +3086,15 @@ export default function App() {
                   >
                     {isCurrentTabShared ? "SHARED DOC" : "Share this doc"}
                   </span>
+                  <span
+                    onClick={() => {
+                      setShowCheatsheetModal(true);
+                      setShowMenu(false);
+                    }}
+                    className="text-xs md:text-sm font-sans text-zinc-500 hover:text-zinc-200 cursor-pointer uppercase tracking-wider transition-colors py-2"
+                  >
+                    SHORTCUTS / CHEATSHEET
+                  </span>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -2728,6 +3102,14 @@ export default function App() {
         </div>
         </div>
       </header>
+      <input
+        ref={importFileInputRef}
+        type="file"
+        accept=".md,.markdown,.txt,.zip"
+        multiple
+        style={{ display: "none" }}
+        onChange={handleImportFiles}
+      />
       </div>
 
       <main ref={mainContainerRef} className="flex-1 flex flex-col bg-[#090a0b] px-4 md:px-8 pt-0 pb-0 max-w-4xl mx-auto w-full">
@@ -2850,18 +3232,30 @@ export default function App() {
                           ••••••••
                         </span>
                         <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
-                          {newPassword ? '•'.repeat(newPassword.length) : ''}
+                          {newPassword ? (showPasswords["newPassword"] ? newPassword : '•'.repeat(newPassword.length)) : ''}
                         </span>
                         <input
-                          type="password"
+                          type={showPasswords["newPassword"] ? "text" : "password"}
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           maxLength={64}
                           className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
                           placeholder="••••••••"
                         />
+                        {Boolean(newPassword) && (
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            onClick={() => togglePasswordVisibility("newPassword")}
+                            className="absolute -right-7 md:-right-8 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer transition-colors"
+                            title={showPasswords["newPassword"] ? "Hide password" : "Show password"}
+                          >
+                            {showPasswords["newPassword"] ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        )}
                       </div>
                     </div>
+                    <PasswordRulesIndicator password={newPassword} />
                   </div>
 
                   <div className="w-full mb-6">
@@ -2874,16 +3268,27 @@ export default function App() {
                           ••••••••
                         </span>
                         <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
-                          {confirmNewPassword ? '•'.repeat(confirmNewPassword.length) : ''}
+                          {confirmNewPassword ? (showPasswords["confirmNewPassword"] ? confirmNewPassword : '•'.repeat(confirmNewPassword.length)) : ''}
                         </span>
                         <input
-                          type="password"
+                          type={showPasswords["confirmNewPassword"] ? "text" : "password"}
                           value={confirmNewPassword}
                           onChange={(e) => setConfirmNewPassword(e.target.value)}
                           maxLength={64}
                           className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
                           placeholder="••••••••"
                         />
+                        {Boolean(confirmNewPassword) && (
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            onClick={() => togglePasswordVisibility("confirmNewPassword")}
+                            className="absolute -right-7 md:-right-8 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer transition-colors"
+                            title={showPasswords["confirmNewPassword"] ? "Hide password" : "Show password"}
+                          >
+                            {showPasswords["confirmNewPassword"] ? <EyeOff size={15} /> : <Eye size={15} />}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -3007,7 +3412,7 @@ export default function App() {
                       onClick={() => setShowDeleteModal(false)}
                       className="font-sans text-xs md:text-sm text-zinc-500 hover:text-zinc-100 transition-colors cursor-pointer select-none uppercase tracking-wider px-2"
                     >
-                      Aboard
+                      Abort
                     </span>
                     <span
                       onClick={() => setDeleteStep(3)}
@@ -3116,32 +3521,74 @@ export default function App() {
                     </label>
 
                     {shareRequirePassword ? (
-                      <div className="flex flex-col gap-4 mt-2">
-                        <div>
-                          <label className="font-sans text-[10px] text-zinc-500 uppercase tracking-widest block mb-1 text-center select-none">
+                      <div className="flex flex-col gap-5 mt-2">
+                        <div className="w-full mb-1">
+                          <label className="font-sans text-[10px] text-zinc-500 uppercase tracking-widest block mb-2 select-none text-center">
                             ACCESS PASSWORD
                           </label>
-                          <input
-                            type="password"
-                            maxLength={64}
-                            value={sharePassword}
-                            onChange={(e) => setSharePassword(e.target.value)}
-                            placeholder="••••••••"
-                            className="w-full bg-zinc-900/60 border border-zinc-800 rounded px-3 py-2 text-center text-white text-sm font-sans tracking-widest outline-none focus:border-zinc-500 transition-colors"
-                          />
+                          <div className="w-full flex justify-center items-center">
+                            <div className="relative grid items-center">
+                              <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
+                                ••••••••
+                              </span>
+                              <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
+                                {sharePassword ? (showPasswords["sharePassword"] ? sharePassword : '•'.repeat(sharePassword.length)) : ''}
+                              </span>
+                              <input
+                                type={showPasswords["sharePassword"] ? "text" : "password"}
+                                maxLength={64}
+                                value={sharePassword}
+                                onChange={(e) => setSharePassword(e.target.value)}
+                                placeholder="••••••••"
+                                className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
+                              />
+                              {Boolean(sharePassword) && (
+                                <button
+                                  type="button"
+                                  tabIndex={-1}
+                                  onClick={() => togglePasswordVisibility("sharePassword")}
+                                  className="absolute -right-7 md:-right-8 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer transition-colors"
+                                  title={showPasswords["sharePassword"] ? "Hide password" : "Show password"}
+                                >
+                                  {showPasswords["sharePassword"] ? <EyeOff size={15} /> : <Eye size={15} />}
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <label className="font-sans text-[10px] text-zinc-500 uppercase tracking-widest block mb-1 text-center select-none">
+                        <div className="w-full mb-1">
+                          <label className="font-sans text-[10px] text-zinc-500 uppercase tracking-widest block mb-2 select-none text-center">
                             REPEAT PASSWORD
                           </label>
-                          <input
-                            type="password"
-                            maxLength={64}
-                            value={shareConfirmPassword}
-                            onChange={(e) => setShareConfirmPassword(e.target.value)}
-                            placeholder="••••••••"
-                            className="w-full bg-zinc-900/60 border border-zinc-800 rounded px-3 py-2 text-center text-white text-sm font-sans tracking-widest outline-none focus:border-zinc-500 transition-colors"
-                          />
+                          <div className="w-full flex justify-center items-center">
+                            <div className="relative grid items-center">
+                              <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
+                                ••••••••
+                              </span>
+                              <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
+                                {shareConfirmPassword ? (showPasswords["shareConfirmPassword"] ? shareConfirmPassword : '•'.repeat(shareConfirmPassword.length)) : ''}
+                              </span>
+                              <input
+                                type={showPasswords["shareConfirmPassword"] ? "text" : "password"}
+                                maxLength={64}
+                                value={shareConfirmPassword}
+                                onChange={(e) => setShareConfirmPassword(e.target.value)}
+                                placeholder="••••••••"
+                                className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
+                              />
+                              {Boolean(shareConfirmPassword) && (
+                                <button
+                                  type="button"
+                                  tabIndex={-1}
+                                  onClick={() => togglePasswordVisibility("shareConfirmPassword")}
+                                  className="absolute -right-7 md:-right-8 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer transition-colors"
+                                  title={showPasswords["shareConfirmPassword"] ? "Hide password" : "Show password"}
+                                >
+                                  {showPasswords["shareConfirmPassword"] ? <EyeOff size={15} /> : <Eye size={15} />}
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ) : (
@@ -3206,6 +3653,61 @@ export default function App() {
                     )}
                   </div>
 
+                  {isCurrentTabShared && (
+                    <div className="flex flex-col items-center gap-2 mt-1">
+                      {shareRequirePassword && (
+                        <div className="w-full max-w-xs mb-2">
+                          <label className="font-sans text-[10px] text-zinc-500 uppercase tracking-widest block mb-2 text-center select-none">
+                            SHARE PASSWORD TO UPDATE
+                          </label>
+                          <div className="w-full flex justify-center items-center">
+                            <div className="relative grid items-center">
+                              <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
+                                ••••••••
+                              </span>
+                              <span className="invisible whitespace-pre font-sans text-base md:text-sm tracking-[0.2em] py-1 pointer-events-none col-start-1 row-start-1">
+                                {sharePassword ? (showPasswords["shareUpdatePassword"] ? sharePassword : '•'.repeat(sharePassword.length)) : ''}
+                              </span>
+                              <input
+                                type={showPasswords["shareUpdatePassword"] ? "text" : "password"}
+                                maxLength={64}
+                                value={sharePassword}
+                                onChange={(e) => setSharePassword(e.target.value)}
+                                placeholder="••••••••"
+                                className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
+                              />
+                              {Boolean(sharePassword) && (
+                                <button
+                                  type="button"
+                                  tabIndex={-1}
+                                  onClick={() => togglePasswordVisibility("shareUpdatePassword")}
+                                  className="absolute -right-7 md:-right-8 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 p-0.5 cursor-pointer transition-colors"
+                                  title={showPasswords["shareUpdatePassword"] ? "Hide password" : "Show password"}
+                                >
+                                  {showPasswords["shareUpdatePassword"] ? <EyeOff size={15} /> : <Eye size={15} />}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleUpdateShareLink}
+                        disabled={isUpdatingShare}
+                        className="font-sans text-xs px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white rounded uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {isUpdatingShare ? "Updating..." : isShareUpdated ? "Updated!" : "Update Shared Content"}
+                      </button>
+                    </div>
+                  )}
+
+                  {shareError && (
+                    <p className="font-sans text-[10px] text-red-500 text-center tracking-widest uppercase">
+                      [!] {shareError}
+                    </p>
+                  )}
+
                   <div className="flex justify-center items-center gap-8 mt-2">
                     <span
                       onClick={() => setShowUnshareConfirm(true)}
@@ -3263,6 +3765,118 @@ export default function App() {
                 >
                   {isUnsharing ? "Unsharing..." : "Confirm"}
                 </span>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CHEATSHEET MODAL */}
+      <AnimatePresence>
+        {showCheatsheetModal && (
+          <div className="fixed inset-0 bg-[#090a0b]/90 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-xl bg-[#0d0e10] border border-zinc-800 rounded-lg p-6 flex flex-col gap-5 shadow-2xl relative my-auto max-h-[90vh] overflow-hidden"
+            >
+              <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+                <h3 className="font-sans text-sm font-semibold tracking-wider uppercase text-zinc-200">
+                  Markdown & Shortcuts Cheatsheet
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowCheatsheetModal(false)}
+                  className="text-zinc-500 hover:text-zinc-200 p-1 cursor-pointer transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto pr-1 flex flex-col gap-4 font-sans text-xs text-zinc-300">
+                <div>
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                    Line Starters (Type at start of line + Space)
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="bg-zinc-900/60 p-2 rounded border border-zinc-800/50">
+                      <code className="text-zinc-200 font-mono"># </code> Heading 1
+                    </div>
+                    <div className="bg-zinc-900/60 p-2 rounded border border-zinc-800/50">
+                      <code className="text-zinc-200 font-mono">## </code> Heading 2
+                    </div>
+                    <div className="bg-zinc-900/60 p-2 rounded border border-zinc-800/50">
+                      <code className="text-zinc-200 font-mono">### </code> Heading 3
+                    </div>
+                    <div className="bg-zinc-900/60 p-2 rounded border border-zinc-800/50">
+                      <code className="text-zinc-200 font-mono">- </code> or <code className="text-zinc-200 font-mono">* </code> Bullet List
+                    </div>
+                    <div className="bg-zinc-900/60 p-2 rounded border border-zinc-800/50">
+                      <code className="text-zinc-200 font-mono">1. </code> Numbered List
+                    </div>
+                    <div className="bg-zinc-900/60 p-2 rounded border border-zinc-800/50">
+                      <code className="text-zinc-200 font-mono">[] </code> or <code className="text-zinc-200 font-mono">[ ] </code> Task List
+                    </div>
+                    <div className="bg-zinc-900/60 p-2 rounded border border-zinc-800/50">
+                      <code className="text-zinc-200 font-mono">&gt; </code> Blockquote
+                    </div>
+                    <div className="bg-zinc-900/60 p-2 rounded border border-zinc-800/50">
+                      <code className="text-zinc-200 font-mono">``` </code> Code Block
+                    </div>
+                    <div className="bg-zinc-900/60 p-2 rounded border border-zinc-800/50">
+                      <code className="text-zinc-200 font-mono">---</code> or <code className="text-zinc-200 font-mono">***</code> Divider
+                    </div>
+                    <div className="bg-zinc-900/60 p-2 rounded border border-zinc-800/50">
+                      <code className="text-zinc-200 font-mono">| a | b |</code> Table
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">
+                    Keyboard Navigation & Shortcuts
+                  </h4>
+                  <div className="flex flex-col gap-1.5 text-xs">
+                    <div className="flex justify-between py-1 border-b border-zinc-800/40">
+                      <span className="text-zinc-400">Next Table Cell / Add Row</span>
+                      <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono text-[10px]">Tab</kbd>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-zinc-800/40">
+                      <span className="text-zinc-400">Previous Table Cell</span>
+                      <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono text-[10px]">Shift + Tab</kbd>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-zinc-800/40">
+                      <span className="text-zinc-400">Indent / Outdent in Lists & Code</span>
+                      <span className="flex gap-1">
+                        <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono text-[10px]">Tab</kbd>
+                        <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono text-[10px]">Shift + Tab</kbd>
+                      </span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-zinc-800/40">
+                      <span className="text-zinc-400">Break Out of Code Block</span>
+                      <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono text-[10px]">Double Enter</kbd>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-zinc-800/40">
+                      <span className="text-zinc-400">Navigate Document Switcher</span>
+                      <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono text-[10px]">↑ / ↓ / Enter</kbd>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-zinc-400">Close Modals / Overlays</span>
+                      <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono text-[10px]">Escape</kbd>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-zinc-800/80">
+                <button
+                  type="button"
+                  onClick={() => setShowCheatsheetModal(false)}
+                  className="font-sans text-xs uppercase tracking-wider text-zinc-400 hover:text-white px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded transition-colors cursor-pointer"
+                >
+                  Close
+                </button>
               </div>
             </motion.div>
           </div>

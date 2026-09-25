@@ -10,7 +10,7 @@ import {
 // ── style definitions ──────────────────────────────────────────────
 
 const EDITOR_CLASS =
-  "editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-normal pt-2";
+  "editor-body w-full min-h-[500px] outline-none text-zinc-300 text-base md:text-lg leading-normal pt-2 pb-48 md:pb-32";
 
 const EMPTY_LINE_TOOLS = ["Text", "H1", "H2", "H3", "Task", "List", "Toggle", "Quote", "Image", "Code", "Line", "Center", "Table"] as const;
 const SELECTION_TOOLS = ["Text", "Bold", "Italic", "Strike", "Under", "Task", "List", "Quote", "Link", "Center"] as const;
@@ -64,6 +64,20 @@ export function updateH1Placeholders(root: HTMLElement | null, isEditorActive: b
   });
 }
 
+export function ensureTopH1(root: HTMLElement | null) {
+  if (!root) return;
+  const first = root.firstElementChild;
+  if (!first || first.tagName !== "H1") {
+    const h1 = document.createElement("h1");
+    h1.innerHTML = "<br>";
+    if (root.firstChild) {
+      root.insertBefore(h1, root.firstChild);
+    } else {
+      root.appendChild(h1);
+    }
+  }
+}
+
 export function normalizeEditorNodes(root: HTMLElement | null) {
   if (!root) return;
   root.querySelectorAll("img").forEach((img) => {
@@ -83,6 +97,16 @@ export function normalizeEditorNodes(root: HTMLElement | null) {
   root.querySelectorAll("summary.toggle-summary").forEach((summary) => {
     if (summary.childNodes.length === 0) {
       summary.appendChild(document.createElement("br"));
+    }
+  });
+  root.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    const parent = cb.parentElement;
+    if (parent) {
+      if ((cb as HTMLInputElement).checked || cb.hasAttribute("checked")) {
+        parent.classList.add("task-done");
+      } else {
+        parent.classList.remove("task-done");
+      }
     }
   });
   updateH1Placeholders(root);
@@ -331,7 +355,7 @@ function handleToolClick(tool: Tool, editorEl: HTMLElement) {
 // ── markdown patterns ───────────────────────────────────────────────
 
 interface PatternMatch {
-  type: "heading" | "quote" | "list" | "olist" | "task" | "codeblock" | "center";
+  type: "heading" | "quote" | "list" | "olist" | "task" | "codeblock" | "center" | "hr";
   level?: number;
 }
 
@@ -343,6 +367,7 @@ function detectLineStartPattern(textBefore: string): PatternMatch | null {
   if (/^\[\s?\]$/.test(textBefore)) return { type: "task" };
   if (/^```$/.test(textBefore) || /^    $/.test(textBefore)) return { type: "codeblock" };
   if (/^->$/.test(textBefore)) return { type: "center" };
+  if (/^(?:---|---|\*\*\*)$/.test(textBefore)) return { type: "hr" };
   return null;
 }
 
@@ -482,6 +507,11 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
 
   const savedRangeRef = useRef<Range | null>(null);
   const isActiveRef = useRef(isActive);
+
+  // Table controls & Code copy state
+  const [activeTableInfo, setActiveTableInfo] = useState<{ table: HTMLTableElement; cell: HTMLTableCellElement; top: number; left: number } | null>(null);
+  const [hoveredPre, setHoveredPre] = useState<{ top: number; right: number; codeText: string } | null>(null);
+  const [codeCopied, setCodeCopied] = useState<boolean>(false);
 
   // floating toolbar state
   const [toolbarStyle, setToolbarStyle] = useState<React.CSSProperties>(HIDDEN_TOOLBAR_STYLE);
@@ -721,6 +751,32 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
     const container = el.parentElement as HTMLElement;
     if (!container) return;
 
+    // Check if selection is inside a table
+    let tableCell: HTMLTableCellElement | null = null;
+    let currNode: Node | null = sel.anchorNode;
+    while (currNode && currNode !== el) {
+      if (currNode.nodeName === "TD" || currNode.nodeName === "TH") {
+        tableCell = currNode as HTMLTableCellElement;
+        break;
+      }
+      currNode = currNode.parentNode;
+    }
+
+    if (tableCell && !readOnly) {
+      const table = tableCell.closest("table");
+      if (table && container) {
+        const tableRect = table.getBoundingClientRect();
+        const contRect = container.getBoundingClientRect();
+        const top = Math.max(0, tableRect.top - contRect.top - 28);
+        const left = Math.max(0, tableRect.left - contRect.left);
+        setActiveTableInfo({ table, cell: tableCell, top, left });
+      } else {
+        setActiveTableInfo(null);
+      }
+    } else {
+      setActiveTableInfo(null);
+    }
+
     const tw = toolbarRef.current?.offsetWidth || 320;
     const selecting = !sel.isCollapsed;
     setHasSelection(selecting);
@@ -916,6 +972,186 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
     savedRangeRef.current = null;
   };
 
+  // ── dynamic table row & column manipulation ───────────────────────
+
+  const handleAddTableRow = (below: boolean = true) => {
+    if (!activeTableInfo) return;
+    const { cell } = activeTableInfo;
+    const tr = cell.closest("tr");
+    if (!tr) return;
+    const colCount = tr.children.length;
+    const newTr = document.createElement("tr");
+    for (let i = 0; i < colCount; i++) {
+      const td = document.createElement("td");
+      td.style.border = "1px solid #3f3f46";
+      td.style.padding = "0.5rem";
+      td.innerHTML = "<br>";
+      newTr.appendChild(td);
+    }
+    if (below) {
+      tr.after(newTr);
+    } else {
+      tr.before(newTr);
+    }
+    const el = editorRef.current;
+    if (el) {
+      normalizeEditorNodes(el);
+      onChange(el.innerHTML, el);
+    }
+    placeCaretAtEnd(newTr.children[0]);
+    setTimeout(updateToolbar, 0);
+  };
+
+  const handleDeleteTableRow = () => {
+    if (!activeTableInfo) return;
+    const { table, cell } = activeTableInfo;
+    const tr = cell.closest("tr");
+    if (!tr) return;
+    const allRows = table.querySelectorAll("tr");
+    if (allRows.length <= 1) {
+      handleDeleteTable();
+      return;
+    }
+    const nextRow = tr.nextElementSibling || tr.previousElementSibling;
+    tr.remove();
+    const el = editorRef.current;
+    if (el) {
+      normalizeEditorNodes(el);
+      onChange(el.innerHTML, el);
+    }
+    if (nextRow && nextRow.firstElementChild) {
+      placeCaretAtEnd(nextRow.firstElementChild);
+    }
+    setTimeout(updateToolbar, 0);
+  };
+
+  const handleAddTableColumn = (right: boolean = true) => {
+    if (!activeTableInfo) return;
+    const { table, cell } = activeTableInfo;
+    const tr = cell.closest("tr");
+    if (!tr) return;
+    const cellIndex = Array.from(tr.children).indexOf(cell);
+    if (cellIndex === -1) return;
+
+    const rows = Array.from(table.querySelectorAll("tr")) as HTMLTableRowElement[];
+    rows.forEach((r, rIdx) => {
+      const isHeader = rIdx === 0 && r.querySelector("th");
+      const newCell = document.createElement(isHeader ? "th" : "td");
+      newCell.style.border = "1px solid #3f3f46";
+      newCell.style.padding = "0.5rem";
+      if (isHeader) newCell.style.background = "rgba(39,39,42,0.5)";
+      newCell.innerHTML = "<br>";
+
+      const target = r.children[cellIndex];
+      if (right) {
+        if (target && target.nextSibling) {
+          r.insertBefore(newCell, target.nextSibling);
+        } else {
+          r.appendChild(newCell);
+        }
+      } else {
+        if (target) {
+          r.insertBefore(newCell, target);
+        } else {
+          r.appendChild(newCell);
+        }
+      }
+    });
+
+    const el = editorRef.current;
+    if (el) {
+      normalizeEditorNodes(el);
+      onChange(el.innerHTML, el);
+    }
+    setTimeout(updateToolbar, 0);
+  };
+
+  const handleDeleteTableColumn = () => {
+    if (!activeTableInfo) return;
+    const { table, cell } = activeTableInfo;
+    const tr = cell.closest("tr");
+    if (!tr) return;
+    const cellIndex = Array.from(tr.children).indexOf(cell);
+    if (cellIndex === -1) return;
+
+    const rows = Array.from(table.querySelectorAll("tr")) as HTMLTableRowElement[];
+    const colCount = rows[0]?.children.length || 0;
+    if (colCount <= 1) {
+      handleDeleteTable();
+      return;
+    }
+
+    rows.forEach((r) => {
+      if (r.children[cellIndex]) {
+        r.children[cellIndex].remove();
+      }
+    });
+
+    const el = editorRef.current;
+    if (el) {
+      normalizeEditorNodes(el);
+      onChange(el.innerHTML, el);
+    }
+    setTimeout(updateToolbar, 0);
+  };
+
+  const handleDeleteTable = () => {
+    if (!activeTableInfo) return;
+    const { table } = activeTableInfo;
+    const wrapper = (table.parentElement && table.parentElement.style.overflowX) ? table.parentElement : table;
+    const nextP = document.createElement("p");
+    nextP.innerHTML = "<br>";
+    wrapper.after(nextP);
+    wrapper.remove();
+    setActiveTableInfo(null);
+    const el = editorRef.current;
+    if (el) {
+      normalizeEditorNodes(el);
+      onChange(el.innerHTML, el);
+    }
+    placeCaretAtEnd(nextP);
+    setTimeout(updateToolbar, 0);
+  };
+
+  // ── hovered pre block copy code handler ───────────────────────────
+
+  const handleEditorMouseMove = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest(".copy-code-float-btn")) {
+      return;
+    }
+    const pre = target.closest("pre");
+    const container = editorRef.current?.parentElement;
+    if (pre && container) {
+      const preRect = pre.getBoundingClientRect();
+      const contRect = container.getBoundingClientRect();
+      const top = preRect.top - contRect.top + 8;
+      const right = contRect.right - preRect.right + 12;
+      const codeText = (pre.textContent || "").replace(/^\n+|\n+$/g, "");
+      setHoveredPre((prev) => {
+        if (prev && Math.abs(prev.top - top) < 1 && Math.abs(prev.right - right) < 1 && prev.codeText === codeText) {
+          return prev;
+        }
+        return { top, right, codeText };
+      });
+    } else {
+      setHoveredPre(null);
+    }
+  };
+
+  const handleCopyHoveredCode = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!hoveredPre) return;
+    try {
+      await navigator.clipboard.writeText(hoveredPre.codeText);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy code:", err);
+    }
+  };
+
   // ── scroll idle: hide progress line when paused ──────────────────
 
   useEffect(() => {
@@ -993,12 +1229,52 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
         }
       }
 
-      // pre block: insert literal newline
+      // pre block: smart breakout on double enter at end of block, otherwise insert literal newline
       let curr: HTMLElement | null =
         node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
       while (curr && curr !== el) {
         if (curr.tagName === "PRE") {
           e.preventDefault();
+
+          const preRange = document.createRange();
+          preRange.setStart(curr, 0);
+          preRange.setEnd(range.startContainer, range.startOffset);
+          const textBefore = preRange.toString();
+
+          const fullRange = document.createRange();
+          fullRange.selectNodeContents(curr);
+          const fullText = fullRange.toString();
+          const textAfter = fullText.substring(textBefore.length);
+
+          // If caret is on an empty line at the end of the pre block (double Enter breakout)
+          if (textBefore.endsWith("\n") && (textBefore.endsWith("\n\n") || textBefore === "\n") && textAfter.trim() === "") {
+            const cleanText = fullText.replace(/\n+$/, "");
+            const codeEl = curr.querySelector("code");
+            if (codeEl) {
+              codeEl.textContent = cleanText;
+            } else {
+              curr.textContent = cleanText;
+            }
+
+            const newP = document.createElement("p");
+            newP.innerHTML = "<br>";
+            if (curr.nextSibling) {
+              curr.parentNode?.insertBefore(newP, curr.nextSibling);
+            } else {
+              curr.parentNode?.appendChild(newP);
+            }
+
+            const r = document.createRange();
+            r.setStart(newP, 0);
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+            normalizeEditorNodes(el);
+            onChange(el.innerHTML, el);
+            setTimeout(updateToolbar, 0);
+            return;
+          }
+
           document.execCommand("insertText", false, "\n");
           onChange(el.innerHTML, el);
           return;
@@ -1492,12 +1768,233 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   // ── keydown: markdown shortcuts ───────────────────────────────────
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-
     const el = editorRef.current as HTMLElement | null;
-
     if (!el || readOnly) return;
 
+    // Tab key support: table cell navigation, pre indentation, list indentation
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      let node: Node | null = range.startContainer;
 
+      // 1. Table navigation
+      let tableCell: HTMLTableCellElement | null = null;
+      let currEl: HTMLElement | null =
+        node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+      while (currEl && currEl !== el) {
+        if (currEl.tagName === "TD" || currEl.tagName === "TH") {
+          tableCell = currEl as HTMLTableCellElement;
+          break;
+        }
+        currEl = currEl.parentElement;
+      }
+
+      if (tableCell) {
+        const table = tableCell.closest("table");
+        if (table) {
+          const allCells = Array.from(table.querySelectorAll("th, td")) as HTMLTableCellElement[];
+          const idx = allCells.indexOf(tableCell);
+          if (e.shiftKey) {
+            if (idx > 0) {
+              placeCaretAtEnd(allCells[idx - 1]);
+            }
+          } else {
+            if (idx < allCells.length - 1) {
+              placeCaretAtEnd(allCells[idx + 1]);
+            } else {
+              // Last cell -> auto insert a new row below
+              const tr = tableCell.closest("tr");
+              if (tr) {
+                const colCount = tr.children.length;
+                const newTr = document.createElement("tr");
+                for (let i = 0; i < colCount; i++) {
+                  const td = document.createElement("td");
+                  td.style.border = "1px solid #3f3f46";
+                  td.style.padding = "0.5rem";
+                  td.innerHTML = "<br>";
+                  newTr.appendChild(td);
+                }
+                tr.parentNode?.appendChild(newTr);
+                normalizeEditorNodes(el);
+                onChange(el.innerHTML, el);
+                placeCaretAtEnd(newTr.children[0]);
+              }
+            }
+          }
+          setTimeout(updateToolbar, 0);
+          return;
+        }
+      }
+
+      // 2. Pre code block indentation
+      let preBlock: HTMLElement | null = null;
+      currEl = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+      while (currEl && currEl !== el) {
+        if (currEl.tagName === "PRE") {
+          preBlock = currEl;
+          break;
+        }
+        currEl = currEl.parentElement;
+      }
+
+      if (preBlock) {
+        if (!e.shiftKey) {
+          document.execCommand("insertText", false, "  ");
+        } else {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const text = node.textContent || "";
+            const offset = range.startOffset;
+            if (offset >= 2 && text.substring(offset - 2, offset) === "  ") {
+              node.textContent = text.substring(0, offset - 2) + text.substring(offset);
+              const r = document.createRange();
+              r.setStart(node, offset - 2);
+              r.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(r);
+            }
+          }
+        }
+        onChange(el.innerHTML, el);
+        return;
+      }
+
+      // 3. List indentation
+      let inList = false;
+      currEl = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
+      while (currEl && currEl !== el) {
+        if (currEl.tagName === "LI" || currEl.tagName === "UL" || currEl.tagName === "OL") {
+          inList = true;
+          break;
+        }
+        currEl = currEl.parentElement;
+      }
+
+      if (inList) {
+        if (e.shiftKey) {
+          document.execCommand("outdent", false);
+        } else {
+          document.execCommand("indent", false);
+        }
+        onChange(el.innerHTML, el);
+        setTimeout(updateToolbar, 0);
+        return;
+      }
+
+      // 4. Default: insert 2 spaces
+      document.execCommand("insertText", false, "  ");
+      onChange(el.innerHTML, el);
+      return;
+    }
+
+    // ── Prevent top title deletion and below text moving up ───────────
+    if (e.key === "Backspace" || e.key === "Delete") {
+      const sel = window.getSelection();
+      const firstChild = el.firstElementChild as HTMLElement | null;
+      const isTopH1 = firstChild && firstChild.tagName === "H1";
+
+      if (isTopH1 && sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+
+        // Case A: Selection inside the top H1
+        if (!sel.isCollapsed) {
+          const isEntirelyInsideTopH1 = firstChild.contains(range.startContainer) && firstChild.contains(range.endContainer);
+          if (isEntirelyInsideTopH1) {
+            const h1Text = (firstChild.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+            const selText = sel.toString().replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+            if (h1Text.length > 0 && selText === h1Text) {
+              e.preventDefault();
+              firstChild.innerHTML = "<br>";
+              updateH1Placeholders(el, true);
+              const r = document.createRange();
+              r.selectNodeContents(firstChild);
+              r.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(r);
+              onChange(el.innerHTML, el);
+              setTimeout(updateToolbar, 0);
+              return;
+            }
+          }
+        }
+
+        // Case B: Caret is collapsed
+        if (sel.isCollapsed) {
+          const isCaretInTopH1 = firstChild.contains(range.startContainer);
+
+          if (isCaretInTopH1) {
+            const h1Text = (firstChild.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+
+            // Backspace inside empty top H1 or at offset 0
+            if (e.key === "Backspace") {
+              const testRange = document.createRange();
+              testRange.selectNodeContents(firstChild);
+              testRange.setEnd(range.startContainer, range.startOffset);
+              const textBefore = testRange.toString().replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+
+              if (h1Text.length === 0 || textBefore.length === 0) {
+                // Already at the start or H1 is empty: prevent deleting the H1 element
+                e.preventDefault();
+                if (firstChild.childNodes.length === 0 || (h1Text.length === 0 && !firstChild.querySelector("br"))) {
+                  firstChild.innerHTML = "<br>";
+                }
+                updateH1Placeholders(el, true);
+                return;
+              }
+            }
+
+            // Delete (Forward Delete) inside empty top H1 or at the end of top H1
+            if (e.key === "Delete") {
+              const testRange = document.createRange();
+              testRange.selectNodeContents(firstChild);
+              testRange.setStart(range.startContainer, range.startOffset);
+              const textAfter = testRange.toString().replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+
+              // If H1 is empty or caret is at the very end of top H1
+              if (h1Text.length === 0 || textAfter.length === 0) {
+                e.preventDefault();
+                if (h1Text.length === 0 && firstChild.innerHTML !== "<br>") {
+                  firstChild.innerHTML = "<br>";
+                }
+                updateH1Placeholders(el, true);
+                return;
+              }
+            }
+          } else {
+            // Case C: Caret is in the block immediately following the top H1
+            let currBlock = range.startContainer.nodeType === Node.TEXT_NODE
+              ? range.startContainer.parentElement
+              : (range.startContainer as HTMLElement);
+            while (currBlock && currBlock.parentElement !== el && currBlock !== el) {
+              currBlock = currBlock.parentElement;
+            }
+
+            if (currBlock && currBlock.previousElementSibling === firstChild && e.key === "Backspace") {
+              const testRange = document.createRange();
+              testRange.selectNodeContents(currBlock);
+              testRange.setEnd(range.startContainer, range.startOffset);
+              const textBefore = testRange.toString().replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+
+              if (textBefore.length === 0) {
+                // Caret is at the very start of the block below top H1
+                const currBlockText = (currBlock.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+                if (currBlockText.trim().length > 0) {
+                  // Block has content: DO NOT merge into H1! Just move caret to H1
+                  e.preventDefault();
+                  const r = document.createRange();
+                  r.selectNodeContents(firstChild);
+                  r.collapse(false);
+                  sel.removeAllRanges();
+                  sel.addRange(r);
+                  return;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
 
     // Backspace / Delete: remove adjacent image
 
@@ -1751,9 +2248,33 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
             }
             case "codeblock": document.execCommand("formatBlock", false, "PRE"); document.execCommand("insertHTML", false, "\n"); break;
             case "center": block.style.textAlign = "center"; break;
+            case "hr": document.execCommand("formatBlock", false, "P"); document.execCommand("insertHorizontalRule", false); break;
           }
         }
         onChange(el.innerHTML, el);
+      }
+    }
+
+    // Enter shortcut for horizontal rule (--- or ***)
+    if (e.key === "Enter") {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
+        const node = sel.getRangeAt(0).startContainer;
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent || "";
+          const offset = sel.getRangeAt(0).startOffset;
+          const textBefore = text.substring(0, offset).trim();
+          if (textBefore === "---" || textBefore === "***") {
+            e.preventDefault();
+            (node as Text).textContent = text.substring(offset);
+            document.execCommand("formatBlock", false, "P");
+            document.execCommand("insertHorizontalRule", false);
+            normalizeEditorNodes(el);
+            onChange(el.innerHTML, el);
+            setTimeout(updateToolbar, 0);
+            return;
+          }
+        }
       }
     }
 
@@ -1773,6 +2294,18 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   const handleKeyUp = () => {
     updateToolbar();
     updateH1Placeholders(editorRef.current, isActiveRef.current);
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+        if (rect.bottom > vh - 86) {
+          const scrollDiff = rect.bottom - (vh - 86);
+          window.scrollBy({ top: scrollDiff, behavior: "smooth" });
+        }
+      }
+    }
   };
 
   // ── click: activate editor ────────────────────────────────────────
@@ -1956,7 +2489,11 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   // ── render ────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col w-full relative">
+    <div
+      className="flex flex-col w-full relative"
+      onMouseMove={handleEditorMouseMove}
+      onMouseLeave={() => setHoveredPre(null)}
+    >
       {/* Editor body */}
       <div
         ref={editorRef}
@@ -1978,7 +2515,6 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
           onChange(e.currentTarget.innerHTML, editorRef.current);
         }}
         onKeyDown={handleKeyDown}
-
         onBlur={handleBlur}
 
         onClick={(e) => {
@@ -2001,10 +2537,13 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
 
           if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
             const cb = target as HTMLInputElement;
+            const parent = cb.parentElement;
             if (cb.checked) {
               cb.setAttribute("checked", "true");
+              if (parent) parent.classList.add("task-done");
             } else {
               cb.removeAttribute("checked");
+              if (parent) parent.classList.remove("task-done");
             }
             if (!readOnly && editorRef.current) {
               onChange(editorRef.current.innerHTML, editorRef.current);
@@ -2410,6 +2949,81 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
           >
             OK
           </span>
+        </div>
+      )}
+
+      {/* Code Copy Floating Button */}
+      {hoveredPre && (
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={handleCopyHoveredCode}
+          className="copy-code-float-btn absolute z-30 px-2 py-0.5 text-[11px] font-sans font-medium text-zinc-400 hover:text-white bg-zinc-800/90 hover:bg-zinc-700 border border-zinc-700/60 rounded shadow-md transition-all select-none cursor-pointer flex items-center gap-1"
+          style={{
+            top: hoveredPre.top,
+            right: hoveredPre.right,
+          }}
+          title="Copy code"
+        >
+          {codeCopied ? (
+            <span className="text-emerald-400 font-semibold">Copied!</span>
+          ) : (
+            <span>Copy</span>
+          )}
+        </button>
+      )}
+
+      {/* Dynamic Table Manipulation Controls */}
+      {activeTableInfo && (
+        <div
+          className="table-controls-bar absolute z-30 flex items-center gap-1 bg-[#121316] border border-zinc-700/80 rounded px-2 py-1 shadow-xl select-none text-[11px] font-sans text-zinc-400"
+          style={{
+            top: activeTableInfo.top,
+            left: activeTableInfo.left,
+          }}
+        >
+          <button
+            type="button"
+            className="px-1.5 py-0.5 hover:text-white hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+            onMouseDown={(e) => { e.preventDefault(); handleAddTableRow(true); }}
+            title="Insert row below"
+          >
+            + Row
+          </button>
+          <button
+            type="button"
+            className="px-1.5 py-0.5 hover:text-white hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+            onMouseDown={(e) => { e.preventDefault(); handleDeleteTableRow(); }}
+            title="Delete current row"
+          >
+            - Row
+          </button>
+          <span className="text-zinc-600">|</span>
+          <button
+            type="button"
+            className="px-1.5 py-0.5 hover:text-white hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+            onMouseDown={(e) => { e.preventDefault(); handleAddTableColumn(true); }}
+            title="Insert column right"
+          >
+            + Col
+          </button>
+          <button
+            type="button"
+            className="px-1.5 py-0.5 hover:text-white hover:bg-zinc-800 rounded transition-colors cursor-pointer"
+            onMouseDown={(e) => { e.preventDefault(); handleDeleteTableColumn(); }}
+            title="Delete current column"
+          >
+            - Col
+          </button>
+          <span className="text-zinc-600">|</span>
+          <button
+            type="button"
+            className="px-1.5 py-0.5 text-red-400 hover:text-red-300 hover:bg-red-950/40 rounded transition-colors cursor-pointer"
+            onMouseDown={(e) => { e.preventDefault(); handleDeleteTable(); }}
+            title="Delete table"
+          >
+            × Table
+          </button>
         </div>
       )}
     </div>

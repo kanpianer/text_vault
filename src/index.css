@@ -372,9 +372,24 @@ hr {
 }
 .editor-body p:has(input[type="checkbox"]:checked),
 .editor-body div:has(input[type="checkbox"]:checked),
-.editor-body li:has(input[type="checkbox"]:checked) {
+.editor-body li:has(input[type="checkbox"]:checked),
+.editor-body .task-done,
+.markdown-body li:has(input[type="checkbox"]:checked),
+.markdown-body .task-done {
   text-decoration: line-through;
-  color: #71717a;
+  color: #71717a !important;
+  opacity: 0.55;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.editor-body p:has(input[type="checkbox"]:checked) input,
+.editor-body div:has(input[type="checkbox"]:checked) input,
+.editor-body li:has(input[type="checkbox"]:checked) input,
+.editor-body .task-done input,
+.markdown-body li:has(input[type="checkbox"]:checked) input,
+.markdown-body .task-done input {
+  text-decoration: none;
+  opacity: 1;
 }
 .editor-body u {
   text-decoration-line: underline;

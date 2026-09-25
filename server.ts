@@ -16,8 +16,8 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        fontSrc: ["'self'", "data:"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
+        fontSrc: ["'self'", "data:", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
         imgSrc: ["'self'", "data:", "https:", "http:"],
         connectSrc: ["'self'"],
         frameAncestors: ["'none'"],
@@ -75,6 +75,8 @@ interface ShareRecord {
   encrypted_data: string;
   key_unprotected?: string;
   createdAt: string;
+  updatedAt?: string;
+  owner_auth_hash_double?: string; // sha256(auth_hash) of vault owner
 }
 
 
@@ -166,6 +168,7 @@ app.use("/api/vault/:name/update", authLimiter);
 app.use("/api/vault/:name/delete", authLimiter);
 app.use("/api/share/create", authLimiter);
 app.use("/api/share/:id/access", authLimiter);
+app.use("/api/share/:id/update", authLimiter);
 app.use("/api/share/:id/delete", authLimiter);
 
 
@@ -332,7 +335,7 @@ app.post("/api/vault/:name/delete", (req, res) => {
 
 // API: Create new shared document
 app.post("/api/share/create", (req, res) => {
-  const { id, hasPassword, salt_enc, salt_auth, auth_hash_double, encrypted_data, key_unprotected } = req.body;
+  const { id, hasPassword, salt_enc, salt_auth, auth_hash_double, encrypted_data, key_unprotected, owner_auth_hash_double } = req.body;
 
   if (!id || typeof id !== "string" || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
     return res.status(400).json({ error: "Invalid share ID. Must be 6-64 alphanumeric characters." });
@@ -360,6 +363,8 @@ app.post("/api/share/create", (req, res) => {
     encrypted_data,
     key_unprotected: key_unprotected || undefined,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    owner_auth_hash_double: owner_auth_hash_double || undefined,
   };
 
   writeSharesDb(db);
@@ -434,15 +439,72 @@ app.post("/api/share/:id/access", (req, res) => {
   });
 });
 
-// API: Delete shared document
+// API: Update shared document (requires owner verification)
+app.post("/api/share/:id/update", (req, res) => {
+  const id = req.params.id;
+  const { auth_hash, encrypted_data, key_unprotected, salt_enc, salt_auth, auth_hash_double } = req.body;
+
+  if (!id || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
+    return res.status(400).json({ error: "Invalid share ID." });
+  }
+
+  if (!encrypted_data) {
+    return res.status(400).json({ error: "Missing encrypted data." });
+  }
+
+  const db = readSharesDb();
+  const share = db[id];
+  if (!share) {
+    return res.status(404).json({ error: "Shared document not found." });
+  }
+
+  // Security: If owner_auth_hash_double is set, verify caller's credentials
+  if (share.owner_auth_hash_double) {
+    if (!auth_hash) {
+      return res.status(401).json({ error: "Missing owner credentials. Update denied." });
+    }
+    const proof = sha256(auth_hash);
+    if (!safeCompareHex(proof, share.owner_auth_hash_double)) {
+      return res.status(401).json({ error: "Verification failed. Access denied." });
+    }
+  }
+
+  share.encrypted_data = encrypted_data;
+  share.updatedAt = new Date().toISOString();
+  if (key_unprotected !== undefined) {
+    share.key_unprotected = key_unprotected;
+  }
+  if (salt_enc !== undefined) share.salt_enc = salt_enc;
+  if (salt_auth !== undefined) share.salt_auth = salt_auth;
+  if (auth_hash_double !== undefined) share.auth_hash_double = auth_hash_double;
+
+  db[id] = share;
+  writeSharesDb(db);
+
+  return res.json({ success: true, id });
+});
+
+// API: Delete shared document (requires owner verification if protected)
 app.post("/api/share/:id/delete", (req, res) => {
   const id = req.params.id;
+  const { auth_hash } = req.body || {};
+
   if (!id || !/^[a-zA-Z0-9_-]{6,64}$/.test(id)) {
     return res.status(400).json({ error: "Invalid share ID." });
   }
 
   const db = readSharesDb();
-  if (db[id]) {
+  const share = db[id];
+  if (share) {
+    if (share.owner_auth_hash_double) {
+      if (!auth_hash) {
+        return res.status(401).json({ error: "Missing owner credentials. Delete denied." });
+      }
+      const proof = sha256(auth_hash);
+      if (!safeCompareHex(proof, share.owner_auth_hash_double)) {
+        return res.status(401).json({ error: "Verification failed. Access denied." });
+      }
+    }
     delete db[id];
     writeSharesDb(db);
   }

@@ -2795,6 +2795,10 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
             type="text"
             value={linkValue}
             placeholder="输入链接地址"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             onChange={(e) => setLinkValue(e.target.value)}
 
             onKeyDown={(e) => {
@@ -2853,6 +2857,10 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
             type="text"
             value={imageValue}
             placeholder="输入图片地址"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             onChange={(e) => setImageValue(e.target.value)}
 
             onKeyDown={(e) => {

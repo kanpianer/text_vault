@@ -2257,6 +2257,10 @@ export default function App() {
                           maxLength={64}
                           value={sharedPasswordInput}
                           onChange={(e) => setSharedPasswordInput(e.target.value)}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") handleUnlockSharedDoc();
                           }}
@@ -2369,6 +2373,10 @@ export default function App() {
                   type="text"
                   value={searchName}
                   maxLength={10}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                   onFocus={() => setIsHomeFocused(true)}
                   onBlur={() => setIsHomeFocused(false)}
                   onChange={(e) => {
@@ -2449,7 +2457,11 @@ export default function App() {
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           maxLength={64}
-                          className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-base md:text-lg tracking-[0.2em] text-center"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-lg tracking-[0.2em] text-center"
                           placeholder="••••••••"
                           onClick={(e) => {
                             if (window.matchMedia("(max-width: 767px)").matches) {
@@ -2498,7 +2510,11 @@ export default function App() {
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             maxLength={64}
-                            className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-base md:text-sm tracking-[0.2em] text-center"
+                            autoComplete="new-password"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                            className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
                             placeholder="••••••••"
                             onKeyDown={(e) => {
                               if (e.key === "Enter") handleCreateVault();
@@ -2656,6 +2672,10 @@ export default function App() {
                     ref={docSearchInputRef}
                     type="text"
                     value={docSearchQuery}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
                     onChange={(e) => {
                       const q = e.target.value;
                       setDocSearchQuery(q);
@@ -2769,6 +2789,10 @@ export default function App() {
                                 type="text"
                                 autoFocus
                                 value={editingTitle}
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
                                 onChange={(e) => setEditingTitle(e.target.value)}
                                 onBlur={() => handleRenameSave(tab.id)}
                                 onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
@@ -3239,6 +3263,10 @@ export default function App() {
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           maxLength={64}
+                          autoComplete="new-password"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
                           className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
                           placeholder="••••••••"
                         />
@@ -3275,6 +3303,10 @@ export default function App() {
                           value={confirmNewPassword}
                           onChange={(e) => setConfirmNewPassword(e.target.value)}
                           maxLength={64}
+                          autoComplete="new-password"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
                           className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
                           placeholder="••••••••"
                         />
@@ -3443,6 +3475,10 @@ export default function App() {
                         onChange={(e) => setDeleteConfirmName(e.target.value)}
                         onFocus={() => setIsDeleteConfirmFocused(true)}
                         onBlur={() => setIsDeleteConfirmFocused(false)}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
                         className="bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-wider text-center w-full uppercase"
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && deleteConfirmName.toLowerCase() === vaultName.toLowerCase()) {
@@ -3540,6 +3576,10 @@ export default function App() {
                                 value={sharePassword}
                                 onChange={(e) => setSharePassword(e.target.value)}
                                 placeholder="••••••••"
+                                autoComplete="new-password"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
                                 className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
                               />
                               {Boolean(sharePassword) && (
@@ -3574,6 +3614,10 @@ export default function App() {
                                 value={shareConfirmPassword}
                                 onChange={(e) => setShareConfirmPassword(e.target.value)}
                                 placeholder="••••••••"
+                                autoComplete="new-password"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
                                 className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
                               />
                               {Boolean(shareConfirmPassword) && (
@@ -3674,6 +3718,10 @@ export default function App() {
                                 value={sharePassword}
                                 onChange={(e) => setSharePassword(e.target.value)}
                                 placeholder="••••••••"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
                                 className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
                               />
                               {Boolean(sharePassword) && (

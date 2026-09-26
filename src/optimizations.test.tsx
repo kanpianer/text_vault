@@ -504,4 +504,97 @@ describe("22-Point Comprehensive Optimization Verification", () => {
       expect(pwdInput).toBeInTheDocument();
     });
   });
+
+  describe("Password Input Autofill & Dark Background Protection", () => {
+    it("ensures index.css contains comprehensive autofill overrides preventing white backgrounds", async () => {
+      const fs = await import("fs");
+      const path = await import("path");
+      const cssPath = path.resolve(__dirname, "index.css");
+      const cssContent = fs.readFileSync(cssPath, "utf-8");
+
+      // Verify inset box-shadow to cover UA autofill background with #090a0b
+      expect(cssContent).toContain("-webkit-box-shadow: 0 0 0 1000px #090a0b inset !important;");
+      expect(cssContent).toContain("box-shadow: 0 0 0 1000px #090a0b inset !important;");
+
+      // Verify text fill color remains white #ffffff
+      expect(cssContent).toContain("-webkit-text-fill-color: #ffffff !important;");
+      expect(cssContent).toContain("caret-color: #ffffff !important;");
+
+      // Verify transition delay prevents background color flash
+      expect(cssContent).toContain("transition: background-color 5000000s ease-in-out 0s !important;");
+
+      // Verify color-scheme is set to dark
+      expect(cssContent).toContain("color-scheme: dark;");
+
+      // Verify both :-webkit-autofill and :autofill are targeted
+      expect(cssContent).toContain("input:-webkit-autofill");
+      expect(cssContent).toContain("input:autofill");
+    });
+
+    it("ensures index.html specifies color-scheme dark meta tag", async () => {
+      const fs = await import("fs");
+      const path = await import("path");
+      const htmlPath = path.resolve(__dirname, "../index.html");
+      const htmlContent = fs.readFileSync(htmlPath, "utf-8");
+
+      expect(htmlContent).toContain('<meta name="color-scheme" content="dark" />');
+    });
+
+    it("ensures protected shared document password input has autocomplete off and spellCheck false", async () => {
+      window.history.pushState({}, "", "/share/protected_test");
+      window.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          exists: true,
+          id: "protected_test",
+          hasPassword: true,
+          salt_enc: "s1",
+          salt_auth: "s2",
+          encryptedData: "enc",
+          encryptionMode: "password",
+        }),
+      } as any);
+
+      render(<App />);
+
+      await waitFor(() => {
+        expect(screen.getByText("ACCESS PROTECTED DOCUMENT")).toBeInTheDocument();
+      });
+
+      const pwdInput = screen.getByPlaceholderText("••••••••") as HTMLInputElement;
+      expect(pwdInput).toBeInTheDocument();
+      expect(pwdInput.getAttribute("autocomplete")).toBe("off");
+      expect(pwdInput.getAttribute("spellcheck")).toBe("false");
+      expect(pwdInput.className).toContain("text-white");
+      expect(pwdInput.className).toContain("bg-transparent");
+      expect(pwdInput.className).not.toContain("bg-white");
+    });
+
+    it("ensures vault unlock password input has autocomplete off, spellCheck false, text-white, and bg-transparent", async () => {
+      window.history.pushState({}, "", "/");
+      window.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ exists: true }),
+      } as any);
+
+      render(<App />);
+
+      const vaultInput = screen.getByRole("textbox");
+      fireEvent.change(vaultInput, { target: { value: "testvault" } });
+      const openBtn = screen.getByText("OPEN");
+      fireEvent.click(openBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText("UNLOCK THE VAULT")).toBeInTheDocument();
+      });
+
+      const pwdInput = screen.getByPlaceholderText("••••••••") as HTMLInputElement;
+      expect(pwdInput).toBeInTheDocument();
+      expect(pwdInput.getAttribute("autocomplete")).toBe("off");
+      expect(pwdInput.getAttribute("spellcheck")).toBe("false");
+      expect(pwdInput.className).toContain("text-white");
+      expect(pwdInput.className).toContain("bg-transparent");
+      expect(pwdInput.className).not.toContain("bg-white");
+    });
+  });
 });

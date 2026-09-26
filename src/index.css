@@ -15,6 +15,7 @@ body {
   font-family: var(--font-sans);
   user-select: none;
   -webkit-user-select: none;
+  color-scheme: dark;
 }
 
 /* Custom minimal scrollbar */
@@ -36,9 +37,84 @@ body {
   display: none;
 }
 
-/* Base style for custom inputs to guarantee bottom underline style matches */
-input {
+/* Base style for custom inputs to guarantee dark form controls and matching aesthetics */
+input,
+textarea,
+select {
   border-radius: 0;
+  color-scheme: dark;
+}
+
+::selection {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+input::selection,
+textarea::selection {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+/*
+  Completely eliminate browser autofill / autocomplete white/light-blue background.
+  Chromium/WebKit UA stylesheet injects !important background-color on :-webkit-autofill.
+  Using a 1000px inset box-shadow + -webkit-text-fill-color + transition delay forces the background
+  to remain #090a0b and text/dots to remain #ffffff across all autofill states.
+*/
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+textarea:-webkit-autofill:active,
+select:-webkit-autofill,
+select:-webkit-autofill:hover,
+select:-webkit-autofill:focus,
+select:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #090a0b inset !important;
+  box-shadow: 0 0 0 1000px #090a0b inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+  transition: background-color 5000000s ease-in-out 0s !important;
+  background-color: #090a0b !important;
+  color: #ffffff !important;
+}
+
+input:autofill,
+input:autofill:hover,
+input:autofill:focus,
+input:autofill:active,
+textarea:autofill,
+textarea:autofill:hover,
+textarea:autofill:focus,
+textarea:autofill:active,
+select:autofill,
+select:autofill:hover,
+select:autofill:focus,
+select:autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #090a0b inset !important;
+  box-shadow: 0 0 0 1000px #090a0b inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+  transition: background-color 5000000s ease-in-out 0s !important;
+  background-color: #090a0b !important;
+  color: #ffffff !important;
+}
+
+/* Hide native credentials / reveal icons to prevent clashing with custom eye icon */
+input::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+}
+
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
 }
 
 hr {

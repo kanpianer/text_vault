@@ -892,27 +892,54 @@ export default function App() {
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  // Hotkey hook for Ctrl+S and prevent Backspace browser navigation
+  // Hotkey hook for Ctrl+S (save), Ctrl+L (lock), Ctrl+X (home) and prevent Backspace navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey;
+      if (!isCtrlOrMeta) {
+        // Prevent Backspace from triggering browser "go back" in preview mode
+        if (e.key === "Backspace") {
+          const tag = (e.target as HTMLElement)?.tagName;
+          const isInput = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
+          if (!isInput) {
+            e.preventDefault();
+          }
+        }
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+
+      // Ctrl + S: Save current text
+      if (key === "s") {
         e.preventDefault();
-        if (isVerified && hasUnsavedChanges && saveStatus !== "saving") {
+        if (isVerified && saveStatus !== "saving") {
           performSaveAction();
         }
       }
-      // Prevent Backspace from triggering browser "go back" in preview mode
-      if (e.key === "Backspace") {
-        const tag = (e.target as HTMLElement)?.tagName;
-        const isInput = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
-        if (!isInput) {
+
+      // Ctrl + L: Lock current vault
+      if (key === "l") {
+        e.preventDefault();
+        if (isVerified) {
+          handleLock();
+        }
+      }
+
+      // Ctrl + X: Return to home
+      if (key === "x") {
+        const selection = window.getSelection();
+        const hasTextSelected = Boolean(selection && !selection.isCollapsed && selection.toString().length > 0);
+        if (!hasTextSelected) {
           e.preventDefault();
+          handleLock();
+          navigateTo("");
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isVerified, hasUnsavedChanges, saveStatus, tabs, aesKey, authHash]);
+  }, [isVerified, saveStatus, tabs, aesKey, authHash]);
 
   // Active document characters count
   const activeTabContent = useMemo(() => tabs.find((t) => t.id === activeTabId)?.text || "", [tabs, activeTabId]);
@@ -3205,7 +3232,7 @@ export default function App() {
                     }}
                     className="text-xs md:text-sm font-sans text-zinc-500 hover:text-zinc-200 cursor-pointer uppercase tracking-wider transition-colors py-2"
                   >
-                    SHORTCUTS / CHEATSHEET
+                    CHEATSHEET
                   </span>
                 </motion.div>
               )}
@@ -3919,7 +3946,7 @@ export default function App() {
             >
               <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
                 <h3 className="font-sans text-sm font-semibold tracking-wider uppercase text-zinc-200">
-                  Markdown & Shortcuts Cheatsheet
+                  CHEATSHEET
                 </h3>
                 <button
                   type="button"
@@ -3974,6 +4001,18 @@ export default function App() {
                     Keyboard Navigation & Shortcuts
                   </h4>
                   <div className="flex flex-col gap-1.5 text-xs">
+                    <div className="flex justify-between py-1 border-b border-zinc-800/40">
+                      <span className="text-zinc-400">Save current text / 保存当前文本</span>
+                      <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono text-[10px]">Ctrl + S</kbd>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-zinc-800/40">
+                      <span className="text-zinc-400">Lock current vault / 锁定当前金库</span>
+                      <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono text-[10px]">Ctrl + L</kbd>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-zinc-800/40">
+                      <span className="text-zinc-400">Return to home / 回到主页</span>
+                      <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono text-[10px]">Ctrl + X</kbd>
+                    </div>
                     <div className="flex justify-between py-1 border-b border-zinc-800/40">
                       <span className="text-zinc-400">Next Table Cell / Add Row</span>
                       <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded text-zinc-300 font-mono text-[10px]">Tab</kbd>

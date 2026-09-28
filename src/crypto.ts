@@ -19,17 +19,28 @@ export async function sha256Client(val: string): Promise<string> {
   return bufferToHex(hashBuffer);
 }
 
-export async function deriveKeyAndHash(
+function getSubtleCrypto(): SubtleCrypto {
+  const cryptoObj = typeof window !== "undefined" && window.crypto ? window.crypto : globalThis.crypto;
+  return cryptoObj.subtle;
+}
+
+export interface PipelinedKeyDerivation {
+  authHashPromise: Promise<string>;
+  aesKeyPromise: Promise<CryptoKey>;
+}
+
+export function deriveKeyAndHashPipelined(
   password: string,
   saltEncHex: string,
   saltAuthHex: string
-): Promise<{ aesKey: CryptoKey; authHash: string }> {
+): PipelinedKeyDerivation {
   const encoder = new TextEncoder();
   const passwordBytes = encoder.encode(password);
   const saltEncBytes = hexToBytes(saltEncHex);
   const saltAuthBytes = hexToBytes(saltAuthHex);
+  const subtle = getSubtleCrypto();
 
-  const baseKey = await window.crypto.subtle.importKey(
+  const baseKeyPromise = subtle.importKey(
     "raw",
     passwordBytes,
     "PBKDF2",
@@ -37,8 +48,22 @@ export async function deriveKeyAndHash(
     ["deriveBits", "deriveKey"]
   );
 
-  const [aesKey, authBits] = await Promise.all([
-    window.crypto.subtle.deriveKey(
+  const authHashPromise = baseKeyPromise.then(async (baseKey) => {
+    const authBits = await subtle.deriveBits(
+      {
+        name: "PBKDF2",
+        salt: saltAuthBytes,
+        iterations: 600000,
+        hash: "SHA-256",
+      },
+      baseKey,
+      256
+    );
+    return bufferToHex(authBits);
+  });
+
+  const aesKeyPromise = baseKeyPromise.then((baseKey) =>
+    subtle.deriveKey(
       {
         name: "PBKDF2",
         salt: saltEncBytes,
@@ -49,21 +74,67 @@ export async function deriveKeyAndHash(
       { name: "AES-GCM", length: 256 },
       false,
       ["encrypt", "decrypt"]
-    ),
-    window.crypto.subtle.deriveBits(
-      {
-        name: "PBKDF2",
-        salt: saltAuthBytes,
-        iterations: 600000,
-        hash: "SHA-256",
-      },
-      baseKey,
-      256
-    ),
-  ]);
+    )
+  );
 
-  const authHash = bufferToHex(authBits);
+  return { authHashPromise, aesKeyPromise };
+}
 
+// In-memory pre-derivation cache to eliminate perceived key derivation lag on unlock
+interface PrederiveCacheEntry {
+  cacheKey: string;
+  derivation: PipelinedKeyDerivation;
+  createdAt: number;
+}
+let prederiveCache: PrederiveCacheEntry | null = null;
+
+export function startPrederiveKeyAndHash(
+  vaultKey: string,
+  password: string,
+  saltEncHex: string,
+  saltAuthHex: string
+): PipelinedKeyDerivation {
+  const cacheKey = `${vaultKey}:${saltEncHex}:${saltAuthHex}:${password}`;
+  if (prederiveCache && prederiveCache.cacheKey === cacheKey) {
+    return prederiveCache.derivation;
+  }
+  const derivation = deriveKeyAndHashPipelined(password, saltEncHex, saltAuthHex);
+  prederiveCache = {
+    cacheKey,
+    derivation,
+    createdAt: Date.now(),
+  };
+  return derivation;
+}
+
+export function getCachedDerivedKeyAndHash(
+  vaultKey: string,
+  password: string,
+  saltEncHex: string,
+  saltAuthHex: string
+): PipelinedKeyDerivation {
+  const cacheKey = `${vaultKey}:${saltEncHex}:${saltAuthHex}:${password}`;
+  if (prederiveCache && prederiveCache.cacheKey === cacheKey) {
+    return prederiveCache.derivation;
+  }
+  return startPrederiveKeyAndHash(vaultKey, password, saltEncHex, saltAuthHex);
+}
+
+export function clearCryptoPrederiveCache(): void {
+  prederiveCache = null;
+}
+
+export async function deriveKeyAndHash(
+  password: string,
+  saltEncHex: string,
+  saltAuthHex: string
+): Promise<{ aesKey: CryptoKey; authHash: string }> {
+  const { authHashPromise, aesKeyPromise } = deriveKeyAndHashPipelined(
+    password,
+    saltEncHex,
+    saltAuthHex
+  );
+  const [authHash, aesKey] = await Promise.all([authHashPromise, aesKeyPromise]);
   return { aesKey, authHash };
 }
 

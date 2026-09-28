@@ -39,6 +39,12 @@ const generalApiLimiter = rateLimit({
   message: { error: "Too many requests. Please try again later." },
 });
 app.use("/api/", generalApiLimiter);
+app.use("/api/", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
+});
 
 // Security: Strict Authentication Rate Limiter
 const authLimiter = rateLimit({

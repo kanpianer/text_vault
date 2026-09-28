@@ -5,6 +5,10 @@ import { X, Link2Off, Search, Plus, Pin, Eye, EyeOff } from "lucide-react";
 import { TabContent, SaveStatus } from "./types";
 import {
   deriveKeyAndHash,
+  deriveKeyAndHashPipelined,
+  startPrederiveKeyAndHash,
+  getCachedDerivedKeyAndHash,
+  clearCryptoPrederiveCache,
   encryptData,
   decryptData,
   generateSaltHex,
@@ -18,7 +22,15 @@ import {
 } from "./crypto";
 import { shouldShowBackToTop } from "./toolbarPosition";
 
-const Editor = lazy(() => import("./Editor").then((m) => ({ default: m.Editor })));
+let editorPreloadPromise: Promise<{ default: React.ComponentType<any> }> | null = null;
+export function preloadEditor(): Promise<{ default: React.ComponentType<any> }> {
+  if (!editorPreloadPromise) {
+    editorPreloadPromise = import("./Editor").then((m) => ({ default: m.Editor }));
+  }
+  return editorPreloadPromise;
+}
+
+const Editor = lazy(() => preloadEditor());
 
 
 
@@ -483,15 +495,30 @@ export default function App() {
   }, [sharedDocId, sharedDocHasPassword, sharedDocContent]);
 
 
+  // Idle preload editor bundle so it's ready when user opens any vault
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if ("requestIdleCallback" in window) {
+        (window as any).requestIdleCallback(() => preloadEditor());
+      } else {
+        setTimeout(preloadEditor, 150);
+      }
+    }
+  }, []);
+
   // Fetch Vault state on navigation
   useEffect(() => {
     if (!vaultName) return;
+    preloadEditor();
 
     const fetchVaultSalts = async () => {
       setIsLoading(true);
       setErrorText("");
       try {
-        const response = await fetch(`/api/vault/${vaultName}/salts`);
+        const response = await fetch(`/api/vault/${vaultName}/salts?t=${Date.now()}`, {
+          cache: "no-store",
+          headers: { "Cache-Control": "no-cache", "Pragma": "no-cache" },
+        });
         const data = await response.json();
         if (data.exists) {
           setIsNewVault(false);
@@ -513,12 +540,22 @@ export default function App() {
     fetchVaultSalts();
   }, [vaultName]);
 
+  // Background pre-derive crypto keys when user pauses typing password
+  useEffect(() => {
+    if (isNewVault || !vaultName || !saltEnc || !saltAuth || !password || password.length < 8) return;
+    const timer = setTimeout(() => {
+      startPrederiveKeyAndHash(vaultName, password, saltEnc, saltAuth);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [isNewVault, vaultName, saltEnc, saltAuth, password]);
+
   // Lock function - Purge secret keys out of memory
   const handleLock = () => {
     if (pendingTabUpdateTimerRef.current !== null) {
       clearTimeout(pendingTabUpdateTimerRef.current);
       pendingTabUpdateTimerRef.current = null;
     }
+    clearCryptoPrederiveCache();
     setAesKey(null);
     setAuthHash("");
     resetVaultAuthInputs();
@@ -532,6 +569,7 @@ export default function App() {
 
   // Navigates securely
   const navigateTo = (name: string) => {
+    preloadEditor();
     window.history.pushState(null, "", name ? `/${name}` : "/");
     window.dispatchEvent(new Event("popstate"));
   };
@@ -553,6 +591,7 @@ export default function App() {
 
   // Create new Vault cryptographically
   const handleCreateVault = async () => {
+    if (isLoading || isDecrypting) return;
     if (!password || !confirmPassword) {
       setErrorText("Passwords are required.");
       return;
@@ -568,6 +607,7 @@ export default function App() {
 
     setIsLoading(true);
     setErrorText("");
+    preloadEditor();
     try {
       const sEnc = generateSaltHex();
       const sAuth = generateSaltHex();
@@ -623,6 +663,7 @@ export default function App() {
 
   // Unlock Vault decryption
   const handleUnlockVault = async () => {
+    if (isLoading || isDecrypting) return;
     if (!password) {
       setErrorText("Password is required.");
       return;
@@ -633,20 +674,40 @@ export default function App() {
     setIsLoading(true);
     setIsDecrypting(true);
     setErrorText("");
-    const startTime = Date.now();
+
+    // Yield a frame so browser paints "Decrypting" overlay smoothly before heavy operations
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    preloadEditor();
+
     try {
-      // Derive credential bits
-      const { aesKey: dAesKey, authHash: dAuthHash } = await deriveKeyAndHash(
+      // Derive credential bits with pipeline overlapping
+      const { authHashPromise, aesKeyPromise } = getCachedDerivedKeyAndHash(
+        vaultName,
         password,
         saltEnc,
         saltAuth
       );
 
-      const resp = await fetch(`/api/vault/${vaultName}/get`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auth_hash: dAuthHash }),
+      // Start network request the moment authHash is available
+      const fetchPromise = authHashPromise.then(async (dAuthHash) => {
+        const resp = await fetch(`/api/vault/${vaultName}/get`, {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+          },
+          body: JSON.stringify({ auth_hash: dAuthHash }),
+        });
+        return { resp, dAuthHash };
       });
+
+      // Overlap network roundtrip with AES key derivation
+      const [{ resp, dAuthHash }, dAesKey] = await Promise.all([
+        fetchPromise,
+        aesKeyPromise,
+      ]);
 
       if (!resp.ok) {
         setErrorText("Incorrect password or access compromised.");
@@ -1804,6 +1865,7 @@ export default function App() {
 
 
   const handleUnlockSharedDoc = async () => {
+    if (sharedIsDecrypting) return;
     if (!sharedPasswordInput) {
       setSharedDocError("Password is required.");
       return;
@@ -1817,18 +1879,30 @@ export default function App() {
     setSharedIsDecrypting(true);
     setSharedDocError("");
 
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    preloadEditor();
+
     try {
-      const { aesKey, authHash } = await deriveKeyAndHash(
+      const { authHashPromise, aesKeyPromise } = deriveKeyAndHashPipelined(
         sharedPasswordInput,
         sharedDocSalts.salt_enc,
         sharedDocSalts.salt_auth
       );
 
-      const resp = await fetch(`/api/share/${sharedDocId}/access`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auth_hash: authHash }),
-      });
+      const fetchPromise = authHashPromise.then((authHash) =>
+        fetch(`/api/share/${sharedDocId}/access`, {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+          },
+          body: JSON.stringify({ auth_hash: authHash }),
+        })
+      );
+
+      const [resp, aesKey] = await Promise.all([fetchPromise, aesKeyPromise]);
 
       if (!resp.ok) {
         setSharedDocError("Incorrect password. Access denied.");
@@ -2377,13 +2451,17 @@ export default function App() {
                   autoCorrect="off"
                   autoCapitalize="off"
                   spellCheck={false}
-                  onFocus={() => setIsHomeFocused(true)}
+                  onFocus={() => {
+                    setIsHomeFocused(true);
+                    preloadEditor();
+                  }}
                   onBlur={() => setIsHomeFocused(false)}
                   onChange={(e) => {
                     const val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
                     if (val.length <= 10) {
                       setSearchName(val);
                       setSearchError("");
+                      if (val.length >= 2) preloadEditor();
                     }
                   }}
                   className="bg-transparent outline-none text-center py-1 text-white text-lg md:text-[1.65rem] tracking-wider w-full"
@@ -2395,6 +2473,8 @@ export default function App() {
 
               <div className="flex justify-center items-center w-full">
                 <span
+                  onMouseEnter={() => preloadEditor()}
+                  onPointerDown={() => preloadEditor()}
                   onClick={handleGo}
                   className="text-base md:text-lg text-zinc-400 hover:text-white cursor-pointer select-none border-b border-transparent hover:border-white transition-all font-semibold px-2 py-1"
                 >
@@ -2471,6 +2551,8 @@ export default function App() {
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
+                              e.preventDefault();
+                              if (isLoading || isDecrypting) return;
                               if (isNewVault) handleCreateVault();
                               else handleUnlockVault();
                             }
@@ -2517,7 +2599,11 @@ export default function App() {
                             className="col-start-1 row-start-1 w-full h-full bg-transparent outline-none py-1 font-sans text-white text-base md:text-sm tracking-[0.2em] text-center"
                             placeholder="••••••••"
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") handleCreateVault();
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                if (isLoading || isDecrypting) return;
+                                handleCreateVault();
+                              }
                             }}
                           />
                           {Boolean(confirmPassword) && (
@@ -2559,8 +2645,10 @@ export default function App() {
                       Cancel
                     </span>
                     <span
-                      onClick={isNewVault ? handleCreateVault : handleUnlockVault}
-                      className="font-sans text-xs md:text-sm font-semibold text-zinc-200 hover:text-white hover:underline transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block"
+                      onClick={isLoading || isDecrypting ? undefined : (isNewVault ? handleCreateVault : handleUnlockVault)}
+                      className={`font-sans text-xs md:text-sm font-semibold transition-colors cursor-pointer select-none uppercase tracking-wider px-2 block ${
+                        isLoading || isDecrypting ? "opacity-50 pointer-events-none text-zinc-500" : "text-zinc-200 hover:text-white hover:underline"
+                      }`}
                     >
                       {isNewVault ? "Initialize" : "Decrypt"}
                     </span>

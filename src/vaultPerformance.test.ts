@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { cleanup } from "@testing-library/react";
 import {
   deriveKeyAndHash,
   deriveKeyAndHashPipelined,
@@ -13,7 +14,13 @@ import { preloadEditor } from "./App";
 
 describe("Vault Decryption & Editor Loading Performance Optimizations", () => {
   beforeEach(() => {
+    cleanup();
+    window.history.pushState(null, "", "/");
     clearCryptoPrederiveCache();
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   describe("Pipelined Key Derivation (deriveKeyAndHashPipelined)", () => {
@@ -152,4 +159,143 @@ describe("Vault Decryption & Editor Loading Performance Optimizations", () => {
       }
     });
   });
+
+  describe("CHEATSHEET Menu & Top Shortcuts Order", () => {
+    it("renders CHEATSHEET in menu and displays Ctrl+S, Ctrl+L, Ctrl+X at the top", async () => {
+      const { render, screen, fireEvent, waitFor } = await import("@testing-library/react");
+      const React = await import("react");
+      const App = (await import("./App")).default;
+
+      // Mock unlock response
+      const sEnc = generateSaltHex();
+      const sAuth = generateSaltHex();
+      const { aesKey, authHash } = await deriveKeyAndHash("TestPass123!", sEnc, sAuth);
+      const testEncrypted = await encryptData(
+        JSON.stringify({ tabs: [{ id: "tab-1", text: "<h1>Note</h1><p>Test</p>" }] }),
+        aesKey
+      );
+
+      window.history.pushState({}, "", "/myvault");
+      window.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/salts")) {
+          return {
+            ok: true,
+            json: async () => ({ exists: true, salt_enc: sEnc, salt_auth: sAuth }),
+          };
+        }
+        if (url.includes("/get")) {
+          return {
+            ok: true,
+            json: async () => ({ ok: true, encrypted_data: testEncrypted }),
+          };
+        }
+        return { ok: true, json: async () => ({}) };
+      });
+
+      render(React.createElement(App));
+
+      await waitFor(() => {
+        expect(screen.getByText("UNLOCK THE VAULT")).toBeInTheDocument();
+      });
+
+      // Enter password and unlock
+      const pwdInput = screen.getByPlaceholderText("••••••••");
+      fireEvent.change(pwdInput, { target: { value: "TestPass123!" } });
+      const decryptBtn = screen.getByText("Decrypt");
+      fireEvent.click(decryptBtn);
+
+      // Verify opened into editor view
+      await waitFor(() => {
+        expect(screen.getByText("Text_Vault/")).toBeInTheDocument();
+      });
+
+      // Open sandwich menu
+      const menuTrigger = screen.getByText("Menu");
+      expect(menuTrigger).toBeTruthy();
+      fireEvent.click(menuTrigger);
+
+      // Verify menu item is CHEATSHEET (not SHORTCUTS / CHEATSHEET)
+      await waitFor(() => {
+        expect(screen.getByText("CHEATSHEET")).toBeInTheDocument();
+      });
+
+      // Click CHEATSHEET to open modal
+      fireEvent.click(screen.getByText("CHEATSHEET"));
+
+      // Verify modal header is CHEATSHEET
+      await waitFor(() => {
+        const modalHeader = screen.getAllByText("CHEATSHEET").find((el) => el.tagName === "H3");
+        expect(modalHeader).toBeInTheDocument();
+      });
+
+      // Verify the top 3 shortcuts are present in order
+      const shortcutKbdElements = Array.from(document.querySelectorAll("kbd")).map((k) => k.textContent?.trim());
+      expect(shortcutKbdElements[0]).toBe("Ctrl + S");
+      expect(shortcutKbdElements[1]).toBe("Ctrl + L");
+      expect(shortcutKbdElements[2]).toBe("Ctrl + X");
+
+      // Verify shortcut text descriptions
+      expect(screen.getByText(/Save current text \/ 保存当前文本/i)).toBeInTheDocument();
+      expect(screen.getByText(/Lock current vault \/ 锁定当前金库/i)).toBeInTheDocument();
+      expect(screen.getByText(/Return to home \/ 回到主页/i)).toBeInTheDocument();
+    });
+
+    it("triggers lock on Ctrl+L and return to home on Ctrl+X", async () => {
+      const { render, screen, fireEvent, waitFor } = await import("@testing-library/react");
+      const React = await import("react");
+      const App = (await import("./App")).default;
+
+      const sEnc = generateSaltHex();
+      const sAuth = generateSaltHex();
+      const { aesKey } = await deriveKeyAndHash("TestPass123!", sEnc, sAuth);
+      const testEncrypted = await encryptData(
+        JSON.stringify({ tabs: [{ id: "tab-1", text: "<h1>Note</h1><p>Test</p>" }] }),
+        aesKey
+      );
+
+      window.history.pushState({}, "", "/hotkey");
+      window.fetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url.includes("/salts")) {
+          return {
+            ok: true,
+            json: async () => ({ exists: true, salt_enc: sEnc, salt_auth: sAuth }),
+          };
+        }
+        if (url.includes("/get")) {
+          return {
+            ok: true,
+            json: async () => ({ ok: true, encrypted_data: testEncrypted }),
+          };
+        }
+        return { ok: true, json: async () => ({}) };
+      });
+
+      render(React.createElement(App));
+
+      await waitFor(() => {
+        expect(screen.getByText("UNLOCK THE VAULT")).toBeInTheDocument();
+      });
+
+      const pwdInput = screen.getByPlaceholderText("••••••••");
+      fireEvent.change(pwdInput, { target: { value: "TestPass123!" } });
+      fireEvent.click(screen.getByText("Decrypt"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Text_Vault/")).toBeInTheDocument();
+      });
+
+      // Test Ctrl + L: locks vault, returns to unlock screen
+      fireEvent.keyDown(window, { key: "l", ctrlKey: true });
+      await waitFor(() => {
+        expect(screen.getByText("UNLOCK THE VAULT")).toBeInTheDocument();
+      });
+
+      // Test Ctrl + X: returns to home
+      fireEvent.keyDown(window, { key: "x", ctrlKey: true });
+      await waitFor(() => {
+        expect(screen.getByText("End To End Encrypted Text")).toBeInTheDocument();
+      });
+    });
+  });
 });
+

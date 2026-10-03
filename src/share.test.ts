@@ -13,11 +13,30 @@ import {
 
 describe("Document Sharing Crypto Tests", () => {
   describe("Short Share ID Generation", () => {
-    it("should generate a 6-character string of lowercase letters and digits", () => {
-      for (let i = 0; i < 20; i++) {
+    it("should generate a 12-character base62 string (~71 bits of entropy)", () => {
+      for (let i = 0; i < 50; i++) {
         const id = generateShortShareId();
-        expect(id).toHaveLength(6);
-        expect(id).toMatch(/^[a-z0-9]{6}$/);
+        expect(id).toHaveLength(12);
+        expect(id).toMatch(/^[A-Za-z0-9]{12}$/);
+      }
+    });
+
+    it("should produce IDs accepted by the server share-id pattern", () => {
+      for (let i = 0; i < 20; i++) {
+        expect(generateShortShareId()).toMatch(/^[a-zA-Z0-9_-]{6,64}$/);
+      }
+    });
+
+    it("should use every base62 character roughly uniformly (no modulo bias)", () => {
+      const counts = new Map<string, number>();
+      for (let i = 0; i < 2000; i++) {
+        for (const c of generateShortShareId()) counts.set(c, (counts.get(c) || 0) + 1);
+      }
+      expect(counts.size).toBe(62);
+      const expected = (2000 * 12) / 62;
+      for (const n of counts.values()) {
+        expect(n).toBeGreaterThan(expected * 0.6);
+        expect(n).toBeLessThan(expected * 1.4);
       }
     });
 

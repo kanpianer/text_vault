@@ -242,15 +242,33 @@ export async function decryptDataWithRawKey(encryptedStr: string, keyHex: string
   return decryptData(encryptedStr, key);
 }
 
-export function generateShortShareId(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+export const SHARE_ID_LENGTH = 12;
+const SHARE_ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+/**
+ * Generates an unguessable share ID: 12 base62 chars (~71 bits of entropy).
+ * Uses rejection sampling so every character is uniformly distributed.
+ */
+export function generateShortShareId(length: number = SHARE_ID_LENGTH): string {
+  const chars = SHARE_ID_ALPHABET;
   const cryptoObj = typeof window !== "undefined" && window.crypto ? window.crypto : globalThis.crypto;
-  const bytes = cryptoObj.getRandomValues(new Uint8Array(6));
+  // Largest multiple of 62 below 256 — bytes >= this are rejected to avoid modulo bias.
+  const limit = 256 - (256 % chars.length);
   let result = "";
-  for (let i = 0; i < 6; i++) {
-    result += chars[bytes[i] % chars.length];
+  while (result.length < length) {
+    const bytes = cryptoObj.getRandomValues(new Uint8Array(length * 2));
+    for (let i = 0; i < bytes.length && result.length < length; i++) {
+      if (bytes[i] < limit) {
+        result += chars[bytes[i] % chars.length];
+      }
+    }
   }
   return result;
+}
+
+/** Random per-share owner secret; the server only stores sha256(token). */
+export function generateShareOwnerToken(): string {
+  return generateRandomKeyHex();
 }
 
 

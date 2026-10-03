@@ -6,6 +6,10 @@ export interface TabContent {
   isShared?: boolean;
   shareId?: string;
   shareHasPassword?: boolean;
+  /** Raw AES key (hex) for unprotected shares. Lives only in the encrypted vault and the link #fragment. */
+  shareKey?: string;
+  /** Per-share owner secret; server stores only sha256(token). Legacy shares fall back to the vault auth hash. */
+  shareOwnerToken?: string;
   isPinned?: boolean;
 }
 

@@ -19,6 +19,7 @@ import {
   decryptDataWithRawKey,
   bufferToHex,
   generateShortShareId,
+  generateShareOwnerToken,
 } from "./crypto";
 import { shouldShowBackToTop } from "./toolbarPosition";
 
@@ -465,7 +466,9 @@ export default function App() {
           setSharedDocSalts({ salt_enc: data.salt_enc, salt_auth: data.salt_auth });
         } else {
           setSharedDocHasPassword(false);
-          const hashKey = window.location.hash ? window.location.hash.replace(/^#/, "") : "";
+          const rawHash = window.location.hash ? window.location.hash.replace(/^#/, "") : "";
+          const hashKey = /^[0-9a-fA-F]{64}$/.test(rawHash) ? rawHash : "";
+          // Legacy shares (created before fragment keys) still carry a server-held key.
           const keyToUse = hashKey || data.key_unprotected;
           if (!keyToUse) {
             setSharedDocError("Decryption key missing. Unable to decrypt shared document.");
@@ -1223,41 +1226,53 @@ export default function App() {
 
     try {
       const newTabsToAdd: TabContent[] = [];
+      // Security: bound import sizes to avoid zip bombs / tab freezes.
+      const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
+      const MAX_ZIP_ENTRIES = 200;
+      const { sanitizeEditorHtml, escapeHtml } = await import("./sanitize");
+      const buildImportedTab = (text: string, docTitle: string): TabContent => {
+        const looksLikeHtml = text.includes("<h1") || text.includes("<p>");
+        const html = looksLikeHtml ? text : `<h1>${escapeHtml(docTitle)}</h1>\n` + escapeHtml(text);
+        return {
+          id: `tab-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          // Imported files are untrusted: sanitize before they ever reach the editor or the vault.
+          text: sanitizeEditorHtml(html),
+        };
+      };
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        if (file.size > MAX_IMPORT_FILE_BYTES) {
+          throw new Error(`"${file.name}" exceeds the 5MB import limit.`);
+        }
         if (file.name.toLowerCase().endsWith(".zip")) {
           const JSZipModule = await import("jszip");
           const ZipClass = typeof JSZipModule === "function" ? JSZipModule : (JSZipModule as any).default || JSZipModule;
           const zip = await ZipClass.loadAsync(file);
           const entries = Object.keys(zip.files);
+          if (entries.length > MAX_ZIP_ENTRIES) {
+            throw new Error(`Zip archive contains too many files (max ${MAX_ZIP_ENTRIES}).`);
+          }
+          let totalBytes = 0;
           for (const filename of entries) {
             const entry = zip.files[filename];
             if (!entry.dir && !filename.startsWith("__MACOSX/") && !filename.startsWith(".")) {
               const lower = filename.toLowerCase();
               if (lower.endsWith(".md") || lower.endsWith(".markdown") || lower.endsWith(".txt")) {
                 const text = await entry.async("text");
+                totalBytes += text.length;
+                if (totalBytes > MAX_IMPORT_FILE_BYTES * 4) {
+                  throw new Error("Zip archive content is too large to import.");
+                }
                 const docTitle = filename.split("/").pop()?.replace(/\.[^/.]+$/, "") || "Untitled";
-                const cleanText = text.includes("<h1") || text.includes("<p>")
-                  ? text
-                  : `<h1>${docTitle}</h1>\n` + text;
-                newTabsToAdd.push({
-                  id: `tab-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-                  text: cleanText,
-                });
+                newTabsToAdd.push(buildImportedTab(text, docTitle));
               }
             }
           }
         } else {
           const text = await file.text();
           const docTitle = file.name.replace(/\.[^/.]+$/, "") || "Untitled";
-          const cleanText = text.includes("<h1") || text.includes("<p>")
-            ? text
-            : `<h1>${docTitle}</h1>\n` + text;
-          newTabsToAdd.push({
-            id: `tab-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-            text: cleanText,
-          });
+          newTabsToAdd.push(buildImportedTab(text, docTitle));
         }
       }
 
@@ -2018,9 +2033,13 @@ export default function App() {
       });
 
       const shareId = generateShortShareId();
-      const shareUrl = `${window.location.origin}/share/${shareId}`;
+      let shareUrl = `${window.location.origin}/share/${shareId}`;
 
-      const ownerAuthHashDouble = authHash ? await sha256Client(authHash) : undefined;
+      // Security: per-share owner secret (kept in the encrypted vault). The server only stores its SHA-256,
+      // so shares no longer carry a copy of the vault's password verifier.
+      const shareOwnerToken = generateShareOwnerToken();
+      const ownerAuthHashDouble = await sha256Client(shareOwnerToken);
+      let shareKey: string | undefined;
       let resp: Response;
 
       if (shareRequirePassword) {
@@ -2044,8 +2063,11 @@ export default function App() {
           }),
         });
       } else {
+        // Security: the decryption key lives only in the URL fragment (never sent to the server).
         const rawKeyHex = generateRandomKeyHex();
         const encryptedData = await encryptDataWithRawKey(docPayload, rawKeyHex);
+        shareKey = rawKeyHex;
+        shareUrl = `${shareUrl}#${rawKeyHex}`;
 
         resp = await fetch("/api/share/create", {
           method: "POST",
@@ -2054,7 +2076,6 @@ export default function App() {
             id: shareId,
             hasPassword: false,
             encrypted_data: encryptedData,
-            key_unprotected: rawKeyHex,
             owner_auth_hash_double: ownerAuthHashDouble,
           }),
         });
@@ -2085,11 +2106,17 @@ export default function App() {
         return;
       }
 
-      // Mark the active tab as shared and record shareId
-      setTabs((prev) =>
-        prev.map((t) => (t.id === activeTab.id ? { ...t, isShared: true, shareId, shareHasPassword: shareRequirePassword } : t))
+      // Mark the active tab as shared and record shareId (+ secrets, which are stored only inside the encrypted vault)
+      const nextTabs = tabsRef.current.map((t) =>
+        t.id === activeTab.id
+          ? { ...t, isShared: true, shareId, shareHasPassword: shareRequirePassword, shareKey, shareOwnerToken }
+          : t
       );
+      setTabs(nextTabs);
+      tabsRef.current = nextTabs;
       setHasUnsavedChanges(true);
+      // Persist immediately: losing the owner token/key would orphan the share.
+      void performSaveAction({ silent: true });
 
       setGeneratedShareUrl(shareUrl);
     } catch (err: any) {
@@ -2127,20 +2154,21 @@ export default function App() {
           await fetch(`/api/share/${shareIdToDelete}/delete`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ auth_hash: authHash }),
+            // New shares use a per-share owner token; legacy shares were bound to the vault auth hash.
+            body: JSON.stringify({ auth_hash: activeTab?.shareOwnerToken || authHash }),
           });
         } catch (e) {
           console.error("Failed to delete share on server:", e);
         }
       }
 
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.id === activeTab.id
-            ? { ...t, isShared: false, shareId: undefined, shareHasPassword: undefined }
-            : t
-        )
+      const nextTabs = tabsRef.current.map((t) =>
+        t.id === activeTab.id
+          ? { ...t, isShared: false, shareId: undefined, shareHasPassword: undefined, shareKey: undefined, shareOwnerToken: undefined }
+          : t
       );
+      setTabs(nextTabs);
+      tabsRef.current = nextTabs;
       setHasUnsavedChanges(true);
       setGeneratedShareUrl("");
       setShowUnshareConfirm(false);
@@ -2168,6 +2196,7 @@ export default function App() {
         updatedAt: new Date().toISOString(),
       });
 
+      const ownerProof = activeTab.shareOwnerToken || authHash;
       let resp: Response;
 
       if (activeTab.shareHasPassword) {
@@ -2186,14 +2215,27 @@ export default function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            auth_hash: authHash,
+            auth_hash: ownerProof,
             encrypted_data: encryptedData,
             salt_enc: sEnc,
             salt_auth: sAuth,
             auth_hash_double: authHashDouble,
           }),
         });
+      } else if (activeTab.shareKey) {
+        // E2E share: re-encrypt with the same fragment key so the already-distributed link keeps working.
+        const encryptedData = await encryptDataWithRawKey(docPayload, activeTab.shareKey);
+
+        resp = await fetch(`/api/share/${activeTab.shareId}/update`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            auth_hash: ownerProof,
+            encrypted_data: encryptedData,
+          }),
+        });
       } else {
+        // Legacy share (created before fragment keys): its link has no #key, so the server-held key must be kept.
         const rawKeyHex = generateRandomKeyHex();
         const encryptedData = await encryptDataWithRawKey(docPayload, rawKeyHex);
 
@@ -2201,7 +2243,7 @@ export default function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            auth_hash: authHash,
+            auth_hash: ownerProof,
             encrypted_data: encryptedData,
             key_unprotected: rawKeyHex,
           }),
@@ -3208,7 +3250,8 @@ export default function App() {
                       flushPendingTabUpdate();
                       const currentTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
                       if (currentTab?.shareId) {
-                        setGeneratedShareUrl(`${window.location.origin}/share/${currentTab.shareId}`);
+                        const keyFragment = !currentTab.shareHasPassword && currentTab.shareKey ? `#${currentTab.shareKey}` : "";
+                        setGeneratedShareUrl(`${window.location.origin}/share/${currentTab.shareId}${keyFragment}`);
                         setShareRequirePassword(Boolean(currentTab.shareHasPassword));
                       } else {
                         setGeneratedShareUrl("");

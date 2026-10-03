@@ -6,6 +6,7 @@ import {
   calculateSelectionPosition,
   calculateEmptyLinePositionLeft,
 } from "./toolbarPosition";
+import { sanitizeEditorHtml, isSafeHref, escapeHtml } from "./sanitize";
 
 // ── style definitions ──────────────────────────────────────────────
 
@@ -536,14 +537,16 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
     const el = editorRef.current as HTMLElement | null;
     if (!el) return;
     if (activeTabId !== previousTabId.current || isFirstRender.current) {
-      el.innerHTML = initialContent || "<h1><br></h1><p><br></p>";
+      // Security: content may come from untrusted sources (shared docs, imports) — always sanitize.
+      el.innerHTML = sanitizeEditorHtml(initialContent) || "<h1><br></h1><p><br></p>";
       normalizeEditorNodes(el);
       previousTabId.current = activeTabId;
       isFirstRender.current = false;
     } else {
       const isEditing = isActive || isActiveRef.current || document.activeElement === el || el.contains(document.activeElement);
+      // Cheap equality check first: if the DOM already holds this exact HTML it was rendered (and sanitized) here.
       if (!isEditing && el.innerHTML !== initialContent) {
-        el.innerHTML = initialContent || "<h1><br></h1><p><br></p>";
+        el.innerHTML = sanitizeEditorHtml(initialContent) || "<h1><br></h1><p><br></p>";
         normalizeEditorNodes(el);
       }
     }
@@ -2180,14 +2183,16 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
         (node as Text).textContent = before;
 
         let html = "";
+        const safeContent = escapeHtml(inline.content);
+        const safeUrl = escapeHtml(sanitizeUrl(inline.url || ""));
         switch (inline.type) {
-          case "bold": html = `<b>${inline.content}</b>`; break;
-          case "italic": html = `<i>${inline.content}</i>`; break;
-          case "strike": html = `<strike>${inline.content}</strike>`; break;
-          case "underline": html = `<u>${inline.content}</u>`; break;
-          case "code": html = `<code class="bg-zinc-800 text-red-400 px-1 py-0.5 rounded font-mono text-xs">${inline.content}</code>`; break;
-          case "image": html = `<img src="${sanitizeUrl(inline.url || "")}" alt="${inline.content}" class="max-w-full rounded border border-zinc-800 my-2 block" contenteditable="false" draggable="false" style="user-select:none;-webkit-user-select:none">`; break;
-          case "link": html = `<a href="${sanitizeUrl(inline.url || "")}" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline cursor-pointer">${inline.content}</a>`; break;
+          case "bold": html = `<b>${safeContent}</b>`; break;
+          case "italic": html = `<i>${safeContent}</i>`; break;
+          case "strike": html = `<strike>${safeContent}</strike>`; break;
+          case "underline": html = `<u>${safeContent}</u>`; break;
+          case "code": html = `<code class="bg-zinc-800 text-red-400 px-1 py-0.5 rounded font-mono text-xs">${safeContent}</code>`; break;
+          case "image": html = `<img src="${safeUrl}" alt="${safeContent}" class="max-w-full rounded border border-zinc-800 my-2 block" contenteditable="false" draggable="false" style="user-select:none;-webkit-user-select:none">`; break;
+          case "link": html = `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-400 underline cursor-pointer">${safeContent}</a>`; break;
         }
 
         const tail = document.createTextNode("\u200B" + after);
@@ -2523,7 +2528,9 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
           if (anchor) {
             e.preventDefault();
             e.stopPropagation();
-            window.open(anchor.href, "_blank", "noopener,noreferrer");
+            if (isSafeHref(anchor.getAttribute("href"))) {
+              window.open(anchor.href, "_blank", "noopener,noreferrer");
+            }
             return;
           }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import React, { createRef } from "react";
 import { render, fireEvent } from "@testing-library/react";
-import { Editor } from "./Editor";
+import { Editor, adjustTaskSelection } from "./Editor";
 
 describe("Task Checkbox Independent Strikethrough", () => {
   it("only marks the clicked task line with task-done, leaving other lines untouched", () => {
@@ -245,5 +245,172 @@ describe("Task Checkbox Independent Strikethrough", () => {
     expect(p.querySelector('input[type="checkbox"]')).toBeNull();
     // Exiting task mode MUST clear task-done
     expect(p.classList.contains("task-done")).toBe(false);
+  });
+
+  it("prevents caret from being positioned before task checkbox and moves it after checkbox", () => {
+    const editorRef = createRef<HTMLDivElement>();
+    const onChange = vi.fn();
+
+    const initialContent = `<p><input type="checkbox" style="margin-right:8px" contenteditable="false">First task</p><p><input type="checkbox" style="margin-right:8px" contenteditable="false">Second task</p>`;
+
+    render(
+      <Editor
+        activeTabId="tab-1"
+        initialContent={initialContent}
+        onChange={onChange}
+        editorRef={editorRef}
+        readOnly={false}
+      />
+    );
+
+    const editorEl = editorRef.current!;
+    const paragraphs = editorEl.querySelectorAll("p");
+    const p2 = paragraphs[1];
+
+    // Put selection before checkbox (offset 0 in p2)
+    const sel = window.getSelection()!;
+    const range = document.createRange();
+    range.setStart(p2, 0);
+    range.setEnd(p2, 0);
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    adjustTaskSelection(editorEl);
+
+    // Verify selection is now in the text node after the checkbox
+    const currentRange = sel.getRangeAt(0);
+    const cb2 = p2.querySelector('input[type="checkbox"]')!;
+    expect(currentRange.startContainer).not.toBe(p2);
+    expect(currentRange.startContainer).not.toBe(cb2);
+    expect(currentRange.startContainer.nodeType).toBe(Node.TEXT_NODE);
+  });
+
+  it("adjusts selection when caret is placed on root container between two task lines", () => {
+    const editorRef = createRef<HTMLDivElement>();
+    const onChange = vi.fn();
+
+    const initialContent = `<p><input type="checkbox" style="margin-right:8px" contenteditable="false">First task</p><p><input type="checkbox" style="margin-right:8px" contenteditable="false">Second task</p>`;
+
+    render(
+      <Editor
+        activeTabId="tab-1"
+        initialContent={initialContent}
+        onChange={onChange}
+        editorRef={editorRef}
+        readOnly={false}
+      />
+    );
+
+    const editorEl = editorRef.current!;
+
+    // Set selection directly on root element at offset 1 (between p1 and p2)
+    const sel = window.getSelection()!;
+    const range = document.createRange();
+    range.setStart(editorEl, 1);
+    range.setEnd(editorEl, 1);
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    adjustTaskSelection(editorEl);
+
+    // Verify selection was moved inside p2 after its checkbox
+    const currentRange = sel.getRangeAt(0);
+    expect(currentRange.startContainer).not.toBe(editorEl);
+    expect(currentRange.startContainer.nodeType).toBe(Node.TEXT_NODE);
+  });
+
+  it("handles ArrowLeft at the start of task text by navigating to previous block instead of before checkbox", () => {
+    const editorRef = createRef<HTMLDivElement>();
+    const onChange = vi.fn();
+
+    const initialContent = `<p><input type="checkbox" style="margin-right:8px" contenteditable="false">First task</p><p><input type="checkbox" style="margin-right:8px" contenteditable="false">Second task</p>`;
+
+    render(
+      <Editor
+        activeTabId="tab-1"
+        initialContent={initialContent}
+        onChange={onChange}
+        editorRef={editorRef}
+        readOnly={false}
+      />
+    );
+
+    const editorEl = editorRef.current!;
+    const paragraphs = editorEl.querySelectorAll("p");
+    const p1 = paragraphs[0];
+    const p2 = paragraphs[1];
+
+    const textNode2 = p2.childNodes[1] as Text;
+
+    // Caret at start of task 2 text
+    const sel = window.getSelection()!;
+    const range = document.createRange();
+    range.setStart(textNode2, 0);
+    range.setEnd(textNode2, 0);
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    fireEvent.keyDown(editorEl, { key: "ArrowLeft" });
+
+    // Caret should have moved to previous paragraph (p1), NOT before p2's checkbox
+    const newRange = sel.getRangeAt(0);
+    expect(p1.contains(newRange.startContainer)).toBe(true);
+  });
+
+  it("handles clicking between two task lines on editor container without appending bottom paragraph", () => {
+    const editorRef = createRef<HTMLDivElement>();
+    const onChange = vi.fn();
+
+    const initialContent = `<p><input type="checkbox" style="margin-right:8px" contenteditable="false">First task</p><p><input type="checkbox" style="margin-right:8px" contenteditable="false">Second task</p>`;
+
+    render(
+      <Editor
+        activeTabId="tab-1"
+        initialContent={initialContent}
+        onChange={onChange}
+        editorRef={editorRef}
+        readOnly={false}
+      />
+    );
+
+    const editorEl = editorRef.current!;
+    const paragraphs = editorEl.querySelectorAll("p");
+    const p1 = paragraphs[0];
+    const p2 = paragraphs[1];
+
+    // Mock bounding client rects for layout
+    p1.getBoundingClientRect = () => ({
+      top: 10,
+      bottom: 30,
+      left: 0,
+      right: 200,
+      width: 200,
+      height: 20,
+      x: 0,
+      y: 10,
+      toJSON: () => {},
+    });
+    p2.getBoundingClientRect = () => ({
+      top: 40,
+      bottom: 60,
+      left: 0,
+      right: 200,
+      width: 200,
+      height: 20,
+      x: 0,
+      y: 40,
+      toJSON: () => {},
+    });
+
+    // Simulate clicking in the gap between p1 and p2 (clientY = 35)
+    fireEvent.click(editorEl, { clientX: 20, clientY: 35 });
+
+    // Ensure no new paragraph was appended at bottom (still 2 paragraphs)
+    expect(editorEl.querySelectorAll("p").length).toBe(2);
+
+    // Caret should be inside one of the paragraphs after its checkbox
+    const sel = window.getSelection()!;
+    const currentRange = sel.getRangeAt(0);
+    expect(currentRange.startContainer.nodeType).toBe(Node.TEXT_NODE);
   });
 });

@@ -132,6 +132,103 @@ export function normalizeEditorNodes(root: HTMLElement | null) {
   updateH1Placeholders(root);
 }
 
+export function placeCaretAfterCheckbox(block: HTMLElement, cb: HTMLInputElement | HTMLElement) {
+  const sel = window.getSelection();
+  if (!sel) return;
+
+  let next = cb.nextSibling;
+  if (!next || next.nodeType !== Node.TEXT_NODE) {
+    const zw = document.createTextNode("\u200B");
+    if (next) {
+      block.insertBefore(zw, next);
+    } else {
+      block.appendChild(zw);
+    }
+    next = zw;
+  }
+
+  const textNode = next as Text;
+  const content = textNode.textContent || "";
+  const targetOffset = content.startsWith("\u200B") ? 1 : 0;
+
+  try {
+    const r = document.createRange();
+    r.setStart(textNode, Math.min(targetOffset, content.length));
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  } catch {
+    const r = document.createRange();
+    r.selectNodeContents(block);
+    r.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+}
+
+export function isCaretBeforeOrOnCheckbox(
+  block: HTMLElement,
+  cb: HTMLInputElement | HTMLElement,
+  anchorNode: Node,
+  anchorOffset: number
+): boolean {
+  if (anchorNode === cb || cb.contains(anchorNode)) {
+    return true;
+  }
+  if (anchorNode === block) {
+    const cbIndex = Array.prototype.indexOf.call(block.childNodes, cb);
+    if (anchorOffset <= cbIndex) {
+      return true;
+    }
+  } else {
+    const pos = cb.compareDocumentPosition(anchorNode);
+    if (pos & Node.DOCUMENT_POSITION_PRECEDING) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function adjustTaskSelection(root: HTMLElement | null): boolean {
+  if (!root) return false;
+  const sel = window.getSelection();
+  if (!sel || !sel.isCollapsed || sel.rangeCount === 0) return false;
+
+  const node = sel.anchorNode;
+  if (!node || !root.contains(node)) return false;
+
+  if (node === root) {
+    const offset = sel.anchorOffset;
+    let targetChild: Node | null = null;
+    if (offset < root.childNodes.length) {
+      targetChild = root.childNodes[offset];
+    } else if (root.lastChild) {
+      targetChild = root.lastChild;
+    }
+    if (targetChild && targetChild.nodeType === Node.ELEMENT_NODE) {
+      const elBlock = targetChild as HTMLElement;
+      const cb = elBlock.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+      if (cb) {
+        placeCaretAfterCheckbox(elBlock, cb);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  const block = getCurrentBlock(root, node);
+  if (!block) return false;
+  const cb = block.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+  if (!cb) return false;
+
+  if (isCaretBeforeOrOnCheckbox(block, cb, node, sel.anchorOffset)) {
+    placeCaretAfterCheckbox(block, cb);
+    return true;
+  }
+
+  return false;
+}
+
 function getCurrentBlock(root: HTMLElement, node: Node): HTMLElement | null {
   let el: HTMLElement | null =
     node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
@@ -1244,17 +1341,26 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   // ── selectionchange: show toolbar on mobile text selection ────────
 
   useEffect(() => {
+    let isAdjusting = false;
     const onSelectionChange = () => {
       const el = editorRef.current as HTMLElement | null;
-      if (!el) return;
+      if (!el || isAdjusting) return;
       updateH1Placeholders(el, isActiveRef.current);
       if (readOnly || !isActive) return;
-      const isMobile = typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 767px)").matches : false;
-      if (!isMobile && isMouseDownRef.current) {
-        return;
-      }
       const sel = window.getSelection();
       if (sel && sel.anchorNode && el.contains(sel.anchorNode)) {
+        if (sel.isCollapsed && isActiveRef.current) {
+          try {
+            isAdjusting = true;
+            adjustTaskSelection(el);
+          } finally {
+            isAdjusting = false;
+          }
+        }
+        const isMobile = typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 767px)").matches : false;
+        if (!isMobile && isMouseDownRef.current) {
+          return;
+        }
         updateToolbar();
       }
     };
@@ -2262,6 +2368,55 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
       }
     }
 
+    // ArrowLeft: navigate to previous block if caret is at the start of task text
+    if (e.key === "ArrowLeft") {
+      const sel = window.getSelection();
+      if (sel && sel.isCollapsed && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        const node = range.startContainer;
+        const block = getCurrentBlock(el, node);
+        if (block) {
+          const cb = block.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+          if (cb) {
+            const testRange = document.createRange();
+            testRange.setStart(block, 0);
+            testRange.setEnd(range.startContainer, range.startOffset);
+            const textBefore = testRange.toString().replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+            if (textBefore.trim() === "") {
+              const prev = block.previousElementSibling;
+              if (prev) {
+                e.preventDefault();
+                const r = document.createRange();
+                r.selectNodeContents(prev);
+                r.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(r);
+                return;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Home: ensure caret stays after task checkbox
+    if (e.key === "Home") {
+      const sel = window.getSelection();
+      if (sel && sel.isCollapsed && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        const node = range.startContainer;
+        const block = getCurrentBlock(el, node);
+        if (block) {
+          const cb = block.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+          if (cb) {
+            e.preventDefault();
+            placeCaretAfterCheckbox(block, cb);
+            return;
+          }
+        }
+      }
+    }
+
     // Backspace / Delete: remove adjacent image
 
     if (e.key === "Backspace" || e.key === "Delete") {
@@ -2556,11 +2711,17 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
 
   const handleMouseUp = () => {
     isMouseDownRef.current = false;
+    if (editorRef.current && isActiveRef.current) {
+      adjustTaskSelection(editorRef.current);
+    }
     setTimeout(updateToolbar, 0);
     updateH1Placeholders(editorRef.current, isActiveRef.current);
   };
 
   const handleKeyUp = () => {
+    if (editorRef.current && isActiveRef.current) {
+      adjustTaskSelection(editorRef.current);
+    }
     updateToolbar();
     updateH1Placeholders(editorRef.current, isActiveRef.current);
     if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches) {
@@ -2599,6 +2760,9 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
     if (!readOnly && !isActiveRef.current && editorRef.current) {
       isActiveRef.current = true;
       setIsActive(true);
+    }
+    if (editorRef.current) {
+      adjustTaskSelection(editorRef.current);
     }
     setTimeout(updateToolbar, 10);
   };
@@ -2672,6 +2836,8 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
         placeCaretAtRange(pendingTouchCaretRef.current);
 
         pendingTouchCaretRef.current = null;
+
+        adjustTaskSelection(el);
 
         updateToolbar();
         ensureCaretVisibleMobile(target);
@@ -2843,6 +3009,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
                 cb.removeAttribute("checked");
                 parent.classList.remove("task-done");
               }
+              placeCaretAfterCheckbox(parent, cb);
             }
             if (editorRef.current?.classList.contains("task-done")) {
               editorRef.current.classList.remove("task-done");
@@ -2854,23 +3021,67 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
 
           if (target === editorRef.current) {
             const el = editorRef.current;
-            const lastChild = el.lastElementChild;
-            const isLastEmptyP = lastChild && lastChild.tagName === "P" && (!lastChild.textContent || lastChild.textContent.trim() === "");
-            
-            if (!isLastEmptyP && !readOnly) {
-              const p = document.createElement("p");
-              p.appendChild(document.createElement("br"));
-              el.appendChild(p);
+            const lastChild = el.lastElementChild as HTMLElement | null;
+            const lastRect = lastChild ? lastChild.getBoundingClientRect() : null;
+            const hasBoundingBox = Boolean(lastRect && (lastRect.top !== 0 || lastRect.bottom !== 0 || lastRect.height !== 0));
+
+            if (hasBoundingBox && lastRect && e.clientY <= lastRect.bottom) {
+              let closestChild: HTMLElement | null = null;
+              let minDistance = Infinity;
+              for (let i = 0; i < el.children.length; i++) {
+                const child = el.children[i] as HTMLElement;
+                const rect = child.getBoundingClientRect();
+                if (e.clientY >= rect.top && e.clientY <= rect.bottom) {
+                  closestChild = child;
+                  break;
+                }
+                const dist = Math.min(Math.abs(e.clientY - rect.top), Math.abs(e.clientY - rect.bottom));
+                if (dist < minDistance) {
+                  minDistance = dist;
+                  closestChild = child;
+                }
+              }
+              if (closestChild) {
+                const cb = closestChild.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+                if (cb) {
+                  placeCaretAfterCheckbox(closestChild, cb);
+                } else {
+                  const r = document.createRange();
+                  r.selectNodeContents(closestChild);
+                  const isTopHalf = e.clientY < (closestChild.getBoundingClientRect().top + closestChild.getBoundingClientRect().bottom) / 2;
+                  r.collapse(isTopHalf);
+                  const sel = window.getSelection();
+                  sel?.removeAllRanges();
+                  sel?.addRange(r);
+                }
+                el.focus();
+              }
+            } else {
+              const isLastEmptyP = lastChild && lastChild.tagName === "P" && (!lastChild.textContent || lastChild.textContent.trim() === "");
               
-              requestAnimationFrame(() => {
+              if (!isLastEmptyP && !readOnly) {
+                const p = document.createElement("p");
+                p.appendChild(document.createElement("br"));
+                el.appendChild(p);
+                
+                requestAnimationFrame(() => {
+                  const r = document.createRange();
+                  r.selectNodeContents(p);
+                  r.collapse(false);
+                  const sel = window.getSelection();
+                  sel?.removeAllRanges();
+                  sel?.addRange(r);
+                  el.focus();
+                });
+              } else if (lastChild) {
                 const r = document.createRange();
-                r.selectNodeContents(p);
+                r.selectNodeContents(lastChild);
                 r.collapse(false);
                 const sel = window.getSelection();
                 sel?.removeAllRanges();
                 sel?.addRange(r);
                 el.focus();
-              });
+              }
             }
           }
           

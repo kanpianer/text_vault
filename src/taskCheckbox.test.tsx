@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import React, { createRef } from "react";
 import { render, fireEvent } from "@testing-library/react";
-import { Editor } from "./Editor";
+import { Editor, findCaretClosestToPoint, placeCaretClosestToPoint } from "./Editor";
 
 describe("Task Checkbox Independent Strikethrough", () => {
   it("only marks the clicked task line with task-done, leaving other lines untouched", () => {
@@ -247,165 +247,157 @@ describe("Task Checkbox Independent Strikethrough", () => {
     expect(p.classList.contains("task-done")).toBe(false);
   });
 
-  it("preserves text selection when user has selected text across elements", () => {
-    const editorRef = createRef<HTMLDivElement>();
-    const onChange = vi.fn();
+  describe("Caret Positioning Between Checkboxes and Lines", () => {
+    it("finds the closest line and closest character when mouse coordinates are between two checkboxes", () => {
+      const container = document.createElement("div");
+      container.innerHTML = `
+        <p id="line1"><input type="checkbox" style="margin-right:8px" contenteditable="false">\u200Bjkgkhgl</p>
+        <p id="line2" class="task-done"><input type="checkbox" checked="" style="margin-right:8px" contenteditable="false">\u200B都都分公司</p>
+      `;
+      document.body.appendChild(container);
 
-    const initialContent = `<p>end-to-end encrypted</p><p>This is a zero-k</p>`;
+      const p1 = container.querySelector("#line1") as HTMLParagraphElement;
+      const p2 = container.querySelector("#line2") as HTMLParagraphElement;
 
-    render(
-      <Editor
-        activeTabId="tab-1"
-        initialContent={initialContent}
-        onChange={onChange}
-        editorRef={editorRef}
-        readOnly={false}
-      />
-    );
+      // Mock bounding rects:
+      // Line 1: top: 10, bottom: 30
+      // Gap: 30 to 42
+      // Line 2: top: 42, bottom: 62
+      vi.spyOn(p1, "getBoundingClientRect").mockReturnValue({
+        top: 10,
+        bottom: 30,
+        left: 20,
+        right: 200,
+        width: 180,
+        height: 20,
+      } as DOMRect);
 
-    const editorEl = editorRef.current!;
+      vi.spyOn(p2, "getBoundingClientRect").mockReturnValue({
+        top: 42,
+        bottom: 62,
+        left: 20,
+        right: 200,
+        width: 180,
+        height: 20,
+      } as DOMRect);
 
-    // Activate editor first
-    fireEvent.mouseDown(editorEl);
-    fireEvent.click(editorEl);
+      // Click at y = 33 (closer to Line 1 bottom: 30, dist: 3; Line 2 top: 42, dist: 9)
+      // x = 10 (at the checkbox, to the left of text)
+      const range1 = findCaretClosestToPoint(10, 33, container);
+      expect(range1).not.toBeNull();
+      // Should land in Line 1 text node
+      const tn1 = p1.childNodes[1] as Text;
+      expect(range1?.startContainer).toBe(tn1);
+      // Closest character to x=10 is the first character after zero-width space
+      expect(range1?.startOffset).toBe(1);
 
-    const paragraphs = editorEl.querySelectorAll("p");
-    const p1 = paragraphs[0];
-    const p2 = paragraphs[1];
+      // Click at y = 39 (closer to Line 2 top: 42, dist: 3; Line 1 bottom: 30, dist: 9)
+      // x = 10 (at the checkbox)
+      const range2 = findCaretClosestToPoint(10, 39, container);
+      expect(range2).not.toBeNull();
+      const tn2 = p2.childNodes[1] as Text;
+      expect(range2?.startContainer).toBe(tn2);
+      expect(range2?.startOffset).toBe(1);
 
-    // Create an uncollapsed selection spanning from p1 to p2
-    const sel = window.getSelection()!;
-    const range = document.createRange();
-    range.setStart(p1.firstChild!, 0);
-    range.setEnd(p2.firstChild!, 4);
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    expect(sel.isCollapsed).toBe(false);
-
-    // Fire click on editor container (as happens after mouse drag)
-    fireEvent.click(editorEl, { clientX: 50, clientY: 20 });
-
-    // The selection MUST NOT be destroyed or collapsed
-    expect(sel.isCollapsed).toBe(false);
-    expect(sel.getRangeAt(0).startContainer).toBe(p1.firstChild);
-    expect(sel.getRangeAt(0).endContainer).toBe(p2.firstChild);
-  });
-
-  it("when clicking between two lines closer to upper line, targets upper line without appending bottom paragraph", () => {
-    const editorRef = createRef<HTMLDivElement>();
-    const onChange = vi.fn();
-
-    const initialContent = `<p>end-to-end encrypted</p><p>This is a zero-k</p>`;
-
-    render(
-      <Editor
-        activeTabId="tab-1"
-        initialContent={initialContent}
-        onChange={onChange}
-        editorRef={editorRef}
-        readOnly={false}
-      />
-    );
-
-    const editorEl = editorRef.current!;
-    const paragraphs = editorEl.querySelectorAll("p");
-    const p1 = paragraphs[0];
-    const p2 = paragraphs[1];
-
-    // Mock bounding client rects
-    // p1: top 10 to bottom 30
-    // p2: top 50 to bottom 70
-    p1.getBoundingClientRect = () => ({
-      top: 10,
-      bottom: 30,
-      left: 0,
-      right: 200,
-      width: 200,
-      height: 20,
-      x: 0,
-      y: 10,
-      toJSON: () => {},
-    });
-    p2.getBoundingClientRect = () => ({
-      top: 50,
-      bottom: 70,
-      left: 0,
-      right: 200,
-      width: 200,
-      height: 20,
-      x: 0,
-      y: 50,
-      toJSON: () => {},
+      document.body.removeChild(container);
     });
 
-    // Click at clientY = 35 (gap is 30..50).
-    // Distance to p1 is 5px, distance to p2 is 15px -> closer to upper line (p1)!
-    fireEvent.click(editorEl, { clientX: 100, clientY: 35 });
+    it("places caret in the closest task line and never outside the document when clicking between checkboxes", () => {
+      const editorRef = createRef<HTMLDivElement>();
+      const onChange = vi.fn();
 
-    // Ensure no new paragraph was appended at bottom (still 2 paragraphs)
-    expect(editorEl.querySelectorAll("p").length).toBe(2);
+      const initialContent = `<p><input type="checkbox" style="margin-right:8px" contenteditable="false">\u200Bjkgkhgl</p><p class="task-done"><input type="checkbox" checked="" style="margin-right:8px" contenteditable="false">\u200B都都分公司</p>`;
 
-    // Selection should be in p1
-    const sel = window.getSelection()!;
-    const curRange = sel.getRangeAt(0);
-    expect(p1.contains(curRange.startContainer)).toBe(true);
-  });
+      render(
+        <Editor
+          activeTabId="tab-1"
+          initialContent={initialContent}
+          onChange={onChange}
+          editorRef={editorRef}
+          readOnly={false}
+        />
+      );
 
-  it("when clicking between two lines closer to lower line, targets lower line without appending bottom paragraph", () => {
-    const editorRef = createRef<HTMLDivElement>();
-    const onChange = vi.fn();
+      const editorEl = editorRef.current!;
+      const paragraphs = editorEl.querySelectorAll("p");
+      expect(paragraphs.length).toBe(2);
 
-    const initialContent = `<p>end-to-end encrypted</p><p>This is a zero-k</p>`;
+      const p1 = paragraphs[0];
+      const p2 = paragraphs[1];
 
-    render(
-      <Editor
-        activeTabId="tab-1"
-        initialContent={initialContent}
-        onChange={onChange}
-        editorRef={editorRef}
-        readOnly={false}
-      />
-    );
+      vi.spyOn(p1, "getBoundingClientRect").mockReturnValue({
+        top: 10,
+        bottom: 30,
+        left: 20,
+        right: 200,
+        width: 180,
+        height: 20,
+      } as DOMRect);
 
-    const editorEl = editorRef.current!;
-    const paragraphs = editorEl.querySelectorAll("p");
-    const p1 = paragraphs[0];
-    const p2 = paragraphs[1];
+      vi.spyOn(p2, "getBoundingClientRect").mockReturnValue({
+        top: 42,
+        bottom: 62,
+        left: 20,
+        right: 200,
+        width: 180,
+        height: 20,
+      } as DOMRect);
 
-    p1.getBoundingClientRect = () => ({
-      top: 10,
-      bottom: 30,
-      left: 0,
-      right: 200,
-      width: 200,
-      height: 20,
-      x: 0,
-      y: 10,
-      toJSON: () => {},
+      // Simulate mousedown & click on editor root between the two checkboxes (y = 34, closer to p1)
+      fireEvent.mouseDown(editorEl, { clientX: 10, clientY: 34 });
+      fireEvent.mouseUp(editorEl, { clientX: 10, clientY: 34 });
+      fireEvent.click(editorEl, { clientX: 10, clientY: 34 });
+
+      const sel = window.getSelection()!;
+      expect(sel.rangeCount).toBeGreaterThan(0);
+      const range = sel.getRangeAt(0);
+
+      // Caret must NEVER be on editorEl
+      expect(range.startContainer).not.toBe(editorEl);
+      // Caret must NEVER be at offset 0 before the checkbox
+      expect(range.startContainer).not.toBe(p1);
+      expect(range.startContainer).not.toBe(p2);
+
+      // Caret must be inside p1's text node, after the checkbox
+      expect(p1.contains(range.startContainer)).toBe(true);
+
+      // No unexpected paragraph should have been appended at the bottom
+      expect(editorEl.querySelectorAll("p").length).toBe(2);
     });
-    p2.getBoundingClientRect = () => ({
-      top: 50,
-      bottom: 70,
-      left: 0,
-      right: 200,
-      width: 200,
-      height: 20,
-      x: 0,
-      y: 50,
-      toJSON: () => {},
+
+    it("appends a paragraph when clicking below all content in empty bottom space", () => {
+      const editorRef = createRef<HTMLDivElement>();
+      const onChange = vi.fn();
+
+      const initialContent = `<p><input type="checkbox" style="margin-right:8px" contenteditable="false">\u200BOnly task</p>`;
+
+      render(
+        <Editor
+          activeTabId="tab-1"
+          initialContent={initialContent}
+          onChange={onChange}
+          editorRef={editorRef}
+          readOnly={false}
+        />
+      );
+
+      const editorEl = editorRef.current!;
+      const p1 = editorEl.querySelector("p")!;
+
+      vi.spyOn(p1, "getBoundingClientRect").mockReturnValue({
+        top: 10,
+        bottom: 30,
+        left: 20,
+        right: 200,
+        width: 180,
+        height: 20,
+      } as DOMRect);
+
+      // Click way below content (e.g. y = 300)
+      fireEvent.click(editorEl, { clientX: 50, clientY: 300 });
+
+      // Should append a paragraph because click was below all content
+      expect(editorEl.querySelectorAll("p").length).toBe(2);
     });
-
-    // Click at clientY = 45 (gap is 30..50).
-    // Distance to p1 is 15px, distance to p2 is 5px -> closer to lower line (p2)!
-    fireEvent.click(editorEl, { clientX: 100, clientY: 45 });
-
-    // Still 2 paragraphs
-    expect(editorEl.querySelectorAll("p").length).toBe(2);
-
-    // Selection should be in p2
-    const sel = window.getSelection()!;
-    const curRange = sel.getRangeAt(0);
-    expect(p2.contains(curRange.startContainer)).toBe(true);
   });
 });

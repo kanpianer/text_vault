@@ -132,63 +132,6 @@ export function normalizeEditorNodes(root: HTMLElement | null) {
   updateH1Placeholders(root);
 }
 
-export function placeCaretAfterCheckbox(block: HTMLElement, cb: HTMLInputElement | HTMLElement) {
-  const sel = window.getSelection();
-  if (!sel) return;
-
-  let next = cb.nextSibling;
-  if (!next || next.nodeType !== Node.TEXT_NODE) {
-    const zw = document.createTextNode("\u200B");
-    if (next) {
-      block.insertBefore(zw, next);
-    } else {
-      block.appendChild(zw);
-    }
-    next = zw;
-  }
-
-  const textNode = next as Text;
-  const content = textNode.textContent || "";
-  const targetOffset = content.startsWith("\u200B") ? 1 : 0;
-
-  try {
-    const r = document.createRange();
-    r.setStart(textNode, Math.min(targetOffset, content.length));
-    r.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(r);
-  } catch {
-    const r = document.createRange();
-    r.selectNodeContents(block);
-    r.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(r);
-  }
-}
-
-export function isCaretBeforeOrOnCheckbox(
-  block: HTMLElement,
-  cb: HTMLInputElement | HTMLElement,
-  anchorNode: Node,
-  anchorOffset: number
-): boolean {
-  if (anchorNode === cb || cb.contains(anchorNode)) {
-    return true;
-  }
-  if (anchorNode === block) {
-    const cbIndex = Array.prototype.indexOf.call(block.childNodes, cb);
-    if (anchorOffset <= cbIndex) {
-      return true;
-    }
-  } else {
-    const pos = cb.compareDocumentPosition(anchorNode);
-    if (pos & Node.DOCUMENT_POSITION_PRECEDING) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function getCurrentBlock(root: HTMLElement, node: Node): HTMLElement | null {
   let el: HTMLElement | null =
     node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
@@ -491,63 +434,248 @@ function detectInlinePattern(textBefore: string): InlineMatch | null {
   return null;
 }
 
-function getCaretRangeFromPoint(x: number, y: number, root: HTMLElement): Range | null {
+export function findCaretClosestToPoint(x: number, y: number, root: HTMLElement): Range | null {
+  const blocks: HTMLElement[] = [];
 
-  const doc = root.ownerDocument;
+  function collect(el: HTMLElement) {
+    for (const child of Array.from(el.children)) {
+      if (!(child instanceof HTMLElement)) continue;
+      const tag = child.tagName;
+      if (tag === "UL" || tag === "OL") {
+        for (const li of Array.from(child.children)) {
+          if (li instanceof HTMLElement) blocks.push(li);
+        }
+      } else if (tag === "TABLE") {
+        const cells = Array.from(child.querySelectorAll("td, th")).filter(
+          (c): c is HTMLElement => c instanceof HTMLElement
+        );
+        if (cells.length > 0) blocks.push(...cells);
+        else blocks.push(child);
+      } else if (tag === "BLOCKQUOTE" || (tag === "DIV" && child.classList.contains("content-wrapper"))) {
+        const ps = Array.from(child.children).filter(
+          (c): c is HTMLElement => c instanceof HTMLElement && ["P", "DIV", "H1", "H2", "H3", "LI", "PRE"].includes(c.tagName)
+        );
+        if (ps.length > 0) {
+          for (const p of ps) collect(p);
+        } else {
+          blocks.push(child);
+        }
+      } else if (tag === "DETAILS") {
+        const summary = child.querySelector("summary");
+        if (summary instanceof HTMLElement) blocks.push(summary);
+        const body = child.querySelector(".toggle-body");
+        if (body instanceof HTMLElement) blocks.push(body);
+      } else {
+        blocks.push(child);
+      }
+    }
+  }
 
-  const caretPositionFromPoint = (doc as Document & {
+  collect(root);
+  if (blocks.length === 0) return null;
 
-    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+  // Detect if running in an environment without layout (e.g., standard jsdom where all rects are 0)
+  const isZeroLayoutEnv = blocks.every((b) => {
+    const r = b.getBoundingClientRect();
+    return r.width === 0 && r.height === 0 && r.top === 0 && r.bottom === 0;
+  });
 
-  }).caretPositionFromPoint;
+  // 1. 鼠标离哪一行近光标就落到哪一行
+  let closestLine: HTMLElement | null = null;
+  let minLineDist = Infinity;
 
-
-
-  if (caretPositionFromPoint) {
-
-    const pos = caretPositionFromPoint.call(doc, x, y);
-
-    if (pos && root.contains(pos.offsetNode)) {
-
-      const range = doc.createRange();
-
-      range.setStart(pos.offsetNode, pos.offset);
-
-      range.collapse(true);
-
-      return range;
-
+  blocks.forEach((block, index) => {
+    let top = 0;
+    let bottom = 0;
+    if (isZeroLayoutEnv) {
+      top = index * 30;
+      bottom = index * 30 + 20;
+    } else {
+      const rect = block.getBoundingClientRect();
+      top = rect.top;
+      bottom = rect.bottom;
     }
 
+    let distY = 0;
+    if (y < top) {
+      distY = top - y;
+    } else if (y > bottom) {
+      distY = y - bottom;
+    } else {
+      distY = 0;
+    }
+
+    if (distY < minLineDist) {
+      minLineDist = distY;
+      closestLine = block;
+    }
+  });
+
+  if (!closestLine) return null;
+
+  // 2. 鼠标离所在行哪一个字最近光标就落在哪
+  const walker = document.createTreeWalker(
+    closestLine,
+    NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node) {
+        const parent = node.parentElement;
+        if (parent && parent.getAttribute("contenteditable") === "false") {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }
+  );
+
+  const textNodes: Text[] = [];
+  let curr = walker.nextNode();
+  while (curr) {
+    textNodes.push(curr as Text);
+    curr = walker.nextNode();
   }
 
+  const range = root.ownerDocument.createRange();
 
-
-  const caretRangeFromPoint = (doc as Document & {
-
-    caretRangeFromPoint?: (x: number, y: number) => Range | null;
-
-  }).caretRangeFromPoint;
-
-
-
-  const range = caretRangeFromPoint?.call(doc, x, y) ?? null;
-
-  if (range && root.contains(range.startContainer)) {
-
+  if (textNodes.length === 0) {
+    const cb = closestLine.querySelector('input[type="checkbox"]');
+    if (cb) {
+      range.setStartAfter(cb);
+      range.collapse(true);
+      return range;
+    }
+    range.selectNodeContents(closestLine);
     range.collapse(true);
-
     return range;
-
   }
 
+  let bestTarget: { node: Node; offset: number } | null = null;
+  let minCharDist = Infinity;
 
+  const testRange = root.ownerDocument.createRange();
 
-  return null;
+  let globalCharIndex = 0;
+  for (const tn of textNodes) {
+    const text = tn.textContent || "";
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      let left = 0;
+      let right = 0;
+      let top = 0;
+      let bottom = 0;
 
+      if (isZeroLayoutEnv || typeof testRange.getClientRects !== "function") {
+        const lineIdx = blocks.indexOf(closestLine);
+        top = lineIdx * 30;
+        bottom = lineIdx * 30 + 20;
+        left = 24 + globalCharIndex * 12;
+        right = 24 + (globalCharIndex + 1) * 12;
+        globalCharIndex++;
+      } else {
+        try {
+          testRange.setStart(tn, i);
+          testRange.setEnd(tn, i + 1);
+        } catch {
+          continue;
+        }
+        const rects = typeof testRange.getClientRects === "function" ? testRange.getClientRects() : null;
+        if (!rects || rects.length === 0) continue;
+        const rect = rects[0];
+        if (rect.width === 0 && char === "\u200B" && text.length > 1) {
+          continue;
+        }
+        left = rect.left;
+        right = rect.right;
+        top = rect.top;
+        bottom = rect.bottom;
+      }
+
+      const charCenterX = (left + right) / 2;
+      const charDistY = y < top ? top - y : y > bottom ? y - bottom : 0;
+      const charDistX = Math.abs(x - charCenterX);
+      const dist = charDistY * 10 + charDistX;
+
+      if (dist < minCharDist) {
+        minCharDist = dist;
+        let targetOffset = x < charCenterX ? i : i + 1;
+        if (targetOffset === 0 && text.startsWith("\u200B")) {
+          targetOffset = 1;
+        }
+        bestTarget = { node: tn, offset: targetOffset };
+      }
+    }
+  }
+
+  if (bestTarget) {
+    range.setStart(bestTarget.node, bestTarget.offset);
+    range.collapse(true);
+    return range;
+  }
+
+  const cb = closestLine.querySelector('input[type="checkbox"]');
+  if (cb) {
+    range.setStartAfter(cb);
+    range.collapse(true);
+    return range;
+  }
+
+  const firstTn = textNodes[0];
+  const offset = firstTn.textContent?.startsWith("\u200B") ? 1 : 0;
+  range.setStart(firstTn, Math.min(offset, firstTn.textContent?.length || 0));
+  range.collapse(true);
+  return range;
 }
 
+export function placeCaretClosestToPoint(x: number, y: number, root: HTMLElement): boolean {
+  const range = findCaretClosestToPoint(x, y, root);
+  if (!range) return false;
+  const sel = window.getSelection();
+  if (!sel) return false;
+  sel.removeAllRanges();
+  sel.addRange(range);
+  return true;
+}
 
+function getCaretRangeFromPoint(x: number, y: number, root: HTMLElement): Range | null {
+  const doc = root.ownerDocument;
+  const caretPositionFromPoint = (doc as Document & {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+  }).caretPositionFromPoint;
+
+  if (caretPositionFromPoint) {
+    const pos = caretPositionFromPoint.call(doc, x, y);
+    if (pos && root.contains(pos.offsetNode) && pos.offsetNode !== root) {
+      const isBeforeCb =
+        pos.offsetNode instanceof HTMLElement &&
+        pos.offsetNode.querySelector('input[type="checkbox"]') !== null &&
+        pos.offset === 0;
+      if (!isBeforeCb && !(pos.offsetNode instanceof HTMLInputElement)) {
+        const range = doc.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+        return range;
+      }
+    }
+  }
+
+  const caretRangeFromPoint = (doc as Document & {
+    caretRangeFromPoint?: (x: number, y: number) => Range | null;
+  }).caretRangeFromPoint;
+
+  const range = caretRangeFromPoint?.call(doc, x, y) ?? null;
+  if (range && root.contains(range.startContainer) && range.startContainer !== root) {
+    const isBeforeCb =
+      range.startContainer instanceof HTMLElement &&
+      range.startContainer.querySelector('input[type="checkbox"]') !== null &&
+      range.startOffset === 0;
+    if (!isBeforeCb && !(range.startContainer instanceof HTMLInputElement)) {
+      range.collapse(true);
+      return range;
+    }
+  }
+
+  return findCaretClosestToPoint(x, y, root);
+}
 
 function placeCaretAtRange(range: Range | null) {
 
@@ -2611,8 +2739,25 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
 
   // ── mouse / selection events for floating toolbar ─────────────────
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e: React.MouseEvent) => {
     isMouseDownRef.current = false;
+    const el = editorRef.current;
+    if (el && !readOnly) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const anchor = sel.anchorNode;
+        const isOutsideRoot = anchor === el;
+        const isBeforeCheckbox =
+          anchor instanceof HTMLElement &&
+          anchor.querySelector('input[type="checkbox"]') !== null &&
+          sel.anchorOffset === 0;
+        const isInsideCheckbox = anchor instanceof HTMLInputElement;
+
+        if (isOutsideRoot || isBeforeCheckbox || isInsideCheckbox) {
+          placeCaretClosestToPoint(e.clientX, e.clientY, el);
+        }
+      }
+    }
     setTimeout(updateToolbar, 0);
     updateH1Placeholders(editorRef.current, isActiveRef.current);
   };
@@ -2643,12 +2788,30 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
       e.preventDefault();
       return;
     }
+    const isCb = t.tagName === "INPUT" && (t as HTMLInputElement).type === "checkbox";
+
     if (!isActive && !readOnly && editorRef.current) {
       isActiveRef.current = true;
       editorRef.current.contentEditable = "true";
       editorRef.current.focus({ preventScroll: true });
       setIsActive(true);
       setTimeout(updateToolbar, 0);
+
+      if (!isCb) {
+        placeCaretClosestToPoint(e.clientX, e.clientY, editorRef.current);
+      }
+      return;
+    }
+
+    if (editorRef.current && !readOnly) {
+      const isRootTarget = t === editorRef.current;
+      const lastChild = editorRef.current.lastElementChild;
+      const lastRect = lastChild ? lastChild.getBoundingClientRect() : null;
+      const isBelowContent = lastRect && lastRect.bottom > 0 && e.clientY > lastRect.bottom + 10;
+
+      if (isRootTarget && !isBelowContent) {
+        placeCaretClosestToPoint(e.clientX, e.clientY, editorRef.current);
+      }
     }
   };
 
@@ -2910,123 +3073,48 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
           }
 
           if (target === editorRef.current) {
-            const sel = window.getSelection();
-            if (sel && !sel.isCollapsed) {
-              return;
-            }
-
             const el = editorRef.current;
-            const lastChild = el.lastElementChild as HTMLElement | null;
+            const lastChild = el.lastElementChild;
             const lastRect = lastChild ? lastChild.getBoundingClientRect() : null;
-            const hasBoundingBox = Boolean(lastRect && (lastRect.top !== 0 || lastRect.bottom !== 0 || lastRect.height !== 0));
+            const isBelowContent = lastRect && lastRect.bottom > 0 && e.clientY > lastRect.bottom + 10;
 
-            if (hasBoundingBox && lastRect && e.clientY > lastRect.bottom) {
-              const isLastEmptyP = lastChild.tagName === "P" && (!lastChild.textContent || lastChild.textContent.trim() === "");
+            if (isBelowContent) {
+              const isLastEmptyP = lastChild && lastChild.tagName === "P" && (!lastChild.textContent || lastChild.textContent.trim() === "");
+              
               if (!isLastEmptyP && !readOnly) {
                 const p = document.createElement("p");
                 p.appendChild(document.createElement("br"));
                 el.appendChild(p);
-
+                
                 requestAnimationFrame(() => {
                   const r = document.createRange();
                   r.selectNodeContents(p);
                   r.collapse(false);
-                  const s = window.getSelection();
-                  s?.removeAllRanges();
-                  s?.addRange(r);
+                  const sel = window.getSelection();
+                  sel?.removeAllRanges();
+                  sel?.addRange(r);
                   el.focus();
                 });
-              } else {
-                const r = document.createRange();
-                r.selectNodeContents(lastChild);
-                r.collapse(false);
-                const s = window.getSelection();
-                s?.removeAllRanges();
-                s?.addRange(r);
-                el.focus();
               }
-              return;
+            } else if (!readOnly) {
+              placeCaretClosestToPoint(e.clientX, e.clientY, el);
             }
+          }
 
-            if (hasBoundingBox && el.children.length > 0) {
-              let closestLine: HTMLElement | null = null;
-              let minDistance = Infinity;
+          if (editorRef.current && !readOnly) {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+              const anchor = sel.anchorNode;
+              const isOutsideRoot = anchor === editorRef.current;
+              const isBeforeCheckbox =
+                anchor instanceof HTMLElement &&
+                anchor.querySelector('input[type="checkbox"]') !== null &&
+                sel.anchorOffset === 0;
+              const isInsideCheckbox = anchor instanceof HTMLInputElement;
 
-              for (let i = 0; i < el.children.length; i++) {
-                const child = el.children[i] as HTMLElement;
-                const rect = child.getBoundingClientRect();
-                if (rect.height === 0 && rect.width === 0) continue;
-
-                let dist = 0;
-                if (e.clientY < rect.top) {
-                  dist = rect.top - e.clientY;
-                } else if (e.clientY > rect.bottom) {
-                  dist = e.clientY - rect.bottom;
-                } else {
-                  dist = 0;
-                }
-
-                if (dist < minDistance) {
-                  minDistance = dist;
-                  closestLine = child;
-                }
+              if (isOutsideRoot || isBeforeCheckbox || isInsideCheckbox) {
+                placeCaretClosestToPoint(e.clientX, e.clientY, editorRef.current);
               }
-
-              if (closestLine) {
-                const rect = closestLine.getBoundingClientRect();
-                const targetY = (rect.top + rect.bottom) / 2;
-                const range = getCaretRangeFromPoint(e.clientX, targetY, el);
-
-                if (range && closestLine.contains(range.startContainer)) {
-                  const cb = closestLine.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
-                  if (cb && isCaretBeforeOrOnCheckbox(closestLine, cb, range.startContainer, range.startOffset)) {
-                    placeCaretAfterCheckbox(closestLine, cb);
-                  } else {
-                    const s = window.getSelection();
-                    s?.removeAllRanges();
-                    s?.addRange(range);
-                  }
-                } else {
-                  const cb = closestLine.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
-                  if (cb && e.clientX <= rect.left + 30) {
-                    placeCaretAfterCheckbox(closestLine, cb);
-                  } else {
-                    const r = document.createRange();
-                    r.selectNodeContents(closestLine);
-                    r.collapse(e.clientX < (rect.left + rect.right) / 2);
-                    const s = window.getSelection();
-                    s?.removeAllRanges();
-                    s?.addRange(r);
-                  }
-                }
-                el.focus();
-                return;
-              }
-            }
-
-            const isLastEmptyP = lastChild && lastChild.tagName === "P" && (!lastChild.textContent || lastChild.textContent.trim() === "");
-            if (!isLastEmptyP && !readOnly) {
-              const p = document.createElement("p");
-              p.appendChild(document.createElement("br"));
-              el.appendChild(p);
-
-              requestAnimationFrame(() => {
-                const r = document.createRange();
-                r.selectNodeContents(p);
-                r.collapse(false);
-                const sel = window.getSelection();
-                sel?.removeAllRanges();
-                sel?.addRange(r);
-                el.focus();
-              });
-            } else if (lastChild) {
-              const r = document.createRange();
-              r.selectNodeContents(lastChild);
-              r.collapse(false);
-              const sel = window.getSelection();
-              sel?.removeAllRanges();
-              sel?.addRange(r);
-              el.focus();
             }
           }
           

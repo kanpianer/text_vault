@@ -313,9 +313,12 @@ hr {
   color: #a1a1aa;
   text-decoration: line-through;
 }
-.markdown-body p:has(input[type="checkbox"]:checked),
-.markdown-body div:has(input[type="checkbox"]:checked),
-.markdown-body li:has(input[type="checkbox"]:checked) {
+.markdown-body p:has(> input[type="checkbox"]:checked),
+.markdown-body div:has(> input[type="checkbox"]:checked),
+.markdown-body li:has(> input[type="checkbox"]:checked),
+.markdown-body p.task-done:has(> input[type="checkbox"]),
+.markdown-body div.task-done:has(> input[type="checkbox"]),
+.markdown-body li.task-done:has(> input[type="checkbox"]) {
   text-decoration: line-through;
   color: #a1a1aa;
 }
@@ -448,24 +451,36 @@ hr {
   text-decoration-line: line-through;
   color: #71717a;
 }
-.editor-body p:has(input[type="checkbox"]:checked),
-.editor-body div:has(input[type="checkbox"]:checked),
-.editor-body li:has(input[type="checkbox"]:checked),
-.editor-body .task-done,
-.markdown-body li:has(input[type="checkbox"]:checked),
-.markdown-body .task-done {
+.editor-body p:has(> input[type="checkbox"]:checked),
+.editor-body div:has(> input[type="checkbox"]:checked),
+.editor-body li:has(> input[type="checkbox"]:checked),
+.editor-body p.task-done:has(> input[type="checkbox"]),
+.editor-body div.task-done:has(> input[type="checkbox"]),
+.editor-body li.task-done:has(> input[type="checkbox"]),
+.markdown-body li:has(> input[type="checkbox"]:checked),
+.markdown-body p:has(> input[type="checkbox"]:checked),
+.markdown-body div:has(> input[type="checkbox"]:checked),
+.markdown-body li.task-done:has(> input[type="checkbox"]),
+.markdown-body p.task-done:has(> input[type="checkbox"]),
+.markdown-body div.task-done:has(> input[type="checkbox"]) {
   text-decoration: line-through;
   color: #71717a !important;
   opacity: 0.55;
   transition: opacity 0.2s, color 0.2s;
 }
 
-.editor-body p:has(input[type="checkbox"]:checked) input,
-.editor-body div:has(input[type="checkbox"]:checked) input,
-.editor-body li:has(input[type="checkbox"]:checked) input,
-.editor-body .task-done input,
-.markdown-body li:has(input[type="checkbox"]:checked) input,
-.markdown-body .task-done input {
+.editor-body p:has(> input[type="checkbox"]:checked) input,
+.editor-body div:has(> input[type="checkbox"]:checked) input,
+.editor-body li:has(> input[type="checkbox"]:checked) input,
+.editor-body p.task-done input,
+.editor-body div.task-done input,
+.editor-body li.task-done input,
+.markdown-body li:has(> input[type="checkbox"]:checked) input,
+.markdown-body p:has(> input[type="checkbox"]:checked) input,
+.markdown-body div:has(> input[type="checkbox"]:checked) input,
+.markdown-body li.task-done input,
+.markdown-body p.task-done input,
+.markdown-body div.task-done input {
   text-decoration: none;
   opacity: 1;
 }

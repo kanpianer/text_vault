@@ -101,8 +101,24 @@ export function normalizeEditorNodes(root: HTMLElement | null) {
     }
   });
   root.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-    const parent = cb.parentElement;
-    if (parent) {
+    let parent = cb.parentElement;
+    if (parent === root) {
+      const p = document.createElement("p");
+      root.insertBefore(p, cb);
+      p.appendChild(cb);
+      let next = p.nextSibling;
+      while (next && !["P", "DIV", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "PRE", "LI", "UL", "OL"].includes(next.nodeName)) {
+        const toMove = next;
+        next = next.nextSibling;
+        p.appendChild(toMove);
+        if (toMove.nodeName === "BR") {
+          toMove.remove();
+          break;
+        }
+      }
+      parent = p;
+    }
+    if (parent && parent !== root) {
       if ((cb as HTMLInputElement).checked || cb.hasAttribute("checked")) {
         parent.classList.add("task-done");
       } else {
@@ -110,6 +126,9 @@ export function normalizeEditorNodes(root: HTMLElement | null) {
       }
     }
   });
+  if (root.classList.contains("task-done")) {
+    root.classList.remove("task-done");
+  }
   updateH1Placeholders(root);
 }
 
@@ -216,6 +235,7 @@ function insertTaskBlock(el: HTMLElement) {
   const cb = block.querySelector('input[type="checkbox"]');
   if (cb) {
     cb.remove();
+    block.classList.remove("task-done");
     if (block.firstChild && block.firstChild.nodeType === Node.TEXT_NODE) {
       const txt = block.firstChild.textContent || "";
       if (txt.startsWith("\u200B")) {
@@ -1475,6 +1495,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
         if (raw.trim() === "") {
           e.preventDefault();
           cb.remove();
+          block.classList.remove("task-done");
           if (!block.textContent?.trim()) block.innerHTML = "<br>";
           const r = document.createRange();
           r.selectNodeContents(block);
@@ -1488,7 +1509,13 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
         e.preventDefault();
         const newBlock = document.createElement(block.tagName.toLowerCase());
         if (block.className) {
-          newBlock.className = block.className;
+          const cleanClass = block.className
+            .split(/\s+/)
+            .filter((c) => c && c !== "task-done")
+            .join(" ");
+          if (cleanClass) {
+            newBlock.className = cleanClass;
+          }
         }
         const newCb = document.createElement("input");
         newCb.type = "checkbox";
@@ -2210,6 +2237,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
             if (textBefore.trim() === "") {
               e.preventDefault();
               cb.remove();
+              block.classList.remove("task-done");
               if (block.firstChild && block.firstChild.nodeType === Node.TEXT_NODE) {
                 const txt = block.firstChild.textContent || "";
                 block.firstChild.textContent = txt.replace(/^[\u200B\u200C\u200D\uFEFF]+/, "");
@@ -2790,13 +2818,34 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
 
           if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
             const cb = target as HTMLInputElement;
-            const parent = cb.parentElement;
-            if (cb.checked) {
-              cb.setAttribute("checked", "true");
-              if (parent) parent.classList.add("task-done");
-            } else {
-              cb.removeAttribute("checked");
-              if (parent) parent.classList.remove("task-done");
+            let parent = cb.parentElement;
+            if (parent === editorRef.current && editorRef.current) {
+              const p = document.createElement("p");
+              editorRef.current.insertBefore(p, cb);
+              p.appendChild(cb);
+              let next = p.nextSibling;
+              while (next && !["P", "DIV", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "PRE", "LI", "UL", "OL"].includes(next.nodeName)) {
+                const toMove = next;
+                next = next.nextSibling;
+                p.appendChild(toMove);
+                if (toMove.nodeName === "BR") {
+                  toMove.remove();
+                  break;
+                }
+              }
+              parent = p;
+            }
+            if (parent && parent !== editorRef.current) {
+              if (cb.checked) {
+                cb.setAttribute("checked", "true");
+                parent.classList.add("task-done");
+              } else {
+                cb.removeAttribute("checked");
+                parent.classList.remove("task-done");
+              }
+            }
+            if (editorRef.current?.classList.contains("task-done")) {
+              editorRef.current.classList.remove("task-done");
             }
             if (!readOnly && editorRef.current) {
               onChange(editorRef.current.innerHTML, editorRef.current);

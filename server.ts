@@ -621,7 +621,7 @@ app.post("/api/share/:id/delete", (req, res) => {
 
 // Start routing and asset rendering for Express + Vite
 async function startServer() {
-  const isDev = process.env.NODE_ENV === "development";
+  const isDev = process.env.NODE_ENV !== "production";
   if (isDev) {
     const vite = await createViteServer({
       server: { middlewareMode: true },

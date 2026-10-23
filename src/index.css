@@ -46,14 +46,26 @@ select {
 }
 
 ::selection {
-  background: rgba(255, 255, 255, 0.2);
+  background: #2563eb;
   color: #ffffff;
 }
 
 input::selection,
-textarea::selection {
-  background: rgba(255, 255, 255, 0.2);
+textarea::selection,
+[contenteditable]::selection,
+.markdown-body ::selection {
+  background: #2563eb;
   color: #ffffff;
+}
+
+/* Disable button and interactive element actions while dragging text */
+body[data-dragging-text="true"] button,
+body[data-dragging-text="true"] [role="button"],
+body[data-dragging-text="true"] .copy-code-float-btn,
+body[data-dragging-text="true"] .table-controls-bar,
+body[data-dragging-text="true"] header span,
+body[data-dragging-text="true"] header div {
+  pointer-events: none !important;
 }
 
 /*
@@ -301,11 +313,6 @@ hr {
   color: #a1a1aa;
   text-decoration: line-through;
 }
-.markdown-body p:has(input[type="checkbox"]),
-.markdown-body div:has(input[type="checkbox"]),
-.markdown-body li:has(input[type="checkbox"]) {
-  font-size: 1.125em;
-}
 .markdown-body p:has(input[type="checkbox"]:checked),
 .markdown-body div:has(input[type="checkbox"]:checked),
 .markdown-body li:has(input[type="checkbox"]:checked) {
@@ -440,11 +447,6 @@ hr {
 .editor-body del {
   text-decoration-line: line-through;
   color: #71717a;
-}
-.editor-body p:has(input[type="checkbox"]),
-.editor-body div:has(input[type="checkbox"]),
-.editor-body li:has(input[type="checkbox"]) {
-  font-size: 1.125em;
 }
 .editor-body p:has(input[type="checkbox"]:checked),
 .editor-body div:has(input[type="checkbox"]:checked),

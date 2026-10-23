@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import React, { createRef } from "react";
 import { render, fireEvent } from "@testing-library/react";
-import { Editor, adjustTaskSelection } from "./Editor";
+import { Editor } from "./Editor";
 
 describe("Task Checkbox Independent Strikethrough", () => {
   it("only marks the clicked task line with task-done, leaving other lines untouched", () => {
@@ -247,11 +247,11 @@ describe("Task Checkbox Independent Strikethrough", () => {
     expect(p.classList.contains("task-done")).toBe(false);
   });
 
-  it("prevents caret from being positioned before task checkbox and moves it after checkbox", () => {
+  it("preserves text selection when user has selected text across elements", () => {
     const editorRef = createRef<HTMLDivElement>();
     const onChange = vi.fn();
 
-    const initialContent = `<p><input type="checkbox" style="margin-right:8px" contenteditable="false">First task</p><p><input type="checkbox" style="margin-right:8px" contenteditable="false">Second task</p>`;
+    const initialContent = `<p>end-to-end encrypted</p><p>This is a zero-k</p>`;
 
     render(
       <Editor
@@ -264,66 +264,39 @@ describe("Task Checkbox Independent Strikethrough", () => {
     );
 
     const editorEl = editorRef.current!;
+
+    // Activate editor first
+    fireEvent.mouseDown(editorEl);
+    fireEvent.click(editorEl);
+
     const paragraphs = editorEl.querySelectorAll("p");
+    const p1 = paragraphs[0];
     const p2 = paragraphs[1];
 
-    // Put selection before checkbox (offset 0 in p2)
+    // Create an uncollapsed selection spanning from p1 to p2
     const sel = window.getSelection()!;
     const range = document.createRange();
-    range.setStart(p2, 0);
-    range.setEnd(p2, 0);
+    range.setStart(p1.firstChild!, 0);
+    range.setEnd(p2.firstChild!, 4);
     sel.removeAllRanges();
     sel.addRange(range);
 
-    adjustTaskSelection(editorEl);
+    expect(sel.isCollapsed).toBe(false);
 
-    // Verify selection is now in the text node after the checkbox
-    const currentRange = sel.getRangeAt(0);
-    const cb2 = p2.querySelector('input[type="checkbox"]')!;
-    expect(currentRange.startContainer).not.toBe(p2);
-    expect(currentRange.startContainer).not.toBe(cb2);
-    expect(currentRange.startContainer.nodeType).toBe(Node.TEXT_NODE);
+    // Fire click on editor container (as happens after mouse drag)
+    fireEvent.click(editorEl, { clientX: 50, clientY: 20 });
+
+    // The selection MUST NOT be destroyed or collapsed
+    expect(sel.isCollapsed).toBe(false);
+    expect(sel.getRangeAt(0).startContainer).toBe(p1.firstChild);
+    expect(sel.getRangeAt(0).endContainer).toBe(p2.firstChild);
   });
 
-  it("adjusts selection when caret is placed on root container between two task lines", () => {
+  it("when clicking between two lines closer to upper line, targets upper line without appending bottom paragraph", () => {
     const editorRef = createRef<HTMLDivElement>();
     const onChange = vi.fn();
 
-    const initialContent = `<p><input type="checkbox" style="margin-right:8px" contenteditable="false">First task</p><p><input type="checkbox" style="margin-right:8px" contenteditable="false">Second task</p>`;
-
-    render(
-      <Editor
-        activeTabId="tab-1"
-        initialContent={initialContent}
-        onChange={onChange}
-        editorRef={editorRef}
-        readOnly={false}
-      />
-    );
-
-    const editorEl = editorRef.current!;
-
-    // Set selection directly on root element at offset 1 (between p1 and p2)
-    const sel = window.getSelection()!;
-    const range = document.createRange();
-    range.setStart(editorEl, 1);
-    range.setEnd(editorEl, 1);
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    adjustTaskSelection(editorEl);
-
-    // Verify selection was moved inside p2 after its checkbox
-    const currentRange = sel.getRangeAt(0);
-    expect(currentRange.startContainer).not.toBe(editorEl);
-    expect(currentRange.startContainer.nodeType).toBe(Node.TEXT_NODE);
-  });
-
-  it("handles ArrowLeft at the start of task text by navigating to previous block instead of before checkbox", () => {
-    const editorRef = createRef<HTMLDivElement>();
-    const onChange = vi.fn();
-
-    const initialContent = `<p><input type="checkbox" style="margin-right:8px" contenteditable="false">First task</p><p><input type="checkbox" style="margin-right:8px" contenteditable="false">Second task</p>`;
+    const initialContent = `<p>end-to-end encrypted</p><p>This is a zero-k</p>`;
 
     render(
       <Editor
@@ -340,45 +313,9 @@ describe("Task Checkbox Independent Strikethrough", () => {
     const p1 = paragraphs[0];
     const p2 = paragraphs[1];
 
-    const textNode2 = p2.childNodes[1] as Text;
-
-    // Caret at start of task 2 text
-    const sel = window.getSelection()!;
-    const range = document.createRange();
-    range.setStart(textNode2, 0);
-    range.setEnd(textNode2, 0);
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    fireEvent.keyDown(editorEl, { key: "ArrowLeft" });
-
-    // Caret should have moved to previous paragraph (p1), NOT before p2's checkbox
-    const newRange = sel.getRangeAt(0);
-    expect(p1.contains(newRange.startContainer)).toBe(true);
-  });
-
-  it("handles clicking between two task lines on editor container without appending bottom paragraph", () => {
-    const editorRef = createRef<HTMLDivElement>();
-    const onChange = vi.fn();
-
-    const initialContent = `<p><input type="checkbox" style="margin-right:8px" contenteditable="false">First task</p><p><input type="checkbox" style="margin-right:8px" contenteditable="false">Second task</p>`;
-
-    render(
-      <Editor
-        activeTabId="tab-1"
-        initialContent={initialContent}
-        onChange={onChange}
-        editorRef={editorRef}
-        readOnly={false}
-      />
-    );
-
-    const editorEl = editorRef.current!;
-    const paragraphs = editorEl.querySelectorAll("p");
-    const p1 = paragraphs[0];
-    const p2 = paragraphs[1];
-
-    // Mock bounding client rects for layout
+    // Mock bounding client rects
+    // p1: top 10 to bottom 30
+    // p2: top 50 to bottom 70
     p1.getBoundingClientRect = () => ({
       top: 10,
       bottom: 30,
@@ -391,26 +328,84 @@ describe("Task Checkbox Independent Strikethrough", () => {
       toJSON: () => {},
     });
     p2.getBoundingClientRect = () => ({
-      top: 40,
-      bottom: 60,
+      top: 50,
+      bottom: 70,
       left: 0,
       right: 200,
       width: 200,
       height: 20,
       x: 0,
-      y: 40,
+      y: 50,
       toJSON: () => {},
     });
 
-    // Simulate clicking in the gap between p1 and p2 (clientY = 35)
-    fireEvent.click(editorEl, { clientX: 20, clientY: 35 });
+    // Click at clientY = 35 (gap is 30..50).
+    // Distance to p1 is 5px, distance to p2 is 15px -> closer to upper line (p1)!
+    fireEvent.click(editorEl, { clientX: 100, clientY: 35 });
 
     // Ensure no new paragraph was appended at bottom (still 2 paragraphs)
     expect(editorEl.querySelectorAll("p").length).toBe(2);
 
-    // Caret should be inside one of the paragraphs after its checkbox
+    // Selection should be in p1
     const sel = window.getSelection()!;
-    const currentRange = sel.getRangeAt(0);
-    expect(currentRange.startContainer.nodeType).toBe(Node.TEXT_NODE);
+    const curRange = sel.getRangeAt(0);
+    expect(p1.contains(curRange.startContainer)).toBe(true);
+  });
+
+  it("when clicking between two lines closer to lower line, targets lower line without appending bottom paragraph", () => {
+    const editorRef = createRef<HTMLDivElement>();
+    const onChange = vi.fn();
+
+    const initialContent = `<p>end-to-end encrypted</p><p>This is a zero-k</p>`;
+
+    render(
+      <Editor
+        activeTabId="tab-1"
+        initialContent={initialContent}
+        onChange={onChange}
+        editorRef={editorRef}
+        readOnly={false}
+      />
+    );
+
+    const editorEl = editorRef.current!;
+    const paragraphs = editorEl.querySelectorAll("p");
+    const p1 = paragraphs[0];
+    const p2 = paragraphs[1];
+
+    p1.getBoundingClientRect = () => ({
+      top: 10,
+      bottom: 30,
+      left: 0,
+      right: 200,
+      width: 200,
+      height: 20,
+      x: 0,
+      y: 10,
+      toJSON: () => {},
+    });
+    p2.getBoundingClientRect = () => ({
+      top: 50,
+      bottom: 70,
+      left: 0,
+      right: 200,
+      width: 200,
+      height: 20,
+      x: 0,
+      y: 50,
+      toJSON: () => {},
+    });
+
+    // Click at clientY = 45 (gap is 30..50).
+    // Distance to p1 is 15px, distance to p2 is 5px -> closer to lower line (p2)!
+    fireEvent.click(editorEl, { clientX: 100, clientY: 45 });
+
+    // Still 2 paragraphs
+    expect(editorEl.querySelectorAll("p").length).toBe(2);
+
+    // Selection should be in p2
+    const sel = window.getSelection()!;
+    const curRange = sel.getRangeAt(0);
+    expect(p2.contains(curRange.startContainer)).toBe(true);
   });
 });

@@ -116,12 +116,18 @@ export function normalizeEditorNodes(root: HTMLElement | null) {
 function getCurrentBlock(root: HTMLElement, node: Node): HTMLElement | null {
   let el: HTMLElement | null =
     node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement);
-    
+
   if (el === root) {
     const sel = window.getSelection();
     if (sel && sel.anchorNode === root) {
-      let child = root.childNodes[sel.anchorOffset];
-      if (!child && root.lastChild) child = root.lastChild;
+      let child: Node | null = null;
+      if (sel.anchorOffset < root.childNodes.length) {
+        child = root.childNodes[sel.anchorOffset];
+      } else if (sel.anchorOffset > 0) {
+        child = root.childNodes[sel.anchorOffset - 1];
+      } else if (root.firstChild) {
+        child = root.firstChild;
+      }
       if (child) {
         el = child.nodeType === Node.TEXT_NODE ? child.parentElement : (child as HTMLElement);
       }
@@ -136,7 +142,7 @@ function getCurrentBlock(root: HTMLElement, node: Node): HTMLElement | null {
 
 export function isBlockEmpty(block: HTMLElement | null): boolean {
   if (!block) return false;
-  const text = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF\s]/g, "");
+  const text = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF\s\r\n\u00A0]/g, "");
   const hasMedia = block.querySelector("img, svg, video, iframe, table, input") !== null;
   return text === "" && !hasMedia;
 }
@@ -216,6 +222,15 @@ function insertTaskBlock(el: HTMLElement) {
         block.firstChild.textContent = txt.substring(1);
       }
     }
+    const remainingText = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF\s\r\n\u00A0]/g, "");
+    if (remainingText === "" && !block.querySelector("img, svg, video, iframe, table")) {
+      block.innerHTML = "<br>";
+    }
+    const r = document.createRange();
+    r.selectNodeContents(block);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
     return;
   }
 
@@ -508,6 +523,8 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
 
   const savedRangeRef = useRef<Range | null>(null);
   const isActiveRef = useRef(isActive);
+  const isMouseDownRef = useRef(false);
+  const isDraggingTextRef = useRef(false);
 
   // Table controls & Code copy state
   const [activeTableInfo, setActiveTableInfo] = useState<{ table: HTMLTableElement; cell: HTMLTableCellElement; top: number; left: number } | null>(null);
@@ -723,7 +740,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   }, [editorRef]);
 
   const handleTocItemClick = useCallback((index: number) => {
-    const isMobile = window.matchMedia("(max-width: 767px)").matches;
+    const isMobile = typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 767px)").matches : false;
     if (isMobile) {
       setPreviewTocIndex((current) => (current === index ? current : index));
       return;
@@ -784,7 +801,13 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
     const selecting = !sel.isCollapsed;
     setHasSelection(selecting);
 
-    const isMobile = window.matchMedia("(max-width: 767px)").matches;
+    const isMobile = typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 767px)").matches : false;
+
+    // Desktop: in selected text dragging or mouse selection dragging process, do not show toolbar
+    if (!isMobile && (isMouseDownRef.current || isDraggingTextRef.current || document.body.hasAttribute("data-dragging-text"))) {
+      hideToolbar();
+      return;
+    }
 
     if (selecting) {
       // text selected → show below last line of selection
@@ -808,16 +831,27 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
       let isFallback = false;
 
       if (!block && el.contains(node)) {
-        const text = (el.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
-        if (text === "") {
-          block = el;
-          isFallback = true;
+        if (node === el && el.childNodes.length > 0) {
+          const idx = Math.min(range.startOffset, el.childNodes.length - 1);
+          const child = el.childNodes[idx];
+          if (child) {
+            block = child.nodeType === Node.TEXT_NODE ? child.parentElement : (child as HTMLElement);
+          }
+        }
+        if (!block) {
+          const text = (el.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF\s\r\n\u00A0]/g, "").trim();
+          if (text === "") {
+            block = el;
+            isFallback = true;
+          }
         }
       }
 
       if (block) {
-        const text = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF]/g, "").trim();
-        if (text === "") {
+        const hasCheckbox = block.querySelector('input[type="checkbox"]') !== null;
+        const hasMedia = block.querySelector("img, svg, video, iframe, table") !== null;
+        const text = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF\s\r\n\u00A0]/g, "");
+        if (text === "" && !hasCheckbox && !hasMedia) {
           if (isMobile) {
             let topStr = "auto";
             let bottomStr = "16px";
@@ -828,12 +862,21 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
             setToolbarStyle({ position: "fixed", top: topStr, bottom: bottomStr, left: "50%", transform: "translateX(-50%)", opacity: 1, pointerEvents: "auto", zIndex: 50 });
           } else {
             let blockRect = block.getBoundingClientRect();
-            if (isFallback) {
-               blockRect = {
-                 ...blockRect,
-                 bottom: blockRect.top + 28,
-                 left: blockRect.left,
-               } as DOMRect;
+            if (isFallback || blockRect.height === 0 || blockRect.width === 0) {
+              const rangeRect = typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() : null;
+              if (rangeRect && rangeRect.height > 0) {
+                blockRect = rangeRect;
+              } else {
+                const contRect = container.getBoundingClientRect();
+                blockRect = {
+                  top: block.offsetTop || contRect.top,
+                  bottom: (block.offsetTop || contRect.top) + 28,
+                  left: contRect.left,
+                  right: contRect.right,
+                  width: contRect.width,
+                  height: 28,
+                } as DOMRect;
+              }
             }
             const pos = calculateEmptyLinePositionLeft(blockRect, container, tw);
             toolbarPosRef.current = { top: pos.top, left: pos.left };
@@ -865,7 +908,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
 
   useEffect(() => {
     const handleVV = () => {
-      if (window.matchMedia("(max-width: 767px)").matches) {
+      if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches) {
         updateToolbar();
       }
     };
@@ -1119,6 +1162,10 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   // ── hovered pre block copy code handler ───────────────────────────
 
   const handleEditorMouseMove = (e: React.MouseEvent) => {
+    if (e.buttons !== 0 || document.body.hasAttribute("data-dragging-text")) {
+      setHoveredPre(null);
+      return;
+    }
     const target = e.target as HTMLElement;
     if (target.closest(".copy-code-float-btn")) {
       return;
@@ -1127,6 +1174,10 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
     const container = editorRef.current?.parentElement;
     if (pre && container) {
       const preRect = pre.getBoundingClientRect();
+      if (preRect.bottom < 48) {
+        setHoveredPre(null);
+        return;
+      }
       const contRect = container.getBoundingClientRect();
       const top = preRect.top - contRect.top + 8;
       const right = contRect.right - preRect.right + 12;
@@ -1178,6 +1229,10 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
       if (!el) return;
       updateH1Placeholders(el, isActiveRef.current);
       if (readOnly || !isActive) return;
+      const isMobile = typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 767px)").matches : false;
+      if (!isMobile && isMouseDownRef.current) {
+        return;
+      }
       const sel = window.getSelection();
       if (sel && sel.anchorNode && el.contains(sel.anchorNode)) {
         updateToolbar();
@@ -1186,6 +1241,40 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
     document.addEventListener("selectionchange", onSelectionChange);
     return () => document.removeEventListener("selectionchange", onSelectionChange);
   }, [isActive, readOnly, updateToolbar]);
+
+  // Global window listeners for desktop text drag and mouseup to toggle toolbar
+  useEffect(() => {
+    const onWindowDragStart = () => {
+      isDraggingTextRef.current = true;
+      hideToolbar();
+    };
+    const onWindowDragEnd = () => {
+      isDraggingTextRef.current = false;
+      isMouseDownRef.current = false;
+      setTimeout(() => updateToolbar(), 50);
+    };
+    const onWindowDrop = () => {
+      isDraggingTextRef.current = false;
+      isMouseDownRef.current = false;
+      setTimeout(() => updateToolbar(), 50);
+    };
+    const onWindowMouseUp = () => {
+      if (isMouseDownRef.current) {
+        isMouseDownRef.current = false;
+        setTimeout(updateToolbar, 0);
+      }
+    };
+    window.addEventListener("dragstart", onWindowDragStart, true);
+    window.addEventListener("dragend", onWindowDragEnd, true);
+    window.addEventListener("drop", onWindowDrop, true);
+    window.addEventListener("mouseup", onWindowMouseUp, true);
+    return () => {
+      window.removeEventListener("dragstart", onWindowDragStart, true);
+      window.removeEventListener("dragend", onWindowDragEnd, true);
+      window.removeEventListener("drop", onWindowDrop, true);
+      window.removeEventListener("mouseup", onWindowMouseUp, true);
+    };
+  }, [hideToolbar, updateToolbar]);
 
   // ── beforeinput: handle enter in pre / quote / task ───────────────
 
@@ -1999,6 +2088,152 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
       }
     }
 
+    // Backspace / Delete: single press deletes empty quote block or empty code block
+    if (e.key === "Backspace" || e.key === "Delete") {
+      const sel = window.getSelection();
+      if (sel && sel.isCollapsed && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        let node: Node | null = range.startContainer;
+        let quoteOrPre: HTMLElement | null = null;
+        let cur: Node | null = node;
+        while (cur && cur !== el) {
+          if (cur.nodeName === "BLOCKQUOTE" || cur.nodeName === "PRE") {
+            quoteOrPre = cur as HTMLElement;
+            break;
+          }
+          cur = cur.parentNode;
+        }
+
+        if (quoteOrPre) {
+          const rawText = (quoteOrPre.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF\s\r\n\u00A0]/g, "");
+          const hasMedia = quoteOrPre.querySelector("img, svg, video, iframe, table, input") !== null;
+          if (rawText === "" && !hasMedia) {
+            e.preventDefault();
+            const newP = document.createElement("p");
+            newP.innerHTML = "<br>";
+            quoteOrPre.replaceWith(newP);
+
+            const r = document.createRange();
+            r.selectNodeContents(newP);
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+
+            normalizeEditorNodes(el);
+            onChange(el.innerHTML, el);
+            setTimeout(updateToolbar, 0);
+            return;
+          }
+        }
+      }
+    }
+
+    // Backspace: delete empty list item (only bullet left) and unwrap to normal empty line
+    if (e.key === "Backspace") {
+      const sel = window.getSelection();
+      if (sel && sel.isCollapsed && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        let node: Node | null = range.startContainer;
+        let li: HTMLElement | null = null;
+        let cur: Node | null = node;
+        while (cur && cur !== el) {
+          if (cur.nodeName === "LI") {
+            li = cur as HTMLElement;
+            break;
+          }
+          cur = cur.parentNode;
+        }
+
+        if (li) {
+          const liText = (li.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF\s\r\n\u00A0]/g, "");
+          const hasMedia = li.querySelector("img, svg, video, iframe, table, input") !== null;
+          if (liText === "" && !hasMedia) {
+            e.preventDefault();
+            const listParent = li.parentElement;
+            const newP = document.createElement("p");
+            newP.innerHTML = "<br>";
+
+            if (listParent && listParent.parentElement) {
+              if (listParent.children.length <= 1) {
+                listParent.parentElement.insertBefore(newP, listParent);
+                listParent.remove();
+              } else if (li === listParent.firstElementChild) {
+                listParent.parentElement.insertBefore(newP, listParent);
+                li.remove();
+              } else if (li === listParent.lastElementChild) {
+                listParent.parentElement.insertBefore(newP, listParent.nextSibling);
+                li.remove();
+              } else {
+                const nextList = document.createElement(listParent.tagName.toLowerCase());
+                while (li.nextSibling) {
+                  nextList.appendChild(li.nextSibling);
+                }
+                listParent.parentElement.insertBefore(newP, listParent.nextSibling);
+                if (nextList.hasChildNodes()) {
+                  listParent.parentElement.insertBefore(nextList, newP.nextSibling);
+                }
+                li.remove();
+              }
+            } else {
+              li.replaceWith(newP);
+            }
+
+            const r = document.createRange();
+            r.selectNodeContents(newP);
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+
+            normalizeEditorNodes(el);
+            onChange(el.innerHTML, el);
+            setTimeout(updateToolbar, 0);
+            return;
+          }
+        }
+      }
+    }
+
+    // Backspace: delete task checkbox when caret is before any text
+    if (e.key === "Backspace") {
+      const sel = window.getSelection();
+      if (sel && sel.isCollapsed && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        const node = range.startContainer;
+        const block = getCurrentBlock(el, node);
+        if (block) {
+          const cb = block.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+          if (cb) {
+            const testRange = document.createRange();
+            testRange.setStart(block, 0);
+            testRange.setEnd(range.startContainer, range.startOffset);
+            const textBefore = testRange.toString().replace(/[\u200B\u200C\u200D\uFEFF]/g, "");
+            if (textBefore.trim() === "") {
+              e.preventDefault();
+              cb.remove();
+              if (block.firstChild && block.firstChild.nodeType === Node.TEXT_NODE) {
+                const txt = block.firstChild.textContent || "";
+                block.firstChild.textContent = txt.replace(/^[\u200B\u200C\u200D\uFEFF]+/, "");
+              }
+              const remainingText = (block.textContent || "").replace(/[\u200B\u200C\u200D\uFEFF\s\r\n\u00A0]/g, "");
+              if (remainingText === "" && !block.querySelector("img, svg, video, iframe, table")) {
+                block.innerHTML = "<br>";
+              }
+              const r = document.createRange();
+              r.selectNodeContents(block);
+              r.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(r);
+
+              normalizeEditorNodes(el);
+              onChange(el.innerHTML, el);
+              setTimeout(updateToolbar, 0);
+              return;
+            }
+          }
+        }
+      }
+    }
+
     // Backspace / Delete: remove adjacent image
 
     if (e.key === "Backspace" || e.key === "Delete") {
@@ -2292,6 +2527,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   // ── mouse / selection events for floating toolbar ─────────────────
 
   const handleMouseUp = () => {
+    isMouseDownRef.current = false;
     setTimeout(updateToolbar, 0);
     updateH1Placeholders(editorRef.current, isActiveRef.current);
   };
@@ -2299,7 +2535,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   const handleKeyUp = () => {
     updateToolbar();
     updateH1Placeholders(editorRef.current, isActiveRef.current);
-    if (window.matchMedia("(max-width: 767px)").matches) {
+    if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches) {
       const sel = window.getSelection();
       if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
         const range = sel.getRangeAt(0);
@@ -2316,6 +2552,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   // ── click: activate editor ────────────────────────────────────────
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    isMouseDownRef.current = true;
     const t = e.target as HTMLElement;
     if (t.tagName === "IMG") {
       e.preventDefault();
@@ -2328,6 +2565,14 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
       setIsActive(true);
       setTimeout(updateToolbar, 0);
     }
+  };
+
+  const handleFocus = () => {
+    if (!readOnly && !isActiveRef.current && editorRef.current) {
+      isActiveRef.current = true;
+      setIsActive(true);
+    }
+    setTimeout(updateToolbar, 10);
   };
 
   // ── touch: detect tap to activate ─────────────────────────────────
@@ -2412,7 +2657,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   // ── mobile scroll ─────────────────────────────────────────────────
 
   const ensureCaretVisibleMobile = (target?: HTMLElement) => {
-    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    if (typeof window.matchMedia === "function" && !window.matchMedia("(max-width: 767px)").matches) return;
     setTimeout(() => {
       const sel = window.getSelection();
       let rect: DOMRect | null = null;
@@ -2510,6 +2755,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
         autoCapitalize="none"
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
+        onFocus={handleFocus}
         onKeyUp={handleKeyUp}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
@@ -2579,7 +2825,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
             }
           }
           
-          if (window.matchMedia("(max-width: 767px)").matches) {
+          if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches) {
             ensureCaretVisibleMobile(target);
           }
         }}
@@ -2610,7 +2856,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
               e.preventDefault();
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            onMouseEnter={() => { if (window.matchMedia('(hover: hover)').matches) setTocLineHovered(true) }}
+            onMouseEnter={() => { if (typeof window.matchMedia === 'function' && window.matchMedia('(hover: hover)').matches) setTocLineHovered(true) }}
             onMouseLeave={() => setTocLineHovered(false)}
             className="absolute flex items-center justify-center text-white cursor-pointer rounded-full group transition-opacity duration-300"
             style={{
@@ -2973,7 +3219,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={handleCopyHoveredCode}
-          className="copy-code-float-btn absolute z-30 px-2 py-0.5 text-[11px] font-sans font-medium text-zinc-400 hover:text-white bg-zinc-800/90 hover:bg-zinc-700 border border-zinc-700/60 rounded shadow-md transition-all select-none cursor-pointer flex items-center gap-1"
+          className="copy-code-float-btn absolute z-10 px-2 py-0.5 text-[11px] font-sans font-medium text-zinc-400 hover:text-white bg-zinc-800/90 hover:bg-zinc-700 border border-zinc-700/60 rounded shadow-md transition-all select-none cursor-pointer flex items-center gap-1"
           style={{
             top: hoveredPre.top,
             right: hoveredPre.right,
@@ -2991,7 +3237,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
       {/* Dynamic Table Manipulation Controls */}
       {activeTableInfo && (
         <div
-          className="table-controls-bar absolute z-30 flex items-center gap-1 bg-[#121316] border border-zinc-700/80 rounded px-2 py-1 shadow-xl select-none text-[11px] font-sans text-zinc-400"
+          className="table-controls-bar absolute z-10 flex items-center gap-1 bg-[#121316] border border-zinc-700/80 rounded px-2 py-1 shadow-xl select-none text-[11px] font-sans text-zinc-400"
           style={{
             top: activeTableInfo.top,
             left: activeTableInfo.left,

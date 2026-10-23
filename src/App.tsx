@@ -161,6 +161,8 @@ export default function App() {
 
   // Sandwich settings menu
   const [showMenu, setShowMenu] = useState<boolean>(false);
+  const menuHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
 
   // Change Password Modal state
   const [showChangePasswordModal, setShowChangePasswordModal] = useState<boolean>(false);
@@ -1506,7 +1508,8 @@ export default function App() {
   }, [editorAreaWidth, isMobile]);
 
   // Hover handlers for Text_Vault/ trigger and popup
-  const handleDocTriggerMouseEnter = () => {
+  const handleDocTriggerMouseEnter = (e?: React.MouseEvent) => {
+    if (e && (e.buttons !== 0 || document.body.hasAttribute("data-dragging-text"))) return;
     if (docHoverTimeoutRef.current) {
       clearTimeout(docHoverTimeoutRef.current);
       docHoverTimeoutRef.current = null;
@@ -1727,7 +1730,8 @@ export default function App() {
   }, [reorderingTabId, tabs.length]);
 
   // Timer hover handlers
-  const handleTimerMouseEnter = () => {
+  const handleTimerMouseEnter = (e?: React.MouseEvent) => {
+    if (e && (e.buttons !== 0 || document.body.hasAttribute("data-dragging-text"))) return;
     if (timerHoverTimeoutRef.current) {
       clearTimeout(timerHoverTimeoutRef.current);
       timerHoverTimeoutRef.current = null;
@@ -1778,6 +1782,144 @@ export default function App() {
       window.removeEventListener("mousedown", handleOutsideClick, true);
     };
   }, [showTimerDropdown]);
+
+  // Menu hover handlers
+  const handleMenuMouseEnter = (e?: React.MouseEvent) => {
+    if (e && (e.buttons !== 0 || document.body.hasAttribute("data-dragging-text"))) return;
+    if (menuHoverTimeoutRef.current) {
+      clearTimeout(menuHoverTimeoutRef.current);
+      menuHoverTimeoutRef.current = null;
+    }
+    setShowTimerDropdown(false);
+    setShowMenu(true);
+  };
+
+  const handleMenuMouseLeave = () => {
+    menuHoverTimeoutRef.current = setTimeout(() => {
+      setShowMenu(false);
+    }, 200);
+  };
+
+  const handleMenuPopupMouseEnter = () => {
+    if (menuHoverTimeoutRef.current) {
+      clearTimeout(menuHoverTimeoutRef.current);
+      menuHoverTimeoutRef.current = null;
+    }
+  };
+
+  const handleMenuPopupMouseLeave = () => {
+    menuHoverTimeoutRef.current = setTimeout(() => {
+      setShowMenu(false);
+    }, 200);
+  };
+
+  // Close menu dropdown when clicking outside
+  useEffect(() => {
+    if (!showMenu) return;
+    const handleOutsideClick = (e: Event) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (
+        menuContainerRef.current &&
+        !menuContainerRef.current.contains(target)
+      ) {
+        setShowMenu(false);
+      }
+    };
+    window.addEventListener("pointerdown", handleOutsideClick, true);
+    window.addEventListener("touchstart", handleOutsideClick, true);
+    window.addEventListener("mousedown", handleOutsideClick, true);
+    return () => {
+      window.removeEventListener("pointerdown", handleOutsideClick, true);
+      window.removeEventListener("touchstart", handleOutsideClick, true);
+      window.removeEventListener("mousedown", handleOutsideClick, true);
+    };
+  }, [showMenu]);
+
+  // Global text drag detection to prevent buttons from triggering during drag
+  useEffect(() => {
+    let justFinishedTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const handleDragStart = () => {
+      document.body.setAttribute("data-dragging-text", "true");
+      setShowMenu(false);
+      setShowTimerDropdown(false);
+      setShowDocPopup(false);
+    };
+
+    const handleDragEnd = () => {
+      document.body.removeAttribute("data-dragging-text");
+      document.body.setAttribute("data-drag-finished", "true");
+      if (justFinishedTimer) clearTimeout(justFinishedTimer);
+      justFinishedTimer = setTimeout(() => {
+        document.body.removeAttribute("data-drag-finished");
+      }, 200);
+    };
+
+    const handleDrop = (e: DragEvent) => {
+      document.body.removeAttribute("data-dragging-text");
+      document.body.setAttribute("data-drag-finished", "true");
+      if (justFinishedTimer) clearTimeout(justFinishedTimer);
+      justFinishedTimer = setTimeout(() => {
+        document.body.removeAttribute("data-drag-finished");
+      }, 200);
+
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest("button, [role='button'], a, .cursor-pointer, .copy-code-float-btn, header")) {
+        const isInsideEditorContent = target.closest("[contenteditable='true']");
+        if (!isInsideEditorContent) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }
+    };
+
+    const handleGlobalClick = (e: MouseEvent) => {
+      if (
+        document.body.hasAttribute("data-dragging-text") ||
+        document.body.hasAttribute("data-drag-finished")
+      ) {
+        const target = e.target as HTMLElement | null;
+        if (target && target.closest("button, [role='button'], a, .cursor-pointer, .copy-code-float-btn, header span")) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+        }
+      }
+    };
+
+    const handleTouchMove = () => {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed && sel.toString().length > 0) {
+        document.body.setAttribute("data-dragging-text", "true");
+      }
+    };
+
+    const handleTouchEnd = () => {
+      if (document.body.hasAttribute("data-dragging-text")) {
+        handleDragEnd();
+      }
+    };
+
+    window.addEventListener("dragstart", handleDragStart, true);
+    window.addEventListener("dragend", handleDragEnd, true);
+    window.addEventListener("drop", handleDrop, true);
+    window.addEventListener("click", handleGlobalClick, true);
+    window.addEventListener("touchmove", handleTouchMove, { capture: true, passive: true });
+    window.addEventListener("touchend", handleTouchEnd, true);
+
+    return () => {
+      window.removeEventListener("dragstart", handleDragStart, true);
+      window.removeEventListener("dragend", handleDragEnd, true);
+      window.removeEventListener("drop", handleDrop, true);
+      window.removeEventListener("click", handleGlobalClick, true);
+      window.removeEventListener("touchmove", handleTouchMove, true);
+      window.removeEventListener("touchend", handleTouchEnd, true);
+      if (justFinishedTimer) clearTimeout(justFinishedTimer);
+      document.body.removeAttribute("data-dragging-text");
+      document.body.removeAttribute("data-drag-finished");
+    };
+  }, []);
 
   // Focus search input when popup opens
   useEffect(() => {
@@ -2298,9 +2440,9 @@ export default function App() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.16, ease: "easeOut" }}
-        className="min-h-screen flex flex-col justify-between bg-[#090a0b] text-zinc-200 font-sans relative selection:bg-zinc-800"
+        className="min-h-screen flex flex-col justify-between bg-[#090a0b] text-zinc-200 font-sans relative selection:bg-blue-600 selection:text-white"
       >
-        <header className="sticky top-0 z-30 bg-[#090a0b]/95 backdrop-blur w-full">
+        <header className="sticky top-0 z-40 bg-[#090a0b]/95 backdrop-blur w-full">
           <div className="w-full max-w-4xl px-4 md:px-8 py-3 flex justify-between items-center mx-auto relative">
               <div className="flex items-center gap-3 min-w-0">
                 <div
@@ -2759,7 +2901,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <div className="sticky top-0 z-30 bg-[#090a0b] flex flex-col w-full">
+      <div className="sticky top-0 z-40 bg-[#090a0b] flex flex-col w-full">
         <header className="w-full">
         <div className="w-full max-w-4xl px-4 md:px-8 py-3 flex justify-between items-center mx-auto relative">
           {/* Mobile backdrop for Document Switcher to dismiss immediately on tap */}
@@ -3036,11 +3178,7 @@ export default function App() {
         <div className="flex items-center gap-4 md:gap-6">
           {/* Character limit warning indicator */}
           {remainingChars < 20000 && (
-            <div
-              className={`flex items-center select-none shrink-0 transition-opacity duration-150 ${
-                showMenu ? "opacity-0 pointer-events-none invisible" : ""
-              }`}
-            >
+            <div className="flex items-center select-none shrink-0">
               <span
                 className={`font-sans text-[10px] md:text-xs tracking-wider leading-none ${
                   remainingChars < 5000 ? "text-red-500 font-semibold animate-pulse" : "text-amber-500/90"
@@ -3060,11 +3198,7 @@ export default function App() {
             autoSaveAnim === "saved" ||
             saveStatus === "error" ||
             autoSaveAnim === "error") && (
-            <div
-              className={`flex items-center select-none shrink-0 transition-opacity duration-150 ${
-                showMenu ? "opacity-0 pointer-events-none invisible" : ""
-              }`}
-            >
+            <div className="flex items-center select-none shrink-0">
               {hasUnsavedChanges && saveStatus === "idle" && !autoSaveAnim && (
                 <span className="font-sans text-[10px] md:text-xs text-zinc-500 animate-pulse tracking-wider leading-none">
                   [UNSAVED]
@@ -3113,7 +3247,7 @@ export default function App() {
             ref={timerContainerRef}
             onMouseEnter={handleTimerMouseEnter}
             onMouseLeave={handleTimerMouseLeave}
-            className={`relative flex items-center transition-opacity duration-150 ${showMenu ? "opacity-0 pointer-events-none invisible" : ""}`}
+            className="relative flex items-center"
           >
             <span
               onClick={() => {
@@ -3170,11 +3304,16 @@ export default function App() {
             Save
           </span>
 
-          <div className="relative flex items-center">
-            {/* Menu Backdrop */}
+          <div
+            ref={menuContainerRef}
+            onMouseEnter={handleMenuMouseEnter}
+            onMouseLeave={handleMenuMouseLeave}
+            className="relative flex items-center"
+          >
+            {/* Mobile backdrop for tap outside to close */}
             {showMenu && (
               <div 
-                className="fixed inset-0 z-40 bg-[#090a0b]" 
+                className="fixed inset-0 z-40 md:hidden bg-transparent" 
                 onClick={() => setShowMenu(false)} 
               />
             )}
@@ -3195,7 +3334,9 @@ export default function App() {
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 5 }}
-                  className="absolute right-0 top-full mt-4 flex flex-col items-end gap-3 z-50 whitespace-nowrap"
+                  onMouseEnter={handleMenuPopupMouseEnter}
+                  onMouseLeave={handleMenuPopupMouseLeave}
+                  className="absolute right-0 top-full mt-2 flex flex-col items-end gap-2.5 z-50 whitespace-nowrap bg-[#090a0b] border border-zinc-800 rounded shadow-xl py-2 px-4 before:absolute before:-top-2 before:left-0 before:right-0 before:h-2 before:content-['']"
                 >
                   <span
                     onClick={() => {

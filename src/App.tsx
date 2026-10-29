@@ -71,12 +71,32 @@ function PasswordRulesIndicator({ password }: { password: string }) {
   );
 }
 
-export default function App() {
+export interface AppProps {
+  defaultRevealed?: boolean;
+}
+
+export default function App({ defaultRevealed = false }: AppProps = {}) {
   // Navigation & Router
   const [vaultName, setVaultName] = useState<string>("");
   const [searchName, setSearchName] = useState<string>("");
   const [searchError, setSearchError] = useState<string>("");
   const [isHomeFocused, setIsHomeFocused] = useState<boolean>(false);
+  const [isHomeRevealed, setIsHomeRevealed] = useState<boolean>(defaultRevealed);
+  const clickTimestampsRef = useRef<number[]>([]);
+
+  const handleCamouflageClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+
+    const now = Date.now();
+    const recentClicks = clickTimestampsRef.current.filter((t) => now - t <= 1500);
+    recentClicks.push(now);
+    clickTimestampsRef.current = recentClicks;
+
+    if (recentClicks.length >= 5) {
+      clickTimestampsRef.current = [];
+      setIsHomeRevealed(true);
+    }
+  }, []);
 
   // Domain Prefix logic
   const [dynamicDomain, setDynamicDomain] = useState<string>("https://example.com/");
@@ -575,6 +595,9 @@ export default function App() {
   // Navigates securely
   const navigateTo = (name: string) => {
     preloadEditor();
+    if (!name && (isVerified || vaultName)) {
+      setIsHomeRevealed(true);
+    }
     window.history.pushState(null, "", name ? `/${name}` : "/");
     window.dispatchEvent(new Event("popstate"));
   };
@@ -2632,12 +2655,40 @@ export default function App() {
 
   // 1 & 2. HOME SCREEN AND PASSWORD PROMPT
   if (!isVerified) {
+    const isAtHome = !vaultName;
+
     return (
-      <div className="min-h-screen flex flex-col justify-between bg-[#090a0b] text-zinc-200 px-6 py-12 md:py-16 font-sans">
-        <header className="flex justify-between items-center w-full max-w-6xl mx-auto">
-          <span className="font-sans text-sm md:text-base tracking-widest text-[#f4f4f5] font-semibold select-none">TEXT_VAULT</span>
-          <span className="font-sans text-[10px] md:text-xs text-zinc-600 tracking-wider">v0.1</span>
-        </header>
+      <div className="min-h-screen bg-[#090a0b] relative">
+        {/* Camouflage 404 overlay when at home and not revealed */}
+        <AnimatePresence>
+          {isAtHome && !isHomeRevealed && (
+            <motion.div
+              key="camouflage-404"
+              initial={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.35, ease: "easeInOut" }}
+              onClick={handleCamouflageClick}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-[#090a0b] text-zinc-500 font-sans select-none cursor-default touch-manipulation"
+            >
+              <span className="text-sm md:text-base tracking-widest uppercase">
+                404 Not Found
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {(!isAtHome || isHomeRevealed) && (
+          <motion.div
+            key="real-home"
+            initial={{ opacity: isAtHome ? 0 : 1 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.35, ease: "easeInOut" }}
+            className="min-h-screen flex flex-col justify-between bg-[#090a0b] text-zinc-200 px-6 py-12 md:py-16 font-sans"
+          >
+            <header className="flex justify-between items-center w-full max-w-6xl mx-auto">
+              <span className="font-sans text-sm md:text-base tracking-widest text-[#f4f4f5] font-semibold select-none">TEXT_VAULT</span>
+              <span className="font-sans text-[10px] md:text-xs text-zinc-600 tracking-wider">v0.1</span>
+            </header>
 
         <main className="flex-1 flex flex-col justify-center items-center w-full max-w-4xl mx-auto my-12">
           <div className="w-full flex flex-col items-center">
@@ -2871,6 +2922,8 @@ export default function App() {
         </AnimatePresence>
 
         {loadingOverlay}
+          </motion.div>
+        )}
       </div>
     );
   }

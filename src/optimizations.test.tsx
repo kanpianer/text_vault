@@ -383,7 +383,7 @@ describe("22-Point Comprehensive Optimization Verification", () => {
 
   describe("Show Password Eye Icon Conditional Visibility", () => {
     it("hides eye icon when password input is empty and displays eye icon when password has text", () => {
-      render(<App />);
+      render(<App defaultRevealed />);
 
       // Step 1: Enter vault name on home screen
       const vaultInput = screen.getByRole("textbox");
@@ -577,7 +577,7 @@ describe("22-Point Comprehensive Optimization Verification", () => {
         json: async () => ({ exists: true }),
       } as any);
 
-      render(<App />);
+      render(<App defaultRevealed />);
 
       const vaultInput = screen.getByRole("textbox");
       fireEvent.change(vaultInput, { target: { value: "testvault" } });

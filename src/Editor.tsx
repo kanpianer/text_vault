@@ -15,6 +15,7 @@ const EDITOR_CLASS =
 
 const EMPTY_LINE_TOOLS = ["Text", "H1", "H2", "H3", "Task", "List", "Toggle", "Quote", "Image", "Code", "Line", "Center", "Table"] as const;
 const SELECTION_TOOLS = ["Text", "Bold", "Italic", "Strike", "Under", "Task", "List", "Quote", "Link", "Center"] as const;
+const HEADING_TOOLS = ["H1", "H2", "H3"] as const;
 
 const HIDDEN_TOOLBAR_STYLE: React.CSSProperties = { position: "absolute", opacity: 0, pointerEvents: "none" };
 
@@ -706,6 +707,8 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   const toolbarRef = useRef<HTMLDivElement>(null);
   const toolbarScrollRef = useRef<HTMLDivElement>(null);
   const [hasSelection, setHasSelection] = useState(false);
+  const [showHeadings, setShowHeadings] = useState(false);
+  const prevSelectedTextRef = useRef<string>("");
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkValue, setLinkValue] = useState("");
   const linkInputRef = useRef<HTMLInputElement>(null);
@@ -739,6 +742,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
   // floating toolbar state
   const [toolbarStyle, setToolbarStyle] = useState<React.CSSProperties>(HIDDEN_TOOLBAR_STYLE);
   const hideToolbar = useCallback(() => {
+    setShowHeadings(false);
     setToolbarStyle((prev) => {
       if (prev.opacity === 0 && prev.pointerEvents === "none") return prev;
       return HIDDEN_TOOLBAR_STYLE;
@@ -1005,6 +1009,12 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
     const tw = toolbarRef.current?.offsetWidth || 320;
     const selecting = !sel.isCollapsed;
     setHasSelection(selecting);
+
+    const currentText = selecting ? sel.toString() : "";
+    if (!selecting || currentText !== prevSelectedTextRef.current) {
+      setShowHeadings(false);
+      prevSelectedTextRef.current = currentText;
+    }
 
     const isMobile = typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 767px)").matches : false;
 
@@ -3252,83 +3262,165 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
         onMouseLeave={scheduleHideToolbar}
       >
         <span
-          className="px-2 cursor-pointer hover:text-white flex-shrink-0"
-          onMouseDown={(e) => { e.preventDefault(); scrollToolbar("left"); }}
+          data-testid="toolbar-left-bracket"
+          className="px-2 cursor-pointer hover:text-white flex-shrink-0 z-10"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            if (hasSelection) {
+              setShowHeadings(true);
+            } else {
+              scrollToolbar("left");
+            }
+          }}
         >
           [
         </span>
-        <div
-          ref={toolbarScrollRef}
-          className="flex items-center overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap"
-        >
-          {(hasSelection ? SELECTION_TOOLS : EMPTY_LINE_TOOLS).map((tool) => (
-            <button
-              key={tool}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                if (tool === "Link") {
-                  if (hasSelection) {
+        {hasSelection ? (
+          <div
+            ref={toolbarScrollRef}
+            className="relative overflow-hidden flex items-center whitespace-nowrap"
+          >
+            <div
+              data-testid="selection-tools-track"
+              className="flex items-center flex-nowrap"
+              style={{
+                transform: showHeadings ? "translateX(84px)" : "translateX(0px)",
+                transition: "transform 300ms cubic-bezier(0.4, 0, 0.2, 1)",
+              }}
+            >
+              <div
+                data-testid="heading-tools-container"
+                className="absolute right-full top-0 bottom-0 flex items-center w-[84px] flex-shrink-0"
+                style={{
+                  pointerEvents: showHeadings ? "auto" : "none",
+                }}
+              >
+                {HEADING_TOOLS.map((tool) => (
+                  <button
+                    key={tool}
+                    data-tool={tool}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleToolClick(tool, editorRef.current);
+                      onChange(editorRef.current.innerHTML, editorRef.current);
+                      setTimeout(hideToolbar, 200);
+                    }}
+                    className="w-[28px] text-center py-0.5 hover:text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
+                  >
+                    {tool}
+                  </button>
+                ))}
+              </div>
+              {SELECTION_TOOLS.map((tool) => (
+                <button
+                  key={tool}
+                  data-tool={tool}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    if (tool === "Link") {
+                      if (hasSelection) {
+                        const sel = window.getSelection();
+                        if (sel && sel.rangeCount > 0) {
+                          savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+                        }
+                        hideToolbar();
+                        inputOpenTimeRef.current = Date.now();
+                        setShowLinkInput(true);
+                        setLinkValue("");
+                        setTimeout(() => linkInputRef.current?.focus(), 0);
+                      }
+                      return;
+                    }
+                    if (tool === "Image") {
+                      const sel = window.getSelection();
+                      if (sel && sel.rangeCount > 0) {
+                        savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+                      }
+                      hideToolbar();
+                      setShowImageInput(true);
+                      setImageValue("");
+                      setTimeout(() => imageInputRef.current?.focus(), 0);
+                      return;
+                    }
+                    if (tool === "Table") {
+                      const sel = window.getSelection();
+                      if (sel && sel.rangeCount > 0) {
+                        savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+                      }
+                      hideToolbar();
+                      setShowTableInput(true);
+                      setTableRowValue("");
+                      setTableColValue("");
+                      setTimeout(() => tableRowRef.current?.focus(), 0);
+                      return;
+                    }
+                    handleToolClick(tool, editorRef.current);
+                    onChange(editorRef.current.innerHTML, editorRef.current);
+                    setTimeout(hideToolbar, 200);
+                  }}
+                  className="px-1.5 py-0.5 hover:text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
+                >
+                  {tool}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div
+            ref={toolbarScrollRef}
+            className="flex items-center overflow-x-auto no-scrollbar scroll-smooth whitespace-nowrap"
+          >
+            {EMPTY_LINE_TOOLS.map((tool) => (
+              <button
+                key={tool}
+                data-tool={tool}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  if (tool === "Image") {
                     const sel = window.getSelection();
                     if (sel && sel.rangeCount > 0) {
                       savedRangeRef.current = sel.getRangeAt(0).cloneRange();
                     }
                     hideToolbar();
-                    inputOpenTimeRef.current = Date.now();
-                    setShowLinkInput(true);
-                    setLinkValue("");
-                    setTimeout(() => linkInputRef.current?.focus(), 0);
+                    setShowImageInput(true);
+                    setImageValue("");
+                    setTimeout(() => imageInputRef.current?.focus(), 0);
+                    return;
                   }
-                  return;
-                }
-                if (tool === "Image") {
-
-                  const sel = window.getSelection();
-
-                  if (sel && sel.rangeCount > 0) {
-
-                    savedRangeRef.current = sel.getRangeAt(0).cloneRange();
-
+                  if (tool === "Table") {
+                    const sel = window.getSelection();
+                    if (sel && sel.rangeCount > 0) {
+                      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+                    }
+                    hideToolbar();
+                    setShowTableInput(true);
+                    setTableRowValue("");
+                    setTableColValue("");
+                    setTimeout(() => tableRowRef.current?.focus(), 0);
+                    return;
                   }
-
-                  hideToolbar();
-
-                  setShowImageInput(true);
-
-                  setImageValue("");
-
-                  setTimeout(() => imageInputRef.current?.focus(), 0);
-
-                  return;
-
-                }
-
-                if (tool === "Table") {
-                  const sel = window.getSelection();
-                  if (sel && sel.rangeCount > 0) {
-                    savedRangeRef.current = sel.getRangeAt(0).cloneRange();
-                  }
-                  hideToolbar();
-                  setShowTableInput(true);
-                  setTableRowValue("");
-                  setTableColValue("");
-                  setTimeout(() => tableRowRef.current?.focus(), 0);
-
-                  return;
-
-                }
-                handleToolClick(tool, editorRef.current);
-                onChange(editorRef.current.innerHTML, editorRef.current);
-                setTimeout(hideToolbar, 200);
-              }}
-              className="px-1.5 py-0.5 hover:text-white transition-colors cursor-pointer whitespace-nowrap"
-            >
-              {tool}
-            </button>
-          ))}
-        </div>
+                  handleToolClick(tool, editorRef.current);
+                  onChange(editorRef.current.innerHTML, editorRef.current);
+                  setTimeout(hideToolbar, 200);
+                }}
+                className="px-1.5 py-0.5 hover:text-white transition-colors cursor-pointer whitespace-nowrap flex-shrink-0"
+              >
+                {tool}
+              </button>
+            ))}
+          </div>
+        )}
         <span
-          className="px-2 cursor-pointer hover:text-white flex-shrink-0"
-          onMouseDown={(e) => { e.preventDefault(); scrollToolbar("right"); }}
+          data-testid="toolbar-right-bracket"
+          className="px-2 cursor-pointer hover:text-white flex-shrink-0 z-10"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            if (hasSelection) {
+              setShowHeadings(false);
+            } else {
+              scrollToolbar("right");
+            }
+          }}
         >
           ]
         </span>

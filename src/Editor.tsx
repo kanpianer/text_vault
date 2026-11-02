@@ -1439,7 +1439,12 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
         return;
       }
       const sel = window.getSelection();
-      if (sel && sel.anchorNode && el.contains(sel.anchorNode)) {
+      if (
+        sel &&
+        sel.rangeCount > 0 &&
+        ((sel.anchorNode && el.contains(sel.anchorNode)) ||
+         (sel.focusNode && el.contains(sel.focusNode)))
+      ) {
         updateToolbar();
       }
     };
@@ -2744,7 +2749,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
     const el = editorRef.current;
     if (el && !readOnly) {
       const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0) {
+      if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
         const anchor = sel.anchorNode;
         const isOutsideRoot = anchor === el;
         const isBeforeCheckbox =
@@ -3074,6 +3079,10 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
 
           if (target === editorRef.current) {
             const el = editorRef.current;
+            const sel = window.getSelection();
+            if (sel && !sel.isCollapsed) {
+              return;
+            }
             const lastChild = el.lastElementChild;
             const lastRect = lastChild ? lastChild.getBoundingClientRect() : null;
             const isBelowContent = lastRect && lastRect.bottom > 0 && e.clientY > lastRect.bottom + 10;
@@ -3103,7 +3112,7 @@ function EditorComponent({ activeTabId, initialContent, onChange, editorRef, rea
 
           if (editorRef.current && !readOnly) {
             const sel = window.getSelection();
-            if (sel && sel.rangeCount > 0) {
+            if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
               const anchor = sel.anchorNode;
               const isOutsideRoot = anchor === editorRef.current;
               const isBeforeCheckbox =

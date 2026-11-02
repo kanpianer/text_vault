@@ -7,10 +7,19 @@ coverage/
 .env*
 !.env.example
 .alma-snapshots
-data/vaults.json
-data/*.json
+
+# Vault storage & sensitive data
+data/*
 !data/.gitkeep
+**/data/*
+!**/data/.gitkeep
+vaults.json
+shares.json
+*.vault
+*.vaults
+*.vault.json
 decrypted_*.json
 *.decrypted.*
+*.enc
 *.tmp
 *.bak

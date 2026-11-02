@@ -22,6 +22,7 @@ interface RectLike {
   right: number;
   bottom: number;
   width: number;
+  height?: number;
 }
 
 /**
@@ -42,17 +43,24 @@ export function calculateSelectionPosition(
 
   // ---- resolve the "target line" rect ----
   const clientRects = range.getClientRects();
-  let target: RectLike;
+  let target: RectLike | null = null;
 
   if (clientRects.length > 0) {
-    // Use the last client rect – this is where the selection ends visually.
-    // Convert the DOMRectList to an array so we can index the last element.
-    let last = clientRects[0];
-    for (let i = 1; i < clientRects.length; i++) {
-      last = clientRects[i];
+    // Find the last client rect with non-zero dimensions.
+    // Degenerate rects (width and height 0) can appear at block boundaries.
+    for (let i = clientRects.length - 1; i >= 0; i--) {
+      const r = clientRects[i];
+      if (r.width > 0 || r.height > 0) {
+        target = r;
+        break;
+      }
     }
-    target = last;
-  } else {
+    if (!target) {
+      target = clientRects[clientRects.length - 1];
+    }
+  }
+
+  if (!target || (target.width === 0 && target.height === 0)) {
     // Fallback: use the whole range bounding rect.
     target = range.getBoundingClientRect();
   }
